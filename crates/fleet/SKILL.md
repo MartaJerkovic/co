@@ -27,6 +27,8 @@ A firstmate-style orchestrator for the many Claude Code sessions the user runs i
 | "take this to another terminal" | `fleet handoff --file <brief.md> --dir <path> [--name <name>] [--tab] [--no-wait]` — see below |
 | "watch / notify me / anyone stuck" | `fleet watch [--interval 5] [--stuck 300] [--quiet] [--rows 1\|2\|auto] [--no-mouse]` |
 | "how much usage do I have left / my limits" | `fleet usage` (`--json` to parse) — session (5h), weekly, per-model weekly (e.g. Fable) and extra usage, with reset times |
+| "my PRs / what should I review / what's waiting on me" | `fleet prs` (`--json` to parse; `--column waiting-on-me` etc.; `--refresh` to fetch now) — see Pull requests below |
+| "check out PR X / work on PR X / review PR X in a session" | `fleet pr checkout <pr>` / `fleet pr spawn <pr> "<prompt>"` — see Pull requests below |
 | "what's running everywhere" | `fleet list --all-hosts` (add `--json`; every row carries `host`) |
 | "…on the workstation" | `fleet -H <host> <any command above>` — runs it on that host over ssh |
 
@@ -161,6 +163,16 @@ A **stack** is a set of sessions (on one host) that share one context file, the 
 - **Spawn a sibling:** `fleet stack spawn <this session> "<prompt>" [--name <n>] [--model <id>]` — a new session in the same cwd and stack (the stack is created around this session first when it has none — one Sonnet call). It starts a new agent: **confirm with the user like `spawn`**. It waits until the sibling registers and adds it; `--no-wait` prints the `fleet stack add` to run later. `<this session>` is your own title, name or session-id prefix as `fleet list` shows it (match your cwd and first prompt there).
 - **Overview:** `fleet stack list` (stacks on this host, live/closed counts); `fleet list --json` rows carry `stack: { id, label } | null`.
 - Membership changes: `fleet stack add <stack> <session>`, `fleet stack remove <stack> <session>`; `fleet stack sync` marks gone sessions closed (it also runs on its own). `fleet stack rename <stack> "<label>"` renames a stack (when the user asks); `fleet stack set <stack>` saves markdown from stdin; `fleet stack rm <stack> -f` deletes a stack — only when the user asks. Add `-H <host>` for a stack on another host.
+
+## Pull requests
+
+`fleet prs` lists the open GitHub PRs that need the user, through `gh` (its login), in five columns: **waitingOnMe** (review asked of them by name), **reviewMine** / **readyToMergeMine** (approved) / **draftMine**, and **waitingOnAuthor** (they reviewed, didn't approve). Each row has CI (`checks`), size, `myReview` (`newCommits`: the head moved since their review) and `local.worktree` (where the branch is checked out on this host). Cached for `prs.refresh` (5m); `--cached` never fetches.
+
+- `<pr>` is `owner/repo#123`, `repo#123` (owner from the cache) or the PR's URL.
+- **`fleet pr checkout <pr>`** puts the PR in a worktree under `prs.worktrees` (`<repo>-<branch>`), or reports the one its branch is already in. It fetches, never resets or moves a branch; a fork's PR becomes branch `pr-<n>`. `--json` gives `path` and `contextLine`.
+- **`fleet pr spawn <pr> "<prompt>"`** checks out, then starts a session in the worktree whose first prompt says which PR it is, its branches and the worktree path. It starts an agent: **confirm with the user like `spawn`**. `-n` shows what it would do and changes nothing.
+- **If your first prompt starts with "You're working on pull request …"** — you were spawned on that PR: work in the worktree it names, and use `gh pr view <n>` / `gh pr diff <n>` for the description, review comments, CI and diff.
+- The web UI's Pull requests screen does the same, and marks sessions running in a PR's worktree with a `#123` chip.
 
 ## Session names
 
