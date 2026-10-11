@@ -4,6 +4,7 @@ import type { Session } from '@/api/types'
 import { ContextMeter } from '@/components/ContextMeter'
 import { EditableTitle } from '@/components/EditableTitle'
 import { HostBadge } from '@/components/HostBadge'
+import { PrChip } from '@/components/PrChip'
 import { StackChip } from '@/components/stack/StackChip'
 import { StatusDot } from '@/components/StatusDot'
 import { useLongPress } from '@/hooks/useLongPress'
@@ -67,6 +68,7 @@ export function SessionRow({ session: s, now, selected, cursor }: SessionRowProp
       {subtitle ? <p className="mt-1 line-clamp-2 text-[0.8125rem] break-words text-muted-foreground">{subtitle}</p> : null}
       <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-dimmer">
         <StackChip session={s} />
+        <PrChip session={s} />
         {cwd ? <span className="min-w-0 truncate font-mono">{cwd}</span> : null}
         {harness !== 'claude' ? (
           <span className={cn(chip, 'border-primary/40 text-primary')} title={s.model ?? undefined}>

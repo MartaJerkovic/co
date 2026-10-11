@@ -4,9 +4,10 @@ import { toast } from 'sonner'
 import { useLocation } from 'wouter'
 
 import { api } from '@/api/client'
-import type { PullRequest } from '@/api/types'
+import type { PullRequest, Session } from '@/api/types'
 import { watchForSpawned } from '@/api/spawnWatch'
 import { HostDot } from '@/components/HostBadge'
+import { PrSessionLink } from '@/components/PrChip'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -25,7 +26,20 @@ import { isMacPlatform, isSubmitChord } from '@/lib/shortcuts'
  * session told what the PR is and where), just check it out, or open it on GitHub. Key it by
  * the PR so a new PR starts with a fresh form.
  */
-export function PrDialog({ pr, host, onClose, onChanged }: { pr: PullRequest | null; host: string | null; onClose: () => void; onChanged: () => void }) {
+export function PrDialog({
+  pr,
+  host,
+  sessions = [],
+  onClose,
+  onChanged,
+}: {
+  pr: PullRequest | null
+  host: string | null
+  /** Sessions already working in its worktree. */
+  sessions?: Session[]
+  onClose: () => void
+  onChanged: () => void
+}) {
   const [, navigate] = useLocation()
   const { applyFleet } = useFleet()
   const [prompt, setPrompt] = useState('')
@@ -58,20 +72,33 @@ export function PrDialog({ pr, host, onClose, onChanged }: { pr: PullRequest | n
     setBusy('spawn')
     setError(null)
     try {
-      const res = await api.prSpawn(host, { pr: ref, prompt: prompt.trim() || undefined })
+      const res = await api.prSpawn(host, {
+        pr: ref,
+        prompt: prompt.trim() || undefined,
+      })
       const name = res.spawn?.name || res.spawn?.tmuxSession || ref
       onClose()
       onChanged()
-      const id = toast.loading(`Starting ${name} on ${host}…`, { description: shortCwd(res.worktree.path) })
+      const id = toast.loading(`Starting ${name} on ${host}…`, {
+        description: shortCwd(res.worktree.path),
+      })
       watchForSpawned(
-        { host: res.spawn?.host || host, name, tmuxSession: res.spawn?.tmuxSession ?? name },
+        {
+          host: res.spawn?.host || host,
+          name,
+          tmuxSession: res.spawn?.tmuxSession ?? name,
+        },
         {
           onFleet: applyFleet,
           onFound: (s) => {
             toast.success(`${name} is up`, { id, description: undefined })
             navigate(sessionHref(s))
           },
-          onTimeout: () => toast.error(`${name} has not shown up yet`, { id, description: 'Check the list in a moment' }),
+          onTimeout: () =>
+            toast.error(`${name} has not shown up yet`, {
+              id,
+              description: 'Check the list in a moment',
+            }),
         },
       )
     } catch (err) {
@@ -107,19 +134,37 @@ export function PrDialog({ pr, host, onClose, onChanged }: { pr: PullRequest | n
           <dd className="flex min-w-0 items-center gap-1.5">
             <HostDot host={host} />
             {worktree ? (
-              <button type="button" className="min-w-0 truncate text-left font-mono text-xs hover:underline" title="Copy path" onClick={() => void copyText(worktree)}>
+              <button
+                type="button"
+                className="min-w-0 truncate text-left font-mono text-xs hover:underline"
+                title="Copy path"
+                onClick={() => void copyText(worktree)}
+              >
                 {shortCwd(worktree)}
               </button>
             ) : pr.local ? (
               <span className="text-muted-foreground">not checked out on {host}</span>
             ) : (
-              <span className="text-muted-foreground">no clone of {pr.repo} on {host}</span>
+              <span className="text-muted-foreground">
+                no clone of {pr.repo} on {host}
+              </span>
             )}
           </dd>
         </dl>
 
+        {sessions.length ? (
+          <div className="space-y-1">
+            <Label>Sessions on it</Label>
+            <div className="flex flex-col gap-0.5" onClickCapture={onClose}>
+              {sessions.map((s) => (
+                <PrSessionLink key={`${s.host}/${s.session_id}`} session={s} className="py-0.5 text-sm" />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="space-y-2">
-          <Label htmlFor="pr-prompt">Start a session on it</Label>
+          <Label htmlFor="pr-prompt">{sessions.length ? 'Start another session' : 'Start a session on it'}</Label>
           <div className="flex flex-wrap gap-1.5">
             {promptChips(pr).map((c) => (
               <button
@@ -146,7 +191,8 @@ export function PrDialog({ pr, host, onClose, onChanged }: { pr: PullRequest | n
             placeholder="What should it do? (optional)"
           />
           <p className="text-xs text-dimmer">
-            {worktree ? 'Runs in the worktree above' : `Checks ${pr.headBranch} out in a worktree on ${host} first`}; the session is told the PR and the worktree path.
+            {worktree ? 'Runs in the worktree above' : `Checks ${pr.headBranch} out in a worktree on ${host} first`}; the session is told the PR and the
+            worktree path.
           </p>
         </div>
 

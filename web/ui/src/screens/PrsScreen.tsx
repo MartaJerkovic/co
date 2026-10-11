@@ -1,9 +1,6 @@
 import { useRef, useState } from 'react'
 import {
   ChevronLeftIcon,
-  CircleCheckIcon,
-  CircleDotDashedIcon,
-  CircleXIcon,
   FolderGit2Icon,
   GitPullRequestDraftIcon,
   GitPullRequestIcon,
@@ -14,8 +11,9 @@ import {
 } from 'lucide-react'
 import { useLocation } from 'wouter'
 
-import type { PullRequest } from '@/api/types'
+import type { PullRequest, Session } from '@/api/types'
 import { HostDot } from '@/components/HostBadge'
+import { ChecksIcon, PrSessionLink } from '@/components/PrChip'
 import { PrDialog } from '@/components/PrDialog'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Button } from '@/components/ui/button'
@@ -25,15 +23,8 @@ import { useNow } from '@/hooks/useNow'
 import { usePrs } from '@/hooks/usePrs'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { relTime } from '@/lib/format'
-import { CHECKS_LABEL, checksTone, groupPrs, prRef, reviewLabel, type ChecksTone, type PrGroup } from '@/lib/prs'
+import { groupPrs, parsePrLocation, prHref, prRef, reviewLabel, type PrGroup } from '@/lib/prs'
 import { cn } from '@/lib/utils'
-
-const CHECKS_ICON: Record<ChecksTone, React.ReactNode> = {
-  ok: <CircleCheckIcon className="size-3.5 text-status-idle" />,
-  bad: <CircleXIcon className="size-3.5 text-status-error" />,
-  running: <CircleDotDashedIcon className="size-3.5 text-status-waiting" />,
-  none: null,
-}
 
 /**
  * `#/prs`: the GitHub pull requests that need you (`fleet prs` on one host), by column —
@@ -43,9 +34,11 @@ const CHECKS_ICON: Record<ChecksTone, React.ReactNode> = {
  */
 export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }) {
   const pane = layout === 'pane'
-  const [, navigate] = useLocation()
-  const { hosts, host, setHost, data, error, loading, refresh, refreshing, reload } = usePrs()
-  const [open, setOpen] = useState<PullRequest | null>(null)
+  const [location, navigate] = useLocation()
+  const { hosts, host, setHost, data, error, loading, refresh, refreshing, reload, links } = usePrs()
+  // `#/prs/<owner>/<repo>/<n>`: that PR's dialog is open (session PR chips link here).
+  const sel = parsePrLocation(location)
+  const setOpen = (p: PullRequest) => navigate(prHref(p))
   const [q, setQ] = useState('')
   const now = useNow(30_000)
   const groups = groupPrs(data, q)
@@ -140,9 +133,18 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
   )
   const showSkeleton = loading && !data && !error
 
-  // The open PR, refreshed from the latest answer (its worktree shows up after a checkout).
-  const current = open ? (data?.prs.find((p) => p.url === open.url) ?? open) : null
-  const dialog = current ? <PrDialog key={prRef(current)} pr={current} host={host} onClose={() => setOpen(null)} onChanged={reload} /> : null
+  const lc = (x: string) => x.toLowerCase()
+  const current = sel ? (data?.prs.find((p) => lc(p.owner) === lc(sel.owner) && lc(p.repo) === lc(sel.repo) && p.number === sel.number) ?? null) : null
+  const dialog = current ? (
+    <PrDialog
+      key={prRef(current)}
+      pr={current}
+      host={host}
+      sessions={links.byPr.get(current.url) ?? []}
+      onClose={() => navigate('/prs', { replace: true })}
+      onChanged={reload}
+    />
+  ) : null
 
   if (pane) {
     return (
@@ -171,7 +173,7 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
                   {skeleton}
                 </div>
               ))
-            : groups.map((g) => <Column key={g.id} group={g} now={now} onOpen={setOpen} />)}
+            : groups.map((g) => <Column key={g.id} group={g} now={now} onOpen={setOpen} sessionsOf={(p) => links.byPr.get(p.url)} />)}
         </div>
         {dialog}
       </section>
@@ -203,7 +205,7 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
               <ColumnTitle group={g} />
               <div className="space-y-2">
                 {g.prs.map((p) => (
-                  <PrCard key={p.url} pr={p} now={now} onOpen={setOpen} />
+                  <PrCard key={p.url} pr={p} now={now} onOpen={setOpen} sessions={links.byPr.get(p.url)} />
                 ))}
               </div>
             </section>
@@ -226,13 +228,23 @@ function ColumnTitle({ group: g }: { group: PrGroup }) {
   )
 }
 
-function Column({ group: g, now, onOpen }: { group: PrGroup; now: number; onOpen: (p: PullRequest) => void }) {
+function Column({
+  group: g,
+  now,
+  onOpen,
+  sessionsOf,
+}: {
+  group: PrGroup
+  now: number
+  onOpen: (p: PullRequest) => void
+  sessionsOf: (p: PullRequest) => Session[] | undefined
+}) {
   return (
     <section aria-label={g.title} className="flex w-80 shrink-0 flex-col">
       <ColumnTitle group={g} />
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {g.prs.map((p) => (
-          <PrCard key={p.url} pr={p} now={now} onOpen={onOpen} />
+          <PrCard key={p.url} pr={p} now={now} onOpen={onOpen} sessions={sessionsOf(p)} />
         ))}
         {!g.prs.length ? <p className="rounded-lg border border-dashed p-3 text-center text-xs text-dimmer">Nothing here</p> : null}
       </div>
@@ -240,51 +252,58 @@ function Column({ group: g, now, onOpen }: { group: PrGroup; now: number; onOpen
   )
 }
 
-function PrCard({ pr: p, now, onOpen }: { pr: PullRequest; now: number; onOpen: (p: PullRequest) => void }) {
-  const tone = checksTone(p.checks)
+function PrCard({ pr: p, now, onOpen, sessions }: { pr: PullRequest; now: number; onOpen: (p: PullRequest) => void; sessions?: Session[] }) {
   const review = reviewLabel(p)
   const mine = p.column === 'draftMine' || p.column === 'reviewMine' || p.column === 'readyToMergeMine'
   const worktree = p.local?.worktree
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(p)}
-      className="block w-full rounded-lg border bg-card p-3 text-left text-sm outline-none hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
-      <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        {p.draft ? <GitPullRequestDraftIcon className="size-3.5 shrink-0" /> : <GitPullRequestIcon className="size-3.5 shrink-0" />}
-        <span className="min-w-0 truncate font-mono">
-          {p.repo}#{p.number}
-        </span>
-        {CHECKS_ICON[tone] ? (
-          <span title={CHECKS_LABEL[tone]} aria-label={CHECKS_LABEL[tone]} className="shrink-0">
-            {CHECKS_ICON[tone]}
+    <div className="rounded-lg border bg-card text-sm hover:border-primary/40">
+      <button
+        type="button"
+        onClick={() => onOpen(p)}
+        className="block w-full rounded-lg p-3 text-left outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          {p.draft ? <GitPullRequestDraftIcon className="size-3.5 shrink-0" /> : <GitPullRequestIcon className="size-3.5 shrink-0" />}
+          <span className="min-w-0 truncate font-mono">
+            {p.repo}#{p.number}
           </span>
-        ) : null}
-        <span className="ml-auto shrink-0 rounded border px-1 text-[0.625rem] leading-4 font-semibold" title={`+${p.additions} −${p.deletions} in ${p.changedFiles} files`}>
-          {p.size}
-        </span>
-        <span className="shrink-0 tabular-nums" title={`Opened ${new Date(p.createdAt).toLocaleString()}`}>
-          {relTime(p.createdAt, now)}
-        </span>
-      </div>
-      <div className="line-clamp-2 font-medium text-foreground">{p.title}</div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        {!mine ? <span>@{p.author}</span> : null}
-        {review ? <span className={cn(p.myReview?.newCommits && 'text-status-waiting')}>{review}</span> : null}
-        {p.comments ? (
-          <span className="inline-flex items-center gap-0.5" title={`${p.comments} comments`}>
-            <MessageSquareIcon className="size-3" />
-            {p.comments}
+          <ChecksIcon checks={p.checks} />
+          <span
+            className="ml-auto shrink-0 rounded border px-1 text-[0.625rem] leading-4 font-semibold"
+            title={`+${p.additions} −${p.deletions} in ${p.changedFiles} files`}
+          >
+            {p.size}
           </span>
-        ) : null}
-        {worktree ? (
-          <span className="inline-flex min-w-0 items-center gap-0.5 text-status-busy" title={`Checked out in ${worktree}`}>
-            <FolderGit2Icon className="size-3 shrink-0" />
-            worktree
+          <span className="shrink-0 tabular-nums" title={`Opened ${new Date(p.createdAt).toLocaleString()}`}>
+            {relTime(p.createdAt, now)}
           </span>
-        ) : null}
-      </div>
-    </button>
+        </div>
+        <div className="line-clamp-2 font-medium text-foreground">{p.title}</div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          {!mine ? <span>@{p.author}</span> : null}
+          {review ? <span className={cn(p.myReview?.newCommits && 'text-status-waiting')}>{review}</span> : null}
+          {p.comments ? (
+            <span className="inline-flex items-center gap-0.5" title={`${p.comments} comments`}>
+              <MessageSquareIcon className="size-3" />
+              {p.comments}
+            </span>
+          ) : null}
+          {worktree ? (
+            <span className="inline-flex min-w-0 items-center gap-0.5 text-status-busy" title={`Checked out in ${worktree}`}>
+              <FolderGit2Icon className="size-3 shrink-0" />
+              worktree
+            </span>
+          ) : null}
+        </div>
+      </button>
+      {sessions?.length ? (
+        <div className="flex flex-col gap-0.5 border-t px-2 py-1.5">
+          {sessions.map((s) => (
+            <PrSessionLink key={`${s.host}/${s.session_id}`} session={s} className="text-muted-foreground" />
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }

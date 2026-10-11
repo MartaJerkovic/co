@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { PullRequest } from '@/api/types'
+import type { PullRequest, Session } from '@/api/types'
 
-import { checksTone, groupPrs, promptChips, prRef, reviewLabel } from './prs'
+import { checksTone, groupPrs, linkSessions, parsePrLocation, prHref, promptChips, prRef, reviewLabel } from './prs'
 
 const pr = (o: Partial<PullRequest>): PullRequest => ({
   column: 'waitingOnMe',
@@ -76,5 +76,35 @@ describe('actions', () => {
     expect(promptChips(pr({})).map((c) => c.label)).toEqual(['Review', 'Fix CI'])
     expect(promptChips(pr({ column: 'draftMine' })).map((c) => c.label)).toEqual(['Continue', 'Address review', 'Fix CI'])
     expect(promptChips(pr({ column: 'draftMine', checks: 'failure' }))[0].label).toBe('Fix CI')
+  })
+})
+
+describe('links', () => {
+  it('hrefs round-trip', () => {
+    const p = pr({ owner: 'acme', repo: 'my.app', number: 7 })
+    expect(prHref(p)).toBe('/prs/acme/my.app/7')
+    expect(parsePrLocation(prHref(p))).toEqual({ owner: 'acme', repo: 'my.app', number: 7 })
+    expect(parsePrLocation('/prs')).toBeNull()
+    expect(parsePrLocation('/prs/acme/app/0')).toBeNull()
+  })
+
+  it('a session in a PR worktree (or below it) on the PR host links; the deepest worktree wins', () => {
+    const main = pr({ number: 1, url: 'u1', local: { repoPath: '/code/main', worktree: '/code/app' } })
+    const nested = pr({ number: 2, url: 'u2', local: { repoPath: '/code/app', worktree: '/code/app/.worktrees/feat' } })
+    const none = pr({ number: 3, url: 'u3', local: { repoPath: '/code/app', worktree: null } })
+    const s = (id: string, cwd: string, host = 'ws') => ({ host, session_id: id, cwd }) as Session
+    const sessions = [s('a', '/code/app'), s('b', '/code/app/.worktrees/feat/src'), s('c', '/code/application'), s('d', '/code/app', 'laptop')]
+    const { bySession, byPr } = linkSessions([main, nested, none], 'ws', sessions)
+    expect([...bySession].map(([k, p]) => [k, p.number])).toEqual([
+      ['ws/a', 1],
+      ['ws/b', 2],
+    ])
+    expect(byPr.get('u2')?.map((x) => x.session_id)).toEqual(['b'])
+    expect(linkSessions([main], null, sessions).bySession.size).toBe(0)
+  })
+
+  it('a main checkout on a PR branch links nothing', () => {
+    const p = pr({ url: 'u', local: { repoPath: '/code/app', worktree: '/code/app' } })
+    expect(linkSessions([p], 'ws', [{ host: 'ws', session_id: 'a', cwd: '/code/app/src' } as Session]).bySession.size).toBe(0)
   })
 })

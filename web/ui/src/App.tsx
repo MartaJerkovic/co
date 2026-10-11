@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { DormantProvider } from '@/providers/DormantProvider'
 import { FleetProvider } from '@/providers/FleetProvider'
 import { PrefsProvider } from '@/providers/PrefsProvider'
+import { PrsProvider } from '@/providers/PrsProvider'
 import { SettingsProvider } from '@/providers/SettingsProvider'
 import { usePreventFileNavigation } from '@/hooks/useAttach'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
@@ -38,6 +39,7 @@ export default function App() {
       <SettingsProvider>
         <FleetProvider>
         <DormantProvider>
+        <PrsProvider>
           <TooltipProvider>
             <Router hook={useHashLocation}>
               {desktop ? (
@@ -53,7 +55,7 @@ export default function App() {
                   <Route path="/usage">
                     <UsageScreen />
                   </Route>
-                  <Route path="/prs">
+                  <Route path={/^\/prs(?:\/.*)?$/}>
                     <PrsScreen />
                   </Route>
                   <Route path={/^\/notes(?:\/.*)?$/}>
@@ -74,6 +76,7 @@ export default function App() {
             </Router>
             <Toaster position={desktop ? 'bottom-right' : 'top-center'} offset={desktop ? { bottom: 112, right: 16 } : undefined} />
           </TooltipProvider>
+        </PrsProvider>
         </DormantProvider>
         </FleetProvider>
       </SettingsProvider>

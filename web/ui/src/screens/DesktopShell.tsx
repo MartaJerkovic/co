@@ -79,6 +79,7 @@ import { sessionTitle } from '@/lib/title'
 import { cn } from '@/lib/utils'
 import { NotesScreen } from '@/screens/NotesScreen'
 import { PrsScreen } from '@/screens/PrsScreen'
+import { isPrsLocation } from '@/lib/prs'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
@@ -101,7 +102,7 @@ export function DesktopShell() {
   const [settingsOpen] = useRoute('/settings')
   const [usageOpen] = useRoute('/usage')
   // `#/prs`: the pull requests board takes the whole window too.
-  const [prsOpen] = useRoute('/prs')
+  const prsOpen = isPrsLocation(location)
   // `#/notes…`: the notes explorer takes the whole window (no sidebar / board).
   const notesLoc = parseNotesLocation(location)
   const notesOpen = notesLoc !== null
