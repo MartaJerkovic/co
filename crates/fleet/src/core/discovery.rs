@@ -8,6 +8,8 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::harness::{self, Harness};
+
 pub fn claude_home() -> PathBuf {
     dirs::home_dir().unwrap_or_default().join(".claude")
 }
@@ -75,6 +77,14 @@ pub struct Session {
     /// The session stack it belongs to (`{ id, label }`, see [`crate::core::stack`]);
     /// `null` when none. Stamped by `list` (read-only); `None` inside discovery.
     pub stack: Option<crate::core::stack::StackRef>,
+    /// Which coding agent runs the session: `claude` | `codex` | `pi`.
+    pub harness: Harness,
+    /// The model it runs, when known (Codex / pi: from the transcript or the command
+    /// line; Claude: the context entry's model).
+    pub model: Option<String>,
+    /// Absolute path of the session's transcript, when known (Codex / pi only — a
+    /// Claude transcript is found from cwd + session id).
+    pub transcript: Option<String>,
 }
 
 impl Default for Session {
@@ -99,6 +109,9 @@ impl Default for Session {
             host: None,
             context: None,
             stack: None,
+            harness: Harness::Claude,
+            model: None,
+            transcript: None,
         }
     }
 }
@@ -138,6 +151,17 @@ impl Session {
                 self.session_id
                     .as_ref()
                     .map(|s| s.chars().take(8).collect())
+            })
+            .or_else(|| {
+                // A Codex session before its first prompt has neither: `<cwd>-codex`.
+                let dir = self
+                    .cwd
+                    .as_deref()?
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()?;
+                (self.harness != Harness::Claude && !dir.is_empty())
+                    .then(|| format!("{dir}-{}", self.harness))
             })
             .unwrap_or_else(|| self.pid.to_string())
     }
@@ -297,13 +321,100 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
             gen_title: None,
             display_title: None,
             host: None,
+            model: context.as_ref().and_then(|c| c.model.clone()),
             context,
             stack: None,
+            harness: Harness::Claude,
+            transcript: None,
         });
     }
     crate::core::context::apply_native_1m(out.iter_mut().filter_map(|s| s.context.as_mut()));
+    out.extend(discover_harnesses(&panes));
     out.sort_by_key(|s| std::cmp::Reverse(s.updated_at.unwrap_or(0)));
     Ok(out)
+}
+
+/// Live Codex and pi sessions (see [`crate::core::harness`]): found with `ps`, matched
+/// to their transcripts, placed in their terminal like Claude's.
+fn discover_harnesses(panes: &HashMap<String, Pane>) -> Vec<Session> {
+    if !harness::codex_home().is_dir() && !harness::pi_home().is_dir() {
+        return Vec::new();
+    }
+    let procs = harness::processes();
+    let mut out = Vec::new();
+    for (h, root) in [
+        (Harness::Codex, harness::codex_home()),
+        (Harness::Pi, harness::pi_home()),
+    ] {
+        // No state dir under this `$HOME`: the harness never ran as this user (and a
+        // test's temp home never sees the machine's live sessions).
+        if !root.is_dir() {
+            continue;
+        }
+        let mine: Vec<&harness::Proc> = procs.iter().filter(|p| p.harness == h).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let ts = harness::transcripts(h, &root, &mine);
+        let assigned = harness::assign(&mine, &ts);
+        let names = if h == Harness::Codex {
+            harness::codex_names(&root)
+        } else {
+            HashMap::new()
+        };
+        for p in mine {
+            let mut s = harness_session(p, assigned.get(&p.pid), panes);
+            if let Some(n) = s.session_id.as_ref().and_then(|id| names.get(id)) {
+                // Codex titles every thread itself after its first turn.
+                s.name = Some(n.clone());
+                s.name_source = Some("codex".into());
+            }
+            out.push(s);
+        }
+    }
+    out
+}
+
+fn harness_session(
+    p: &harness::Proc,
+    t: Option<&harness::TranscriptRef>,
+    panes: &HashMap<String, Pane>,
+) -> Session {
+    let (backend, handle) = backend_of(p.pid, Some(p.tty.as_str()), panes);
+    let pane = (backend == Backend::Tmux)
+        .then(|| panes.get(&format!("/dev/{}", p.tty)))
+        .flatten();
+    let state = t
+        .map(|t| harness::state(p.harness, &t.path))
+        .unwrap_or_else(|| harness::State {
+            status: "idle".into(),
+            ..Default::default()
+        });
+    Session {
+        pid: p.pid,
+        name_source: state.name.is_some().then(|| "user".to_string()),
+        name: state.name,
+        session_id: t.map(|t| t.session_id.clone()),
+        cwd: t.map(|t| t.cwd.clone()).or_else(|| p.cwd.clone()),
+        status: state.status,
+        waiting_for: state.waiting_for,
+        updated_at: Some(t.map(|t| t.mtime_ms).unwrap_or(p.start_ms)),
+        tty: Some(p.tty.clone()),
+        backend,
+        handle,
+        tab: pane
+            .map(|p| p.window_name.clone())
+            .filter(|w| !w.is_empty()),
+        tmux_session: pane
+            .map(|p| p.session_name.clone())
+            .filter(|w| !w.is_empty()),
+        title: t.and_then(|t| harness::first_prompt(p.harness, &t.path)),
+        model: state.model.or_else(|| p.model_arg()),
+        context: state.context,
+        harness: p.harness,
+        transcript: t.map(|t| t.path.display().to_string()),
+        ..Default::default()
+    }
 }
 
 /// Resolve a target to exactly one session.

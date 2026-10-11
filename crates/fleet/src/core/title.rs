@@ -295,11 +295,16 @@ pub struct RenameOpts {
 pub enum Hold {
     /// On a permission prompt / question: `/rename foo` would be its answer.
     Waiting,
+    /// Mid-turn in a harness that would queue the text as a message (Codex, pi).
+    Busy,
 }
 
 /// Would typing `/rename` into this session be unsafe right now?
 pub fn hold(s: &Session) -> Option<Hold> {
-    s.is_waiting().then_some(Hold::Waiting)
+    if s.is_waiting() {
+        return Some(Hold::Waiting);
+    }
+    (s.harness != crate::core::harness::Harness::Claude && s.status == "busy").then_some(Hold::Busy)
 }
 
 impl Hold {
@@ -307,6 +312,10 @@ impl Hold {
         match self {
             Hold::Waiting => format!(
                 "{} is waiting on you — nothing sent (--force overrides)",
+                s.headline()
+            ),
+            Hold::Busy => format!(
+                "{} is busy — nothing sent, rename it once the turn is over (--force overrides)",
                 s.headline()
             ),
         }
@@ -345,7 +354,7 @@ pub fn apply_rename(s: &Session, title: &str, o: RenameOpts) -> Result<RenameOut
     {
         return Ok(RenameOutcome::Held(h, h.message(s)));
     }
-    backend::send(s, &format!("/rename {title}"))?;
+    backend::send(s, &s.harness.rename_command(title))?;
     if !o.sync_tmux {
         return Ok(RenameOutcome::Sent(None));
     }

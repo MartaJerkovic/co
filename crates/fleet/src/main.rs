@@ -69,6 +69,24 @@ impl From<RowsArg> for Option<bool> {
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
+enum HarnessArg {
+    Claude,
+    Codex,
+    Pi,
+}
+
+impl From<HarnessArg> for fleet::core::harness::Harness {
+    fn from(h: HarnessArg) -> Self {
+        use fleet::core::harness::Harness;
+        match h {
+            HarnessArg::Claude => Harness::Claude,
+            HarnessArg::Codex => Harness::Codex,
+            HarnessArg::Pi => Harness::Pi,
+        }
+    }
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
 enum BackendArg {
     Iterm,
     Tmux,
@@ -227,7 +245,7 @@ enum Commands {
         open: bool,
     },
 
-    /// Spawn a new Claude session in a fresh tab/pane
+    /// Spawn a new agent session (Claude, Codex or pi) in a fresh tab/pane
     Spawn {
         /// Initial prompt (optional; with --from, added after the continue prompt)
         prompt: Option<String>,
@@ -243,15 +261,24 @@ enum Commands {
         /// Display name for the new session (as shown by `list`/`watch`)
         #[arg(long)]
         name: Option<String>,
-        /// Model for the new session (`claude --model <id>`; default: Claude's own)
+        /// Model for the new session (`<harness> --model <id>`; default: the harness's own)
         #[arg(long, value_name = "ID")]
         model: Option<String>,
+        /// Coding agent to run: claude (default), codex or pi
+        #[arg(long, value_enum)]
+        harness: Option<HarnessArg>,
         /// Open a window in this tmux session instead of a new session per job (tmux only)
         #[arg(long)]
         tmux_session: Option<String>,
         /// Open a new window instead of a tab (iterm backend only)
         #[arg(long)]
         window: bool,
+    },
+
+    /// Coding-agent harnesses on this host (claude, codex, pi): installed, command, models
+    Harness {
+        #[command(subcommand)]
+        cmd: HarnessCmd,
     },
 
     /// Session stacks: sessions sharing one context file (the StackBrief); spawn siblings
@@ -286,9 +313,12 @@ enum Commands {
         /// Display name for the new session (as shown by `list`/`watch`)
         #[arg(long)]
         name: Option<String>,
-        /// Model for the new session (`claude --model <id>`; default: Claude's own)
+        /// Model for the new session (`<harness> --model <id>`; default: the harness's own)
         #[arg(long, value_name = "ID")]
         model: Option<String>,
+        /// Coding agent to run: claude (default), codex or pi
+        #[arg(long, value_enum)]
+        harness: Option<HarnessArg>,
         /// Open a window in this tmux session instead of a new session per job (tmux only)
         #[arg(long)]
         tmux_session: Option<String>,
@@ -456,6 +486,18 @@ struct NewArgs {
 }
 
 #[derive(Subcommand, Clone)]
+enum HarnessCmd {
+    /// Each harness: id, label, launch command, installed, models for the picker
+    List {
+        #[arg(long)]
+        json: bool,
+        /// Skip the model lists (pi's needs a `pi --list-models` run)
+        #[arg(long)]
+        no_models: bool,
+    },
+}
+
+#[derive(Subcommand, Clone)]
 enum StackCmd {
     /// Stacks on this host (after a membership sync)
     #[command(visible_alias = "ls")]
@@ -508,9 +550,12 @@ enum StackCmd {
         /// Display name for the new session
         #[arg(long)]
         name: Option<String>,
-        /// Model for the new session (`claude --model <id>`)
+        /// Model for the new session (`<harness> --model <id>`)
         #[arg(long, value_name = "ID")]
         model: Option<String>,
+        /// Coding agent to run: claude (default), codex or pi
+        #[arg(long, value_enum)]
+        harness: Option<HarnessArg>,
         /// Working directory (default: <target>'s cwd)
         #[arg(long)]
         dir: Option<String>,
@@ -923,6 +968,7 @@ fn run(cli: Cli) -> Result<i32> {
             backend,
             name,
             model,
+            harness,
             tmux_session,
             window,
         } => commands::spawn(
@@ -933,10 +979,14 @@ fn run(cli: Cli) -> Result<i32> {
                 backend: backend.map(Into::into),
                 name,
                 model,
+                harness: harness.map(Into::into).unwrap_or_default(),
                 tmux_session,
                 window,
             },
         )?,
+        Commands::Harness { cmd } => match cmd {
+            HarnessCmd::List { json, no_models } => commands::harness_list(json, !no_models)?,
+        },
         Commands::Stack { cmd } => match cmd {
             StackCmd::List { json } => stack_cmds::list(json)?,
             StackCmd::Show { stack, json, path } => stack_cmds::show(&stack, json, path)?,
@@ -957,6 +1007,7 @@ fn run(cli: Cli) -> Result<i32> {
                 prompt,
                 name,
                 model,
+                harness,
                 dir,
                 backend,
                 tmux_session,
@@ -975,6 +1026,7 @@ fn run(cli: Cli) -> Result<i32> {
                     backend: backend.map(Into::into),
                     name,
                     model,
+                    harness: harness.map(Into::into).unwrap_or_default(),
                     tmux_session,
                     window,
                 },
@@ -1011,6 +1063,7 @@ fn run(cli: Cli) -> Result<i32> {
             backend,
             name,
             model,
+            harness,
             tmux_session,
             tab,
             no_wait,
@@ -1022,6 +1075,7 @@ fn run(cli: Cli) -> Result<i32> {
                 backend: backend.map(Into::into),
                 name,
                 model,
+                harness: harness.map(Into::into).unwrap_or_default(),
                 tmux_session,
                 // A handoff means "over there, out of my way" — a window unless told otherwise.
                 window: !tab,

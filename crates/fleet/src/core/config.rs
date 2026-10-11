@@ -219,6 +219,9 @@ pub struct Config {
     pub fleet_bin: Option<String>,
     /// The command that launches Claude Code in a spawned session (default `claude`).
     pub claude: Option<String>,
+    /// `harnesses.<codex|pi>.command` — how the other harnesses launch. Raw JSON,
+    /// read leniently (see [`Config::harness_command`]).
+    pub harnesses: Value,
     pub spawn_dirs: Vec<SpawnDir>,
     pub tui: UiConfig,
     pub naming: NamingConfig,
@@ -238,6 +241,17 @@ impl Config {
             .filter(|s| !s.is_empty())
             .unwrap_or(DEFAULT_SELF)
             .to_string()
+    }
+
+    /// `harnesses.<id>.command`, when it is a non-blank string.
+    pub fn harness_command(&self, id: &str) -> Option<String> {
+        self.harnesses
+            .get(id)?
+            .get("command")?
+            .as_str()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_string)
     }
 
     /// Target for tmux-session commands when no `--host` is given.

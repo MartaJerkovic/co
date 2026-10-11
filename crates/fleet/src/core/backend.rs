@@ -4,6 +4,7 @@
 use std::process::Command;
 
 use crate::core::discovery::{Backend, Session};
+use crate::core::harness::Harness;
 use crate::error::{Error, Result};
 
 /// AppleScript helper: locate an iTerm session by its `id` (the GUID that also
@@ -519,17 +520,18 @@ pub enum Prompt<'a> {
     File(&'a str),
 }
 
-/// `claude -n <name>` names the session up front, so it lands in the fleet with
-/// a name you chose instead of the cwd-derived default.
-fn with_name(launcher: &str, name: Option<&str>) -> String {
+/// `claude -n <name>` (and `pi -n`) names the session up front, so it lands in the
+/// fleet with a name you chose instead of the cwd-derived default. Codex has no such
+/// flag: its session is named by the tmux session only.
+fn with_name(launcher: &str, name: Option<&str>, harness: Harness) -> String {
     match name {
-        Some(n) => format!("{launcher} -n {}", shq(n)),
-        None => launcher.to_string(),
+        Some(n) if harness.takes_name() => format!("{launcher} -n {}", shq(n)),
+        _ => launcher.to_string(),
     }
 }
 
-fn run_command(prompt: Prompt, name: Option<&str>, launcher: &str) -> String {
-    let launcher = with_name(launcher, name);
+fn run_command(prompt: Prompt, name: Option<&str>, launcher: &str, harness: Harness) -> String {
+    let launcher = with_name(launcher, name, harness);
     match prompt {
         Prompt::None => launcher,
         Prompt::Inline("") => launcher,
@@ -539,8 +541,18 @@ fn run_command(prompt: Prompt, name: Option<&str>, launcher: &str) -> String {
 }
 
 /// The shell line a spawn types: `cd <dir> && <launcher> [-n name] [prompt]`.
-pub fn launch_command(dir: &str, prompt: Prompt, name: Option<&str>, launcher: &str) -> String {
-    format!("cd {} && {}", shq(dir), run_command(prompt, name, launcher))
+pub fn launch_command(
+    dir: &str,
+    prompt: Prompt,
+    name: Option<&str>,
+    launcher: &str,
+    harness: Harness,
+) -> String {
+    format!(
+        "cd {} && {}",
+        shq(dir),
+        run_command(prompt, name, launcher, harness)
+    )
 }
 
 /// The shell line that attaches to a host's tmux session: `fleet -H <host> enter <session>`.
@@ -581,6 +593,7 @@ end run"#,
 }
 
 /// Spawn a fresh session and return a human description of where it landed.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(
     backend: Backend,
     dir: &str,
@@ -589,8 +602,9 @@ pub fn spawn(
     tmux_session: Option<&str>,
     window: bool,
     launcher: &str,
+    harness: Harness,
 ) -> Result<String> {
-    let line = launch_command(dir, prompt, name, launcher);
+    let line = launch_command(dir, prompt, name, launcher, harness);
     match backend {
         Backend::Iterm => {
             iterm_run(&line, window)?;
@@ -615,7 +629,7 @@ pub fn spawn(
             }
             let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
             // Window already opened in `dir`; just run the launcher in it.
-            let run = run_command(prompt, name, launcher);
+            let run = run_command(prompt, name, launcher, harness);
             crate::core::tools::tmux_cmd()
                 .args(["send-keys", "-t", &win, "-l", &run])
                 .status()?;
@@ -753,20 +767,26 @@ mod tests {
         assert_eq!(shq("a b"), "'a b'");
         assert_eq!(shq("it's"), r"'it'\''s'");
         assert_eq!(
-            launch_command("/tmp", Prompt::None, None, "claude"),
+            launch_command("/tmp", Prompt::None, None, "claude", Harness::Claude),
             "cd '/tmp' && claude"
         );
         assert_eq!(
-            launch_command("/tmp", Prompt::Inline(""), None, "claude"),
+            launch_command("/tmp", Prompt::Inline(""), None, "claude", Harness::Claude),
             "cd '/tmp' && claude"
         );
         assert_eq!(
-            launch_command("/tmp", Prompt::Inline("hi there"), None, "claude"),
+            launch_command(
+                "/tmp",
+                Prompt::Inline("hi there"),
+                None,
+                "claude",
+                Harness::Claude
+            ),
             "cd '/tmp' && claude 'hi there'"
         );
         // A custom launcher (e.g. the user's `cc` wrapper) replaces `claude`.
         assert_eq!(
-            launch_command("/tmp", Prompt::Inline("hi"), None, "cc"),
+            launch_command("/tmp", Prompt::Inline("hi"), None, "cc", Harness::Claude),
             "cd '/tmp' && cc 'hi'"
         );
     }
@@ -774,7 +794,13 @@ mod tests {
     #[test]
     fn multi_line_prompt_is_typed_as_one_ansi_c_line() {
         assert_eq!(
-            launch_command("/tmp", Prompt::Inline("a\nit's \\ b"), None, "claude"),
+            launch_command(
+                "/tmp",
+                Prompt::Inline("a\nit's \\ b"),
+                None,
+                "claude",
+                Harness::Claude
+            ),
             "cd '/tmp' && claude $'a\\nit\\'s \\\\ b'"
         );
     }
@@ -782,12 +808,24 @@ mod tests {
     #[test]
     fn session_name_goes_to_the_launcher_before_the_prompt() {
         assert_eq!(
-            launch_command("/tmp", Prompt::Inline("go"), Some("auth fix"), "claude"),
+            launch_command(
+                "/tmp",
+                Prompt::Inline("go"),
+                Some("auth fix"),
+                "claude",
+                Harness::Claude
+            ),
             "cd '/tmp' && claude -n 'auth fix' 'go'"
         );
         // Flags the user already configured stay ahead of ours.
         assert_eq!(
-            launch_command("/tmp", Prompt::None, Some("probe"), "claude --resume"),
+            launch_command(
+                "/tmp",
+                Prompt::None,
+                Some("probe"),
+                "claude --resume",
+                Harness::Claude
+            ),
             "cd '/tmp' && claude --resume -n 'probe'"
         );
     }
@@ -910,10 +948,34 @@ mod tests {
     }
 
     #[test]
+    fn codex_takes_no_name_flag_pi_does() {
+        assert_eq!(
+            launch_command(
+                "/w",
+                Prompt::Inline("go"),
+                Some("x"),
+                "codex --model 'gpt-6'",
+                Harness::Codex
+            ),
+            "cd '/w' && codex --model 'gpt-6' 'go'"
+        );
+        assert_eq!(
+            launch_command("/w", Prompt::Inline("go"), Some("x"), "pi", Harness::Pi),
+            "cd '/w' && pi -n 'x' 'go'"
+        );
+    }
+
+    #[test]
     fn prompt_file_expands_in_the_spawned_shell() {
         // The brief's text must never reach the command line — only its path does.
         assert_eq!(
-            launch_command("/tmp", Prompt::File("/tmp/a b.md"), None, "claude"),
+            launch_command(
+                "/tmp",
+                Prompt::File("/tmp/a b.md"),
+                None,
+                "claude",
+                Harness::Claude
+            ),
             r#"cd '/tmp' && claude "$(cat '/tmp/a b.md')""#
         );
     }

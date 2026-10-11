@@ -11,6 +11,7 @@ use crate::cli::render::{home_rel, plain_table, tail, term_width};
 use crate::core::backend::{self, Prompt};
 use crate::core::config;
 use crate::core::discovery::{self, Backend, Session, claude_home};
+use crate::core::harness::{self, Harness};
 use crate::core::naming;
 use crate::core::title;
 use crate::error::{Error, Result};
@@ -71,22 +72,12 @@ pub fn persist_ui(key: &str, value: &str) -> std::result::Result<(), String> {
 /// some invoke `claude`, others a wrapper/alias. Precedence: `FLEET_CMD` env var
 /// → `claude` in the config → `claude`.
 pub(crate) fn resolve_launcher() -> String {
-    if let Ok(cmd) = std::env::var("FLEET_CMD") {
-        let cmd = cmd.trim();
-        if !cmd.is_empty() {
-            return cmd.to_string();
-        }
-    }
-    if let Some(cmd) = config::get().claude.as_deref()
-        && !cmd.trim().is_empty()
-    {
-        return cmd.trim().to_string();
-    }
-    "claude".to_string()
+    Harness::Claude.command()
 }
 
-/// A `--model` id is typed into a shell: letters, digits and `._[]-` only (the
-/// web server enforces the same set). Blank means Claude's own default.
+/// A `--model` id is typed into a shell: letters, digits and `._[]-/:` only (the
+/// web server enforces the same set; pi's ids are `provider/model[:thinking]`).
+/// Blank means the harness's own default.
 pub(crate) fn clean_model(raw: &str) -> Result<Option<String>> {
     let m = raw.trim();
     if m.is_empty() {
@@ -95,10 +86,10 @@ pub(crate) fn clean_model(raw: &str) -> Result<Option<String>> {
     if m.len() > 100
         || !m
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._[]-".contains(c))
+            .all(|c| c.is_ascii_alphanumeric() || "._[]-/:".contains(c))
     {
         return Err(Error::Other(format!(
-            "invalid model id \"{m}\" — letters, digits and . _ [ ] - only"
+            "invalid model id \"{m}\" — letters, digits and . _ [ ] - / : only"
         )));
     }
     Ok(Some(m.to_string()))
@@ -110,6 +101,41 @@ pub(crate) fn with_model(launcher: &str, model: Option<&str>) -> String {
         Some(m) => format!("{launcher} --model {}", crate::core::tools::shq(m)),
         None => launcher.to_string(),
     }
+}
+
+/// `fleet harness list`: what this host can spawn, and the models each one offers.
+pub fn harness_list(json: bool, with_models: bool) -> Result<()> {
+    let rows: Vec<harness::HarnessInfo> = Harness::ALL
+        .iter()
+        .map(|h| harness::info(*h, with_models))
+        .collect();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+        return Ok(());
+    }
+    for r in &rows {
+        let state = if r.installed {
+            "installed".green()
+        } else {
+            "not found".red()
+        };
+        let models = if with_models && r.installed {
+            format!(
+                "  {} models",
+                r.models.iter().filter(|m| !m.id.is_empty()).count()
+            )
+        } else {
+            String::new()
+        };
+        println!(
+            "{:<7} {:<10} {}{}",
+            r.id.bold(),
+            state,
+            r.command.dimmed(),
+            models.dimmed()
+        );
+    }
+    Ok(())
 }
 
 /// The name rows are tagged with: `--as-host` (set by the dispatcher), else
@@ -520,8 +546,10 @@ pub struct SpawnOpts {
     pub backend: Option<Backend>,
     /// Claude display name for the new session (`claude -n`).
     pub name: Option<String>,
-    /// Model for the new session (`claude --model <id>`); None = Claude's default.
+    /// Model for the new session (`<harness> --model <id>`); None = the harness's default.
     pub model: Option<String>,
+    /// Which coding agent to launch (default Claude).
+    pub harness: Harness,
     pub tmux_session: Option<String>,
     pub window: bool,
 }
@@ -574,10 +602,15 @@ pub fn spawn(prompt: Option<String>, from: Option<String>, opts: SpawnOpts) -> R
         .transpose()?
         .flatten();
     let prompt = prompt.unwrap_or_default();
-    let launcher = with_model(&resolve_launcher(), model.as_deref());
+    let launcher = with_model(&opts.harness.command(), model.as_deref());
     if crate::core::hosts::dry_run() {
-        let line =
-            backend::launch_command(&dir, Prompt::Inline(&prompt), name.as_deref(), &launcher);
+        let line = backend::launch_command(
+            &dir,
+            Prompt::Inline(&prompt),
+            name.as_deref(),
+            &launcher,
+            opts.harness,
+        );
         println!(
             "dry-run: would spawn a {} session: {line}",
             backend_kind.label()
@@ -592,6 +625,7 @@ pub fn spawn(prompt: Option<String>, from: Option<String>, opts: SpawnOpts) -> R
         opts.tmux_session.as_deref(),
         opts.window,
         &launcher,
+        opts.harness,
     )?;
     if prompt.is_empty() {
         println!("{desc} in {}", home_rel(&dir));
@@ -634,9 +668,15 @@ fn spawn_from(source: &str, extra: Option<String>, mut opts: SpawnOpts) -> Resul
         now.format("%Y%m%d-%H%M%S")
     ));
     let path_s = path.display().to_string();
-    let launcher = with_model(&resolve_launcher(), model.as_deref());
+    let launcher = with_model(&opts.harness.command(), model.as_deref());
     if crate::core::hosts::dry_run() {
-        let line = backend::launch_command(&dir, Prompt::File(&path_s), name.as_deref(), &launcher);
+        let line = backend::launch_command(
+            &dir,
+            Prompt::File(&path_s),
+            name.as_deref(),
+            &launcher,
+            opts.harness,
+        );
         println!(
             "dry-run: would spawn a {} session continuing {}: {line}",
             backend_kind.label(),
@@ -658,6 +698,7 @@ fn spawn_from(source: &str, extra: Option<String>, mut opts: SpawnOpts) -> Resul
         opts.tmux_session.as_deref(),
         opts.window,
         &launcher,
+        opts.harness,
     )?;
     println!(
         "{} {desc} in {} — continuing {} (prompt: {})",
@@ -800,9 +841,15 @@ pub fn handoff(
         slug(&brief)
     ));
     if crate::core::hosts::dry_run() {
-        let launcher = with_model(&resolve_launcher(), model.as_deref());
+        let launcher = with_model(&opts.harness.command(), model.as_deref());
         let path_s = path.display().to_string();
-        let line = backend::launch_command(&dir, Prompt::File(&path_s), name.as_deref(), &launcher);
+        let line = backend::launch_command(
+            &dir,
+            Prompt::File(&path_s),
+            name.as_deref(),
+            &launcher,
+            opts.harness,
+        );
         println!(
             "dry-run: would hand off to a {} session: {line}",
             backend_kind.label()
@@ -817,7 +864,7 @@ pub fn handoff(
     std::fs::write(&path, &text)?;
 
     let before: HashSet<String> = discovery::discover().iter().map(Session::key).collect();
-    let launcher = with_model(&resolve_launcher(), model.as_deref());
+    let launcher = with_model(&opts.harness.command(), model.as_deref());
     let desc = backend::spawn(
         backend_kind,
         &dir,
@@ -826,6 +873,7 @@ pub fn handoff(
         opts.tmux_session.as_deref(),
         opts.window,
         &launcher,
+        opts.harness,
     )?;
     println!(
         "{} {desc} in {} — brief: {}",
@@ -954,6 +1002,7 @@ mod tests {
             host: None,
             context: None,
             stack: None,
+            ..Default::default()
         };
         let text = compose("Do it.", "/tmp", Some(&from), "2026-08-17 10:00");
         assert!(text.contains("(app-f9, in /tmp)"));

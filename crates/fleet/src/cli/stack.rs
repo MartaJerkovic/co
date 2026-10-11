@@ -874,9 +874,15 @@ pub fn spawn(a: SpawnArgs) -> Result<()> {
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     ));
     let pf = prompt_file.display().to_string();
-    let launcher = commands::with_model(&commands::resolve_launcher(), model.as_deref());
+    let launcher = commands::with_model(&opts.harness.command(), model.as_deref());
     if hosts::dry_run() {
-        let line = backend::launch_command(&dir, Prompt::File(&pf), name.as_deref(), &launcher);
+        let line = backend::launch_command(
+            &dir,
+            Prompt::File(&pf),
+            name.as_deref(),
+            &launcher,
+            opts.harness,
+        );
         if a.json {
             return print_json(&json!({
                 "dryRun": true,
@@ -925,6 +931,7 @@ pub fn spawn(a: SpawnArgs) -> Result<()> {
         opts.tmux_session.as_deref(),
         opts.window,
         &launcher,
+        opts.harness,
     )?;
     if !a.json {
         println!(

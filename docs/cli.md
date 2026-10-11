@@ -47,7 +47,8 @@ the first rung with hits wins. Two hits on the same rung is an error that lists 
 | `fleet name [<target> \| --all] [--apply] [--refresh] [--no-tmux-sync]` | suggest a name from what the session is doing; only `--apply` sends it (through the same path as `rename`, tmux included). `--all` = every session with a derived (cwd+hash) name. A derived-name session alone in a tmux session somebody named (`fleet new fix-login`) adopts that name (`(tmux)`, no model call) instead of getting a generated one. `--refresh` ignores the cache |
 | `fleet group [-a, --all-hosts] [--json] [--apply] [--refresh] [--consolidate] [--input <file\|->] [--cached]` | sort sessions into work-stream groups (the web Board view) — see [Grouping](#grouping). Reads sessions and asks `claude -p`; never sends anything to a session |
 | `fleet group --rename <group id> --label <l>` / `--move <host/id> (--to <group id> \| --label <l>)` / `--create --label <l>` / `--delete <group id>` | edit the stored groups by hand (the Board's rename / drag'n'drop) — see [Grouping](#grouping) |
-| `fleet spawn [prompt] --dir <path> [--name <n>] [--model <id>] [--backend iterm\|tmux] [--tmux-session <s>] [--window]` | start a new Claude session in a new tab/pane. `--model <id>` runs `claude --model '<id>'` (letters, digits and `._[]-` only; blank = Claude's default). Default backend: tmux inside tmux, over ssh or off macOS; else iTerm. With tmux, each spawn gets its own tmux session (one session per job) named from `--name` or the dir's basename, sanitised like `fleet new`; a taken `--name` is an error, a taken basename is uniquified (`app-2`). `--tmux-session <s>` opens a window in `s` instead (created if missing) |
+| `fleet spawn [prompt] --dir <path> [--harness claude\|codex\|pi] [--name <n>] [--model <id>] [--backend iterm\|tmux] [--tmux-session <s>] [--window]` | start a new agent session in a new tab/pane. `--harness` picks the coding agent (default `claude`; see [Harnesses](#harnesses)). `--model <id>` runs `<harness> --model '<id>'` (letters, digits and `._[]-/:` only — pi's ids are `provider/model`; blank = the harness's default). `--name` is passed as `-n` to Claude and pi; Codex has no such flag (the tmux session carries the name). Default backend: tmux inside tmux, over ssh or off macOS; else iTerm. With tmux, each spawn gets its own tmux session (one session per job) named from `--name` or the dir's basename, sanitised like `fleet new`; a taken `--name` is an error, a taken basename is uniquified (`app-2`). `--tmux-session <s>` opens a window in `s` instead (created if missing) |
+| `fleet harness list [--json] [--no-models]` | the [harnesses](#harnesses) on this host: id, label, launch command, `installed`, and the models each offers for a picker. `-H <host>` asks another machine |
 | `fleet spawn --from <target> [prompt] [--name <n>] [--model <id>] [--backend …]` | continue a session's work in a new one: same host (with `-H`, the host the session is on) and its cwd (`--dir` overrides), first prompt = its [brief](#briefs)'s continue prompt, then a blank line and `prompt`. The prompt goes through a file under `~/.claude/fleet-handoffs/`, like a handoff. Errors when the session has no brief yet. `-n` prints the launch command and the prompt and writes nothing |
 | `fleet handoff [brief] [--file <f\|->] --dir <path> [--name <n>] [--model <id>] [--tmux-session <s>] [--tab] [--no-wait]` | start a new session in another window seeded with a brief (saved under `~/.claude/fleet-handoffs/`); waits until it registers. Same tmux placement as `spawn` |
 | `fleet brief <target> [--json \| --prompt]` | print the session's [brief](#briefs) — its body (Summary / Resources / Todos, no frontmatter); `--json` the parsed shape; `--prompt` only the continue prompt |
@@ -60,6 +61,29 @@ the first rung with hits wins. Two hits on the same rung is an error that lists 
 
 `send`, `rename --force`, `name --apply` and `spawn` change a live agent's state — scripts and agents
 should confirm before running them.
+
+### Harnesses
+
+fleet drives three coding agents: **Claude Code** (`claude`, the default), **Codex** (`codex`) and
+**pi** (`pi`). Every session row carries `harness`; `spawn`, `handoff` and `stack spawn` take
+`--harness`. Codex and pi have no live registry like Claude's, so they are found with `ps`
+(interactive runs with a terminal — `codex exec`, `pi -p` and the like are not sessions) and
+matched to their transcript by cwd and start time (see
+[architecture](architecture.md#other-harnesses)). Peek, send, keys, kill, rename (`/rename` in
+Codex, `/name` in pi — held while the session is busy) and restore (`codex resume <id>`,
+`pi --session <id>`) work the same; briefs, naming and the web's question answering are
+Claude-only for now.
+
+Launch commands: Claude's is `FLEET_CMD` / config `claude`; the others' are config
+`harnesses.<id>.command` (default the bare name). `fleet harness list --json`:
+
+```json
+[{ "id": "codex", "label": "Codex", "command": "codex", "installed": true,
+   "models": [{ "id": "", "label": "Default (gpt-6.1-sol)" }, { "id": "gpt-6.1-sol", "label": "GPT-6.1-Sol" }] }]
+```
+
+Models: Claude's built-in list; Codex's from its `models_cache.json` (listed ones, its order);
+pi's from `pi --list-models` (ids `provider/model`). `id: ""` is the harness's own default.
 
 ### Briefs
 

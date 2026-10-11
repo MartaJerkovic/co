@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::core::discovery::{self, Backend, Session};
+use crate::core::harness::Harness;
 use crate::core::tools;
 use crate::error::{Error, Result};
 
@@ -89,8 +90,15 @@ pub struct ClaudeSnap {
     /// lived on): a closed one is resumed in a new window there while that session exists.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tmux_session: Option<String>,
+    /// Which harness runs it; absent (older files, every Claude session) = Claude.
+    #[serde(skip_serializing_if = "is_claude")]
+    pub harness: Harness,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+fn is_claude(h: &Harness) -> bool {
+    *h == Harness::Claude
 }
 
 impl ClaudeSnap {
@@ -541,6 +549,17 @@ fn flags_beyond(launcher: &str, flags: &[String]) -> Vec<String> {
 /// The shell line typed into a restored pane:
 /// `cd <cwd> && <launcher> <flags the launcher lacks> --resume <sessionId>`.
 pub fn resume_line(launcher: &str, cwd: &str, c: &ClaudeSnap) -> String {
+    use crate::core::backend::{Prompt, launch_command};
+    if c.harness != Harness::Claude {
+        // Codex / pi keep only `--model <id>` (see `place`), under their own launcher.
+        let model = c.flags.iter().skip_while(|f| *f != "--model").nth(1);
+        let cmd = c.harness.resume_command(
+            &c.harness.command(),
+            model.map(String::as_str),
+            &c.session_id,
+        );
+        return launch_command(cwd, Prompt::None, None, &cmd, c.harness);
+    }
     let mut cmd = launcher.to_string();
     for f in flags_beyond(launcher, &c.flags) {
         cmd.push(' ');
@@ -548,7 +567,7 @@ pub fn resume_line(launcher: &str, cwd: &str, c: &ClaudeSnap) -> String {
     }
     cmd.push_str(" --resume ");
     cmd.push_str(&tools::shq_min(&c.session_id));
-    crate::core::backend::launch_command(cwd, crate::core::backend::Prompt::None, None, &cmd)
+    launch_command(cwd, Prompt::None, None, &cmd, Harness::Claude)
 }
 
 /// argv of each pid: `/proc/<pid>/cmdline` where there is one (exact), else one `ps` call
@@ -742,6 +761,7 @@ fn claude_of(s: &Session) -> Option<ClaudeSnap> {
         name: s.name.clone(),
         cwd: s.cwd.clone(),
         title: Some(s.display_title.clone().unwrap_or_else(|| s.headline())),
+        harness: s.harness,
         ..Default::default()
     })
 }
@@ -760,10 +780,17 @@ fn place(
     };
     for r in rows {
         let Some(mut c) = claude_of(r) else { continue };
-        c.flags = argv
-            .get(&r.pid)
-            .map(|a| replayable_flags(a.get(1..).unwrap_or_default()))
-            .unwrap_or_default();
+        c.flags = if r.harness == Harness::Claude {
+            argv.get(&r.pid)
+                .map(|a| replayable_flags(a.get(1..).unwrap_or_default()))
+                .unwrap_or_default()
+        } else {
+            // Codex / pi: the model is the one flag carried over (their own flags differ).
+            r.model
+                .iter()
+                .flat_map(|m| ["--model".to_string(), m.clone()])
+                .collect()
+        };
         let pos = (r.backend == Backend::Tmux)
             .then(|| r.handle.as_deref().and_then(|h| at.get(h)))
             .flatten();

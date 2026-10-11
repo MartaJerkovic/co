@@ -19,7 +19,7 @@ A firstmate-style orchestrator for the many Claude Code sessions the user runs i
 | "name X / what should this be called" | `fleet name <target>` — suggests; add `--apply` to send it |
 | "name all the unnamed ones" | `fleet name --all [--apply] [--no-tmux-sync]` |
 | "that name is wrong / regenerate it" | `fleet name <target> --refresh` — ignores the cached name and replaces it |
-| "spawn / start a session to …" | `fleet spawn "<prompt>" --dir <path> [--name <name>] [--model <id>] [--backend iterm\|tmux] [--window]` |
+| "spawn / start a session to …" | `fleet spawn "<prompt>" --dir <path> [--harness claude\|codex\|pi] [--name <name>] [--model <id>] [--backend iterm\|tmux] [--window]` — `--harness` picks the coding agent (default Claude); `fleet harness list` shows what a host has and its models |
 | "what is X doing / where was X" (summary, PRs, files, todos) | `fleet brief <target>` (`--json` to parse) — the session's brief; see below |
 | "continue X's work in a new session" | `fleet spawn --from <target> ["<extra instructions>"] [--name <name>]` — same host and cwd, seeded with X's brief |
 | "spawn a sibling / another session on this with shared context" | `fleet stack spawn <this session> "<prompt>"` — see Session stacks below |

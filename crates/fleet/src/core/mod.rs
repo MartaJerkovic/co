@@ -7,6 +7,7 @@ pub mod config;
 pub mod context;
 pub mod discovery;
 pub mod grouping;
+pub mod harness;
 pub mod hosts;
 pub mod naming;
 pub mod repos;
