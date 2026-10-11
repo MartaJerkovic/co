@@ -4,8 +4,9 @@ use clap::{Parser, Subcommand};
 use colored::Colorize;
 
 use fleet::cli::{
-    brief as brief_cmd, commands, config_cmd, group, hosts as host_cmds, init, repos as repos_cmd,
-    restore, skill, stack as stack_cmds, tmux as tmux_cmds, usage as usage_cmd, web,
+    brief as brief_cmd, commands, config_cmd, group, hosts as host_cmds, init, prs as prs_cmd,
+    repos as repos_cmd, restore, skill, stack as stack_cmds, tmux as tmux_cmds, usage as usage_cmd,
+    web,
 };
 use fleet::core::config;
 use fleet::core::discovery::Backend;
@@ -439,6 +440,22 @@ enum Commands {
         /// Install even when the remote OS/CPU differs
         #[arg(long)]
         force: bool,
+    },
+
+    /// Open GitHub pull requests that need you: yours, waiting on your review, waiting on their author
+    Prs {
+        /// Machine-readable output
+        #[arg(long)]
+        json: bool,
+        /// Only this column: waiting-on-me, review-mine, ready-to-merge-mine, draft-mine, waiting-on-author
+        #[arg(long)]
+        column: Option<String>,
+        /// Fetch now, whatever the cache's age
+        #[arg(long, conflicts_with = "cached")]
+        refresh: bool,
+        /// Never fetch: show the cache, however old
+        #[arg(long)]
+        cached: bool,
     },
 
     /// Keep the git repos under the configured roots fresh (fetch + fast-forward only)
@@ -1181,6 +1198,22 @@ fn run(cli: Cli) -> Result<i32> {
                 },
             )?
         }
+        Commands::Prs {
+            json,
+            column,
+            refresh,
+            cached,
+        } => prs_cmd::run(prs_cmd::Opts {
+            json,
+            column,
+            mode: if refresh {
+                fleet::core::prs::Mode::Refresh
+            } else if cached {
+                fleet::core::prs::Mode::Cached
+            } else {
+                fleet::core::prs::Mode::Auto
+            },
+        })?,
         Commands::Repos { cmd, json, all } => match cmd.unwrap_or(ReposCmd::Status { json, all }) {
             ReposCmd::Status { json: j, all: a } => repos_cmd::status(json || j, all || a)?,
             ReposCmd::Sync {

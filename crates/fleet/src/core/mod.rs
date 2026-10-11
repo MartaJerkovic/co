@@ -10,6 +10,7 @@ pub mod grouping;
 pub mod harness;
 pub mod hosts;
 pub mod naming;
+pub mod prs;
 pub mod repos;
 pub mod snapshot;
 pub mod stack;

@@ -396,6 +396,27 @@ fleet init --yes --self laptop \
 | `--force` | overwrite an existing config without asking |
 | `--print` | print the config instead of writing it |
 
+## Pull requests
+
+The open GitHub pull requests that need you, sorted into columns, cached, and joined with your
+local checkouts. GitHub is reached only through the [`gh`](https://cli.github.com) CLI (`gh api
+graphql`, its auth — run `gh auth login` once). Config: `prs` in [the config](architecture.md#config).
+
+| command | does |
+| --- | --- |
+| `fleet prs [--json] [--column C] [--refresh \| --cached]` | three searches (`is:pr is:open archived:false` plus `prs.orgs` / `prs.repos`), in parallel, 50 per page up to 4 pages each: `author:@me` → **draftMine** (draft) · **readyToMergeMine** (review decision approved) · **reviewMine**; `user-review-requested:@me` (asked of you by name — team requests are left out) → **waitingOnMe**; `reviewed-by:@me -author:@me` whose latest review from you is not an approval → **waitingOnAuthor**. A PR is listed once, in the first of those that claims it. Fetches when the cache is older than `prs.refresh` (default `5m`); `--refresh` always fetches, `--cached` never does. A failed fetch serves the cache with a warning (`stale`, `error`). Each PR is matched to a repo under the [`repos`](#repos) roots by directory name (by `origin` when two share it), and to the worktree that has its head branch checked out. `--column` takes `waiting-on-me`, `waitingOnMe`, … Cache: `${XDG_CACHE_HOME:-~/.cache}/fleet/prs.json` (`FLEET_PRS_CACHE`) |
+
+`--json`: `{ user, scope, fetchedAt, stale, error, truncated, columns: [{ id, title, count }], prs: [Pr…] }`
+(times in ms epoch; `columns` in display order; `truncated`: a search had more than 200 hits). A `Pr` is
+`{ column, owner, repo, number, title, url, author, draft, createdAt, updatedAt, additions, deletions,
+changedFiles, size, baseBranch, headBranch, headOid, reviewDecision, checks, comments,
+requestedReviewers, myReview, local? }`: `size` is `XS`…`XL` by lines changed (≤10, ≤100, ≤500, ≤1000);
+`reviewDecision` `approved` · `changesRequested` · `reviewRequired` · `null`; `checks` (the head
+commit's combined CI) `success` · `failure` · `error` · `pending` · `expected` · `null`;
+`requestedReviewers` logins and `@team` slugs; `myReview` `{ state, at, newCommits }` (your latest
+review, `newCommits`: the head moved since) or `null`; `local` `{ repoPath, worktree }` when the repo
+is checked out here (`worktree`: where the head branch is checked out, or `null`).
+
 ## Repos
 
 Keep the git checkouts under a few roots fresh, on every machine. Fetch, then fast-forward only:
@@ -436,6 +457,8 @@ of `repos` the rows `{ name, path, every, excluded, due, branch, upstream, ahead
 | `FLEET_NODE` | `node` binary for `fleet web serve` (over config `web.node`; set by the launchd agent) |
 | `FLEET_WEB_PORT`, `FLEET_WEB_BIND`, `FLEET_WEB_UI` | web server listen address / UI directory (over config `web.*`) |
 | `FLEET_BRIEFS_DIR` | where [briefs](#briefs) live (default `${XDG_STATE_HOME:-~/.local/state}/fleet/briefs`); shared with the web server |
+| `FLEET_GH` | `gh` binary for [`fleet prs`](#pull-requests) (over config `gh`) |
+| `FLEET_PRS_CACHE` | the [`fleet prs`](#pull-requests) cache file |
 | `FLEET_STACKS_DIR` | where [stacks](#stacks) live (default `${XDG_STATE_HOME:-~/.local/state}/fleet/stacks`) |
 | `VISUAL`, `EDITOR` | the editor for `fleet brief --edit`, `fleet stack edit` and `fleet config edit` (default `vi`) |
 | `FLEET_SNAPSHOT` | the [session-recovery](#session-recovery) snapshot (default `${XDG_STATE_HOME:-~/.local/state}/fleet/snapshot.json`) |

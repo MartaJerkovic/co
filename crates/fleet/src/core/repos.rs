@@ -235,7 +235,7 @@ fn git_cmd(dir: &Path, args: &[&str]) -> Command {
     c
 }
 
-fn git(dir: &Path, args: &[&str]) -> Option<String> {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Option<String> {
     let o = git_cmd(dir, args).output().ok()?;
     o.status
         .success()
@@ -258,7 +258,7 @@ fn reason(o: &Output) -> String {
         .unwrap_or_else(|| format!("git exited with {}", o.status))
 }
 
-fn output_with_timeout(mut c: Command, timeout: Duration) -> std::io::Result<Output> {
+pub(crate) fn output_with_timeout(mut c: Command, timeout: Duration) -> std::io::Result<Output> {
     let child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let pid = child.id();
     let (tx, rx) = std::sync::mpsc::channel();

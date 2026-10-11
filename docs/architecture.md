@@ -43,6 +43,9 @@ Pure logic plus thin process wrappers; no printing. Everything a future front-en
 - **tools** — binary lookup (`PATH` plus Homebrew fallbacks), `~` expansion.
 - **brief** / **stack** — the [session brief](#session-briefs) and [session stack](#session-stacks)
   files: format, merge rules, storage.
+- **repos** / **prs** — [`fleet repos`](cli.md#repos) (keep checkouts fresh) and
+  [`fleet prs`](cli.md#pull-requests) (the GitHub PRs that need you, through `gh`, joined with
+  those checkouts and their worktrees).
 - **snapshot** — [session recovery](#session-recovery): records what runs, marks it dormant after
   a reboot, restores it.
 
@@ -144,6 +147,8 @@ server. Path: `$FLEET_CONFIG`, else `${XDG_CONFIG_HOME:-~/.config}/fleet/config.
 | `stacks` | [session stacks](#session-stacks): `enabled` (default `true` — `false` = never call the model; a new stack gets the skeleton StackBrief), `model` (default `sonnet`) |
 | `restore` | [session recovery](#session-recovery): `onBoot` (default `false`) — when `true`, this host's web server runs `fleet --local restore --all` once at start if there are dormant sessions, at most once per boot (it remembers the boot id in `${XDG_STATE_HOME:-~/.local/state}/fleet/web-restored-boot`); the result is logged. For an always-on machine. Recently closed sessions are never part of it. `keepClosedDays` (default `7`, a number ≥ 0; `0` turns the [recently closed](#recently-closed) list off) — how long a session closed within a boot stays restorable; at most the newest 50 are kept |
 | `repos` | [`fleet repos`](cli.md#repos), per machine: `roots` (default `["~/Code"]`; every directory directly under a root with a `.git` is a repo), `every` (default `"24h"`; `30m` / `12h` / `7d`), `overrides` (`{ "<dir name or ~/path>": "30m" }`), `exclude` (dir names or `~/` paths). Read leniently: a bad value is a warning and falls back to its default |
+| `prs` | [`fleet prs`](cli.md#pull-requests), per machine: `orgs` (search only these orgs), `repos` (`owner/name`s; with `orgs`, any of them), `refresh` (default `"5m"`, at least `1m`: how old the cache may get). None of `orgs`/`repos` = all of GitHub. Read leniently |
+| `gh` | `gh` binary for `fleet prs`; `null` → `PATH`, then `/opt/homebrew/bin`, `/usr/local/bin` |
 | `grouping` | smart grouping: `enabled` (default `true` — `false` = repository fallback only), `model` (default `haiku`), `host` (the one host whose web server runs it; peers proxy `/api/groups` there), `consolidateMinutes` (default 60) |
 
 Rules: `~` is expanded at use time; unknown keys are preserved when the CLI rewrites the file
@@ -340,6 +345,11 @@ See [cli.md](cli.md#grouping) for the shape. State file: `groups.json` (below).
 
 See [cli.md](cli.md#tmux-sessions) for the shapes. `tmux list --json` lists live sessions only;
 dormant ones are in `fleet restore --json`.
+
+### `fleet prs --json`
+
+See [cli.md](cli.md#pull-requests) for the shape. Column ids and `Pr` fields follow the add-only
+rule; `local` is joined on every call and never cached.
 
 ### `fleet restore --json`
 
