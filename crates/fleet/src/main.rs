@@ -717,6 +717,14 @@ enum PrCmd {
         #[arg(long)]
         json: bool,
     },
+    /// Remove the worktrees under prs.worktrees whose PR merged or closed (lists them without --apply)
+    CleanupWorktrees {
+        /// Remove them (default: only list what would go and why the rest stays)
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Check the PR out, then start a session in its worktree that is told what the PR is
     Spawn {
         /// owner/repo#123, repo#123 (from your cached PRs) or the PR's URL
@@ -1257,6 +1265,7 @@ fn run(cli: Cli) -> Result<i32> {
             },
         })?,
         Commands::Pr { cmd } => match cmd {
+            PrCmd::CleanupWorktrees { apply, json } => prs_cmd::cleanup_worktrees(apply, json)?,
             PrCmd::Checkout { pr, json } => {
                 prs_cmd::checkout(&pr, json)?;
             }

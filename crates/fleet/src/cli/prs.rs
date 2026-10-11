@@ -249,3 +249,73 @@ pub fn spawn(
     opts.dir = Some(wt.path.clone());
     crate::cli::commands::spawn(Some(first), None, opts)
 }
+
+/// `fleet pr cleanup-worktrees [--apply]`: the worktrees under `prs.worktrees` whose PR is done
+/// — listed (default) or removed (`--apply`, or nothing under `-n`).
+pub fn cleanup_worktrees(apply: bool, json: bool) -> Result<()> {
+    let s = Settings::load();
+    for p in &s.problems {
+        eprintln!("{} {p}", "warning:".yellow());
+    }
+    let live: Vec<String> = crate::core::discovery::discover()
+        .into_iter()
+        .filter_map(|x| x.cwd)
+        .collect();
+    let mut rows = prs::plan_cleanup(&s, &repos::Settings::load(), &live, &prs::pr_for_branch);
+    let apply = apply && !crate::core::hosts::dry_run();
+    if apply {
+        prs::apply_cleanup(&mut rows);
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &serde_json::json!({ "applied": apply, "worktrees": rows })
+            )?
+        );
+        return Ok(());
+    }
+    if rows.is_empty() {
+        println!(
+            "No worktrees under {}.",
+            crate::cli::render::home_rel(&crate::core::tools::expand_tilde(&s.worktrees))
+        );
+        return Ok(());
+    }
+    let remove = rows
+        .iter()
+        .filter(|r| r.action == prs::CleanupAction::Remove)
+        .count();
+    for r in &rows {
+        let path = crate::cli::render::home_rel(&r.path);
+        let pr =
+            r.pr.as_ref()
+                .map(|p| format!("#{} ", p.number))
+                .unwrap_or_default();
+        let (mark, text) = match (&r.action, &r.error) {
+            (_, Some(e)) => ("✗".red(), format!("{path}  {}", e.red())),
+            (prs::CleanupAction::Remove, None) if apply => (
+                "✓".green(),
+                format!("{path}  {}", format!("removed — {}", r.reason).dimmed()),
+            ),
+            (prs::CleanupAction::Remove, None) => {
+                ("−".yellow(), format!("{path}  {}", r.reason.dimmed()))
+            }
+            (prs::CleanupAction::Keep, None) => (
+                " ".normal(),
+                format!(
+                    "{}  {}",
+                    path.dimmed(),
+                    format!("{pr}kept: {}", r.reason).dimmed()
+                ),
+            ),
+        };
+        println!("{mark} {text}");
+    }
+    if !apply && remove > 0 {
+        println!("\n{remove} to remove — run `fleet pr cleanup-worktrees --apply` to remove them");
+    } else if remove == 0 {
+        println!("\nNothing to remove.");
+    }
+    Ok(())
+}

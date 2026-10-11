@@ -1060,6 +1060,283 @@ pub fn checkout(
     Ok(done(path_s, true))
 }
 
+// ---------- cleanup ----------
+
+/// What GitHub says about the PR of a worktree's branch.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrState {
+    pub number: u64,
+    /// `open` · `merged` · `closed`
+    pub state: String,
+    pub url: String,
+    pub head_oid: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CleanupAction {
+    Remove,
+    Keep,
+}
+
+/// One worktree under `prs.worktrees` and what `cleanup-worktrees` does with it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupRow {
+    pub path: String,
+    pub repo_path: String,
+    /// `None`: detached HEAD.
+    pub branch: Option<String>,
+    pub pr: Option<PrState>,
+    pub action: CleanupAction,
+    /// Why it is kept, or what removing it involves.
+    pub reason: String,
+    /// The local branch goes too (its PR merged, nothing local beyond what was pushed).
+    pub delete_branch: bool,
+    /// Set by [`apply_cleanup`]: what went wrong removing it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// `owner/name` from `origin` (`git@github.com:o/n.git`, `https://github.com/o/n`).
+pub fn origin_slug(repo: &Path) -> Option<(String, String)> {
+    let url = repos::git(repo, &["remote", "get-url", "origin"])?;
+    let url = url.trim_end_matches('/').trim_end_matches(".git");
+    let mut parts = url.rsplit(['/', ':']);
+    let name = parts.next()?.to_string();
+    let owner = parts.next()?.to_string();
+    (!owner.is_empty() && !name.is_empty()).then_some((owner, name))
+}
+
+/// The PR whose head is `branch` (`pr-<n>`: PR n, a fork's), newest first; `None` when GitHub
+/// has none. `gh pr list --head` / `gh pr view`.
+pub fn pr_for_branch(owner: &str, name: &str, branch: &str) -> Result<Option<PrState>> {
+    let repo = format!("{owner}/{name}");
+    let fork_pr = branch
+        .strip_prefix("pr-")
+        .and_then(|n| n.parse::<u64>().ok());
+    let mut c = Command::new(gh_bin());
+    match fork_pr {
+        Some(n) => c.args(["pr", "view", &n.to_string(), "--repo", &repo]),
+        None => c.args([
+            "pr", "list", "--repo", &repo, "--head", branch, "--state", "all", "--limit", "1",
+        ]),
+    };
+    c.args(["--json", "number,state,url,headRefOid"])
+        .env("PATH", tools::search_path())
+        .env("GH_PROMPT_DISABLED", "1")
+        .stdin(std::process::Stdio::null());
+    let o =
+        repos::output_with_timeout(c, GH_TIMEOUT).map_err(|e| Error::Other(format!("gh: {e}")))?;
+    if !o.status.success() {
+        let err = String::from_utf8_lossy(&o.stderr);
+        if fork_pr.is_some() && err.contains("Could not resolve") {
+            return Ok(None);
+        }
+        let line = err.lines().map(str::trim).find(|l| !l.is_empty());
+        return Err(Error::Other(format!("gh: {}", line.unwrap_or("failed"))));
+    }
+    let v: Value = serde_json::from_slice(&o.stdout)?;
+    let pr = if v.is_array() {
+        v.get(0).cloned()
+    } else {
+        Some(v)
+    };
+    Ok(pr.and_then(|p| {
+        Some(PrState {
+            number: p["number"].as_u64()?,
+            state: p["state"].as_str()?.to_ascii_lowercase(),
+            url: p["url"].as_str().unwrap_or("").to_string(),
+            head_oid: p["headRefOid"].as_str().map(String::from),
+        })
+    }))
+}
+
+/// Is everything on `HEAD` of `wt` published: `HEAD` is the PR's head (or behind it), or every
+/// commit is on some remote branch.
+fn pushed(wt: &Path, pr_head: Option<&str>) -> bool {
+    if let Some(h) = pr_head {
+        if repos::git(wt, &["rev-parse", "HEAD"]).as_deref() == Some(h) {
+            return true;
+        }
+        if repos::git_cmd(wt, &["merge-base", "--is-ancestor", "HEAD", h])
+            .status()
+            .is_ok_and(|s| s.success())
+        {
+            return true;
+        }
+    }
+    repos::git(wt, &["rev-list", "--count", "HEAD", "--not", "--remotes"]).as_deref() == Some("0")
+}
+
+/// `(owner, name, branch)` → the PR of that branch ([`pr_for_branch`] outside tests).
+pub type PrLookup<'a> = dyn Fn(&str, &str, &str) -> Result<Option<PrState>> + Sync + 'a;
+
+/// `p` with symlinks resolved (`/var` → `/private/var`), also when its tail does not exist (a
+/// session's cwd that was removed): the deepest existing ancestor is resolved, the rest kept.
+fn canonical(p: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut cur = p;
+    loop {
+        if let Ok(c) = std::fs::canonicalize(cur) {
+            return rest.iter().rev().fold(c, |acc, part| acc.join(part));
+        }
+        match (cur.parent(), cur.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                cur = parent;
+            }
+            _ => return p.to_path_buf(),
+        }
+    }
+}
+
+/// Every worktree under `prs.worktrees` (of the repos under the `fleet repos` roots), each
+/// with a verdict. Removed: its PR is merged or closed, it has no local changes, nothing on it
+/// is unpublished, and no live session runs in it (`live_cwds`). `lookup` asks GitHub for the
+/// PR of `(owner, name, branch)` — [`pr_for_branch`] outside tests. Changes nothing.
+pub fn plan_cleanup(
+    s: &Settings,
+    roots: &repos::Settings,
+    live_cwds: &[String],
+    lookup: &PrLookup<'_>,
+) -> Vec<CleanupRow> {
+    let root = PathBuf::from(tools::expand_tilde(&s.worktrees));
+    let Ok(root) = std::fs::canonicalize(&root) else {
+        return Vec::new();
+    };
+    let canon = |p: &str| canonical(Path::new(p));
+    let live: Vec<PathBuf> = live_cwds.iter().map(|c| canon(c)).collect();
+    // (repo, worktree path, branch)
+    let mut found: Vec<(PathBuf, PathBuf, Option<String>)> = Vec::new();
+    for repo in repos::discover(roots) {
+        let Some(out) = repos::git(&repo.path, &["worktree", "list", "--porcelain"]) else {
+            continue;
+        };
+        for block in out.split("\n\n") {
+            let mut path = None;
+            let mut branch = None;
+            for line in block.lines() {
+                if let Some(p) = line.strip_prefix("worktree ") {
+                    path = Some(canon(p));
+                } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
+                    branch = Some(b.to_string());
+                }
+            }
+            if let Some(p) = path.filter(|p| p.starts_with(&root) && *p != root)
+                && !found.iter().any(|(_, q, _)| *q == p)
+            {
+                found.push((repo.path.clone(), p, branch));
+            }
+        }
+    }
+    let rows: Vec<CleanupRow> = std::thread::scope(|sc| {
+        let hs: Vec<_> = found
+            .iter()
+            .map(|(repo, wt, branch)| {
+                let live = &live;
+                sc.spawn(move || judge(repo, wt, branch.as_deref(), live, lookup))
+            })
+            .collect();
+        hs.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    let mut rows = rows;
+    rows.sort_by(|a, b| {
+        (a.action == CleanupAction::Keep, &a.path).cmp(&(b.action == CleanupAction::Keep, &b.path))
+    });
+    rows
+}
+
+fn judge(
+    repo: &Path,
+    wt: &Path,
+    branch: Option<&str>,
+    live: &[PathBuf],
+    lookup: &PrLookup<'_>,
+) -> CleanupRow {
+    let mut row = CleanupRow {
+        path: wt.display().to_string(),
+        repo_path: repo.display().to_string(),
+        branch: branch.map(String::from),
+        pr: None,
+        action: CleanupAction::Keep,
+        reason: String::new(),
+        delete_branch: false,
+        error: None,
+    };
+    let keep = |mut r: CleanupRow, why: &str| {
+        r.reason = why.to_string();
+        r
+    };
+    let Some(branch) = branch else {
+        return keep(row, "detached HEAD");
+    };
+    let Some((owner, name)) = origin_slug(repo) else {
+        return keep(row, "no origin remote");
+    };
+    match lookup(&owner, &name, branch) {
+        Ok(pr) => row.pr = pr,
+        Err(e) => return keep(row, &format!("could not ask GitHub: {e}")),
+    }
+    let Some(pr) = row.pr.clone() else {
+        return keep(row, "no PR for this branch");
+    };
+    if pr.state == "open" {
+        return keep(row, "PR still open");
+    }
+    if live.iter().any(|c| c.starts_with(wt)) {
+        return keep(row, "a session is running in it");
+    }
+    let dirty = repos::git(wt, &["status", "--porcelain"])
+        .map(|s| s.lines().count())
+        .unwrap_or(0);
+    if dirty > 0 {
+        return keep(row, &format!("{dirty} uncommitted change(s)"));
+    }
+    if !pushed(wt, pr.head_oid.as_deref()) {
+        return keep(row, "commits that were never pushed");
+    }
+    row.action = CleanupAction::Remove;
+    row.delete_branch = pr.state == "merged";
+    row.reason = format!(
+        "PR #{} {}{}",
+        pr.number,
+        pr.state,
+        if row.delete_branch {
+            " — branch deleted too"
+        } else {
+            " — branch kept"
+        }
+    );
+    row
+}
+
+/// Remove what [`plan_cleanup`] marked: `git worktree remove` (never forced), then the branch
+/// (`-D`: a squash merge leaves it unmerged as far as git knows; the PR says it merged).
+pub fn apply_cleanup(rows: &mut [CleanupRow]) {
+    for r in rows
+        .iter_mut()
+        .filter(|r| r.action == CleanupAction::Remove)
+    {
+        let repo = PathBuf::from(&r.repo_path);
+        if let Err(e) = git_run(
+            &repo,
+            &["worktree", "remove", &r.path],
+            Duration::from_secs(60),
+        ) {
+            r.error = Some(e.to_string());
+            continue;
+        }
+        if r.delete_branch
+            && let Some(b) = &r.branch
+            && let Err(e) = git_run(&repo, &["branch", "-D", b], Duration::from_secs(30))
+        {
+            r.error = Some(format!("worktree removed; {e}"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1289,6 +1566,7 @@ mod tests {
             &bare,
             &["update-ref", "refs/pull/7/head", "refs/heads/fork-work"],
         );
+        git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
         git(&bare, &["branch", "-D", "fork-work"]);
         let root = tmp.path().join("code");
         std::fs::create_dir_all(&root).unwrap();
@@ -1367,6 +1645,157 @@ mod tests {
             repos::Settings::from_value(&json!({ "roots": [tmp.path().to_str().unwrap()] }));
         let e = checkout(&s, &roots, head_of("x", 1, false), true).unwrap_err();
         assert!(e.to_string().contains("no checkout of acme/app"), "{e}");
+    }
+
+    #[test]
+    fn cleanup_removes_only_finished_clean_unused_worktrees() {
+        let (tmp, root, clone) = origin_and_clone();
+        let wt_root = tmp.path().join("wt");
+        let bare = tmp.path().join("origin.git");
+        let s = Settings::from_value(&json!({ "worktrees": wt_root.to_str().unwrap() }));
+        let roots = repos::Settings::from_value(&json!({ "roots": [root.to_str().unwrap()] }));
+        let merged = checkout(&s, &roots, head_of("feat/login", 12, false), false).unwrap();
+        let fork = checkout(&s, &roots, head_of("fork-work", 7, true), false).unwrap();
+        // Outside prs.worktrees: never looked at.
+        let elsewhere = tmp.path().join("other-wt");
+        git(
+            &clone,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "side",
+                elsewhere.to_str().unwrap(),
+            ],
+        );
+
+        let state = std::sync::Mutex::new(std::collections::HashMap::from([
+            ("feat/login".to_string(), "merged".to_string()),
+            ("pr-7".to_string(), "open".to_string()),
+        ]));
+        let lookup = |_o: &str, _n: &str, b: &str| -> Result<Option<PrState>> {
+            Ok(state.lock().unwrap().get(b).map(|st| PrState {
+                number: 1,
+                state: st.clone(),
+                url: String::new(),
+                // GitHub's head: the branch on the "GitHub" side (a fork PR's under pull/<n>/head).
+                head_oid: repos::git(
+                    &bare,
+                    &[
+                        "rev-parse",
+                        if b == "pr-7" {
+                            "refs/pull/7/head"
+                        } else {
+                            "refs/heads/feat/login"
+                        },
+                    ],
+                ),
+            }))
+        };
+        let plan = |live: &[String]| plan_cleanup(&s, &roots, live, &lookup);
+        let by_branch = |rows: &[CleanupRow], b: &str| {
+            rows.iter()
+                .find(|r| r.branch.as_deref() == Some(b))
+                .cloned()
+                .unwrap()
+        };
+
+        let rows = plan(&[]);
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert!(!rows.iter().any(|r| r.branch.as_deref() == Some("side")));
+        let m = by_branch(&rows, "feat/login");
+        assert_eq!(
+            (m.action, m.delete_branch),
+            (CleanupAction::Remove, true),
+            "{m:?}"
+        );
+        assert_eq!(by_branch(&rows, "pr-7").reason, "PR still open");
+
+        // A live session inside it keeps it.
+        let rows = plan(&[format!("{}/src", merged.path)]);
+        assert_eq!(
+            by_branch(&rows, "feat/login").reason,
+            "a session is running in it"
+        );
+
+        // Local changes keep it.
+        std::fs::write(Path::new(&merged.path).join("notes.txt"), "wip").unwrap();
+        assert!(
+            by_branch(&plan(&[]), "feat/login")
+                .reason
+                .contains("uncommitted")
+        );
+        std::fs::remove_file(Path::new(&merged.path).join("notes.txt")).unwrap();
+
+        // An unpushed commit keeps it.
+        git(
+            Path::new(&merged.path),
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "local",
+            ],
+        );
+        assert_eq!(
+            by_branch(&plan(&[]), "feat/login").reason,
+            "commits that were never pushed"
+        );
+        git(
+            Path::new(&merged.path),
+            &["reset", "-q", "--hard", "HEAD~1"],
+        );
+
+        // Closed (not merged): the worktree goes, the branch stays.
+        state.lock().unwrap().insert("pr-7".into(), "closed".into());
+        let mut rows = plan(&[]);
+        assert!(!by_branch(&rows, "pr-7").delete_branch);
+        apply_cleanup(&mut rows);
+        assert!(rows.iter().all(|r| r.error.is_none()), "{rows:?}");
+        assert!(!Path::new(&merged.path).exists());
+        assert!(!Path::new(&fork.path).exists());
+        assert!(
+            repos::git(
+                &clone,
+                &["rev-parse", "--verify", "--quiet", "refs/heads/feat/login"]
+            )
+            .is_none()
+        );
+        assert!(
+            repos::git(
+                &clone,
+                &["rev-parse", "--verify", "--quiet", "refs/heads/pr-7"]
+            )
+            .is_some()
+        );
+        assert!(elsewhere.exists());
+    }
+
+    #[test]
+    fn origin_slugs() {
+        let tmp = tempfile::tempdir().unwrap();
+        git(tmp.path(), &["init", "-q"]);
+        for (url, want) in [
+            ("git@github.com:acme/app.git", ("acme", "app")),
+            ("https://github.com/acme/my.app/", ("acme", "my.app")),
+        ] {
+            let _ = Command::new("git")
+                .current_dir(tmp.path())
+                .args(["remote", "remove", "origin"])
+                .output();
+            git(tmp.path(), &["remote", "add", "origin", url]);
+            assert_eq!(
+                origin_slug(tmp.path()),
+                Some((want.0.to_string(), want.1.to_string())),
+                "{url}"
+            );
+        }
     }
 
     #[test]
