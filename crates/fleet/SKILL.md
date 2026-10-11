@@ -166,11 +166,12 @@ A **stack** is a set of sessions (on one host) that share one context file, the 
 
 ## Pull requests
 
-`fleet prs` lists the open GitHub PRs that need the user, through `gh` (its login), in five columns: **waitingOnMe** (review asked of them by name), **reviewMine** / **readyToMergeMine** (approved) / **draftMine**, and **waitingOnAuthor** (they reviewed, didn't approve). Each row has CI (`checks`), size, `myReview` (`newCommits`: the head moved since their review) and `local.worktree` (where the branch is checked out on this host). Cached for `prs.refresh` (5m); `--cached` never fetches.
+`fleet prs` lists the open GitHub PRs that need the user, through `gh` (its login), in six columns: **unseenMentions** (someone @mentioned them and they haven't commented or reviewed since — `mention` has who, where and the line), **waitingOnMe** (review asked of them by name), **reviewMine** / **readyToMergeMine** (approved) / **draftMine**, and **waitingOnAuthor** (they reviewed, didn't approve). Each row has CI (`checks`), size, `myReview` (`newCommits`: the head moved since their review) and `local.worktree` (where the branch is checked out on this host). Cached for `prs.refresh` (5m); `--cached` never fetches.
 
 - `<pr>` is `owner/repo#123`, `repo#123` (owner from the cache) or the PR's URL.
 - **`fleet pr checkout <pr>`** puts the PR in a worktree under `prs.worktrees` (`<repo>-<branch>`), or reports the one its branch is already in. It fetches, never resets or moves a branch; a fork's PR becomes branch `pr-<n>`. `--json` gives `path` and `contextLine`.
 - **`fleet pr spawn <pr> "<prompt>"`** checks out, then starts a session in the worktree whose first prompt says which PR it is, its branches and the worktree path. It starts an agent: **confirm with the user like `spawn`**. `-n` shows what it would do and changes nothing.
+- **`fleet pr seen <pr>`** takes a PR out of unseenMentions (when the user says they've seen it).
 - **`fleet pr cleanup-worktrees`** lists the worktrees under `prs.worktrees` whose PR merged or closed and that are clean, pushed and unused (and why the rest stay); `--apply` removes them (and a merged PR's branch). It deletes: **show the list and confirm before `--apply`**.
 - **If your first prompt starts with "You're working on pull request …"** — you were spawned on that PR: work in the worktree it names, and use `gh pr view <n>` / `gh pr diff <n>` for the description, review comments, CI and diff.
 - The web UI's Pull requests screen does the same, and marks sessions running in a PR's worktree with a `#123` chip.

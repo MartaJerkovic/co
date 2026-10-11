@@ -9,6 +9,11 @@
 //!   [`Column::ReviewMine`]
 //! - `user-review-requested:@me` (asked of you by name, not via a team) → [`Column::WaitingOnMe`]
 //! - `reviewed-by:@me -author:@me`, your latest review not an approval → [`Column::WaitingOnAuthor`]
+//! - `mentions:@me` → [`Pr::mention`], the latest `@you` by someone else in the PR's description,
+//!   comments or reviews. Until you answer it (comment or review after it) or mark it seen
+//!   (`fleet pr seen`, kept in `$FLEET_PRS_SEEN`, else
+//!   `${XDG_STATE_HOME:-~/.local/state}/fleet/prs-seen.json`), the PR shows in
+//!   [`Column::UnseenMentions`] instead of its own column.
 //!
 //! Config (`prs` in config.json — per machine, read leniently):
 //!
@@ -41,6 +46,10 @@ pub const DEFAULT_WORKTREES: &str = "~/Code/worktrees";
 const GIT_FETCH_TIMEOUT: Duration = Duration::from_secs(180);
 /// One search page; GitHub's gateway gives up on bigger ones (~10 s) with all the fields below.
 const PAGE: usize = 50;
+/// The mentions search fetches the PR's comments and reviews too: a smaller page.
+const MENTIONS_PAGE: usize = 25;
+/// How much of the line with the mention [`Mention::excerpt`] keeps.
+const EXCERPT_CHARS: usize = 140;
 const MAX_PAGES: usize = 4;
 const GH_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -137,6 +146,7 @@ impl Settings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Column {
+    UnseenMentions,
     DraftMine,
     ReviewMine,
     ReadyToMergeMine,
@@ -145,7 +155,8 @@ pub enum Column {
 }
 
 impl Column {
-    pub const ALL: [Column; 5] = [
+    pub const ALL: [Column; 6] = [
+        Column::UnseenMentions,
         Column::WaitingOnMe,
         Column::ReviewMine,
         Column::ReadyToMergeMine,
@@ -155,6 +166,7 @@ impl Column {
 
     pub fn id(self) -> &'static str {
         match self {
+            Column::UnseenMentions => "unseenMentions",
             Column::DraftMine => "draftMine",
             Column::ReviewMine => "reviewMine",
             Column::ReadyToMergeMine => "readyToMergeMine",
@@ -165,6 +177,7 @@ impl Column {
 
     pub fn title(self) -> &'static str {
         match self {
+            Column::UnseenMentions => "Unseen mentions",
             Column::DraftMine => "My drafts",
             Column::ReviewMine => "Mine, in review",
             Column::ReadyToMergeMine => "Mine, ready to merge",
@@ -232,9 +245,30 @@ pub struct Pr {
     /// Users and teams (`@org/slug`) asked to review.
     pub requested_reviewers: Vec<String>,
     pub my_review: Option<MyReview>,
+    /// The latest time someone else @mentioned you on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mention: Option<Mention>,
     /// Joined at read time, never cached: where the repo and the head branch are checked out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<Local>,
+}
+
+/// Someone's `@you` on a PR (its description, a comment, a review or a review comment).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mention {
+    /// ms epoch.
+    pub at: i64,
+    pub author: String,
+    /// Where it was said.
+    pub url: String,
+    /// The line with the mention, shortened.
+    pub excerpt: String,
+    /// You commented or reviewed on the PR after it.
+    pub answered: bool,
+    /// Answered, or marked seen after it. Set at read time ([`resolve_mentions`]).
+    #[serde(default)]
+    pub seen: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -358,13 +392,96 @@ fn parse_node(n: &Value, column: Column, me: &str) -> Option<Pr> {
         comments: n["comments"]["totalCount"].as_u64().unwrap_or(0),
         requested_reviewers,
         my_review,
+        mention: None,
         local: None,
     })
 }
 
-/// The three searches' nodes → one list, each PR once, in its column. A PR in several
-/// searches goes to the first that claims it: yours, then asked of you, then reviewed by you.
-pub fn classify(me: &str, mine: &[Value], requested: &[Value], reviewed: &[Value]) -> Vec<Pr> {
+/// `@login` in `text` (whole handle, any case; not an email or a path) → that line, shortened.
+fn mention_in(text: &str, login: &str) -> Option<String> {
+    if login.is_empty() {
+        return None;
+    }
+    let needle = format!("@{}", login.to_ascii_lowercase());
+    let handle = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    text.lines().find_map(|line| {
+        let lower = line.to_ascii_lowercase();
+        let hit = lower.match_indices(&needle).any(|(i, _)| {
+            let before = lower[..i].chars().next_back();
+            let after = lower[i + needle.len()..].chars().next();
+            !before.is_some_and(|c| handle(c) || c == '/' || c == '.') && !after.is_some_and(handle)
+        });
+        hit.then(|| {
+            let t = line.trim();
+            if t.chars().count() > EXCERPT_CHARS {
+                let cut: String = t.chars().take(EXCERPT_CHARS - 1).collect();
+                format!("{}…", cut.trim_end())
+            } else {
+                t.to_string()
+            }
+        })
+    })
+}
+
+/// A mentions-search node → the latest `@me` by someone else, and whether you spoke after it.
+fn mention_of(n: &Value, me: &str) -> Option<Mention> {
+    // (at, author, body, url) of everything said on the PR.
+    type Said<'a> = Vec<(i64, &'a str, &'a str, &'a str)>;
+    fn add<'a>(said: &mut Said<'a>, v: &'a Value, at_key: &str) {
+        if let Some(at) = ms(&v[at_key]) {
+            said.push((
+                at,
+                str_at(v, &["author", "login"]).unwrap_or(""),
+                v["body"].as_str().unwrap_or(""),
+                v["url"].as_str().unwrap_or(""),
+            ));
+        }
+    }
+    let mut said: Said = Vec::new();
+    add(&mut said, n, "createdAt");
+    for c in n["mentionComments"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        add(&mut said, c, "createdAt");
+    }
+    for r in n["mentionReviews"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        add(&mut said, r, "submittedAt");
+        for c in r["comments"]["nodes"].as_array().into_iter().flatten() {
+            add(&mut said, c, "createdAt");
+        }
+    }
+    let mine = |a: &str| a.eq_ignore_ascii_case(me);
+    let (at, author, excerpt, url) = said
+        .iter()
+        .filter(|s| !mine(s.1))
+        .filter_map(|s| mention_in(s.2, me).map(|e| (s.0, s.1, e, s.3)))
+        .max_by_key(|m| m.0)?;
+    Some(Mention {
+        at,
+        author: author.to_string(),
+        url: url.to_string(),
+        excerpt,
+        answered: said.iter().any(|s| mine(s.1) && s.0 > at),
+        seen: false,
+    })
+}
+
+/// The searches' nodes → one list, each PR once, in its column. A PR in several searches goes
+/// to the first that claims it: yours, then asked of you, then reviewed by you. A mention
+/// attaches to the PR; a PR only mentioned goes to [`Column::UnseenMentions`].
+pub fn classify(
+    me: &str,
+    mine: &[Value],
+    requested: &[Value],
+    reviewed: &[Value],
+    mentioned: &[Value],
+) -> Vec<Pr> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let mut push = |pr: Pr, out: &mut Vec<Pr>| {
@@ -398,13 +515,60 @@ pub fn classify(me: &str, mine: &[Value], requested: &[Value], reviewed: &[Value
             push(pr, &mut out);
         }
     }
-    out.sort_by_key(|p| {
+    for n in mentioned {
+        let Some(m) = mention_of(n, me) else { continue };
+        let url = n["url"].as_str().unwrap_or("");
+        if let Some(pr) = out.iter_mut().find(|p| p.url == url) {
+            pr.mention = Some(m);
+        } else if let Some(mut pr) = parse_node(n, Column::UnseenMentions, me) {
+            pr.mention = Some(m);
+            push(pr, &mut out);
+        }
+    }
+    sort(&mut out);
+    out
+}
+
+/// By column, then newest first: by mention in [`Column::UnseenMentions`], else by update.
+fn sort(prs: &mut [Pr]) {
+    prs.sort_by_key(|p| {
+        let at = match (&p.mention, p.column) {
+            (Some(m), Column::UnseenMentions) => m.at,
+            _ => p.updated_at,
+        };
         (
             Column::ALL.iter().position(|c| *c == p.column),
-            std::cmp::Reverse(p.updated_at),
+            std::cmp::Reverse(at),
         )
     });
-    out
+}
+
+/// `owner/repo#12`: the key a PR is marked seen under.
+pub fn seen_key(owner: &str, repo: &str, number: u64) -> String {
+    format!(
+        "{}/{}#{number}",
+        owner.to_ascii_lowercase(),
+        repo.to_ascii_lowercase()
+    )
+}
+
+/// Read time: a mention you answered or marked seen (`seen`: key → ms) after it is seen; an
+/// unseen one moves its PR to [`Column::UnseenMentions`], and a PR there only for a seen
+/// mention goes.
+pub fn resolve_mentions(prs: &mut Vec<Pr>, seen: &HashMap<String, i64>) {
+    for p in prs.iter_mut() {
+        let key = seen_key(&p.owner, &p.repo, p.number);
+        if let Some(m) = &mut p.mention {
+            m.seen = m.answered || seen.get(&key).is_some_and(|t| *t >= m.at);
+            if !m.seen {
+                p.column = Column::UnseenMentions;
+            }
+        }
+    }
+    prs.retain(|p| {
+        p.column != Column::UnseenMentions || p.mention.as_ref().is_some_and(|m| !m.seen)
+    });
+    sort(prs);
 }
 
 // ---------- fetch ----------
@@ -421,16 +585,30 @@ fragment pr on PullRequest {
   latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } }
 }"#;
 
-fn query() -> String {
+/// What the mentions search needs on top: who said what, when.
+const MENTION_FIELDS: &str = r#"
+fragment mentions on PullRequest {
+  body
+  mentionComments: comments(last: 30) { nodes { author { login } createdAt body url } }
+  mentionReviews: reviews(last: 20) { nodes { author { login } submittedAt body url
+    comments(last: 10) { nodes { author { login } createdAt body url } } } }
+}"#;
+
+fn query(mentions: bool) -> String {
+    let (spread, extra) = if mentions {
+        (" ...mentions", MENTION_FIELDS)
+    } else {
+        ("", "")
+    };
     format!(
         "query($q: String!, $first: Int!, $after: String) {{
   viewer {{ login }}
   search(query: $q, type: ISSUE, first: $first, after: $after) {{
     issueCount
     pageInfo {{ hasNextPage endCursor }}
-    nodes {{ ...pr }}
+    nodes {{ ...pr{spread} }}
   }}
-}}{FIELDS}"
+}}{FIELDS}{extra}"
     )
 }
 
@@ -445,9 +623,11 @@ pub fn gh_bin() -> String {
     tools::resolve_binary("gh", cfg.as_deref())
 }
 
-/// One search, every page (up to [`MAX_PAGES`]). → (viewer login, nodes, truncated).
-fn search(gh: &str, q: &str) -> Result<(String, Vec<Value>, bool)> {
-    let query = query();
+/// One search, every page (up to [`MAX_PAGES`]); `mentions` adds [`MENTION_FIELDS`].
+/// → (viewer login, nodes, truncated).
+fn search(gh: &str, q: &str, mentions: bool) -> Result<(String, Vec<Value>, bool)> {
+    let query = query(mentions);
+    let page = if mentions { MENTIONS_PAGE } else { PAGE };
     let mut nodes = Vec::new();
     let mut after: Option<String> = None;
     let mut login = String::new();
@@ -458,7 +638,7 @@ fn search(gh: &str, q: &str) -> Result<(String, Vec<Value>, bool)> {
             .arg("-f")
             .arg(format!("q={q}"))
             .arg("-F")
-            .arg(format!("first={PAGE}"))
+            .arg(format!("first={page}"))
             .env("PATH", tools::search_path())
             .env("GH_PROMPT_DISABLED", "1")
             .stdin(std::process::Stdio::null());
@@ -520,7 +700,7 @@ pub struct Snapshot {
     pub prs: Vec<Pr>,
 }
 
-/// Run the three searches (in parallel) and classify.
+/// Run the four searches (in parallel) and classify.
 pub fn fetch(s: &Settings, now_ms: i64) -> Result<Snapshot> {
     let gh = gh_bin();
     let scope = s.scope();
@@ -529,13 +709,15 @@ pub fn fetch(s: &Settings, now_ms: i64) -> Result<Snapshot> {
         format!("{base} author:@me {scope}"),
         format!("{base} user-review-requested:@me {scope}"),
         format!("{base} reviewed-by:@me -author:@me {scope}"),
+        format!("{base} mentions:@me {scope}"),
     ];
     let results: Vec<Result<(String, Vec<Value>, bool)>> = std::thread::scope(|sc| {
         let hs: Vec<_> = qs
             .iter()
-            .map(|q| {
+            .enumerate()
+            .map(|(i, q)| {
                 let gh = &gh;
-                sc.spawn(move || search(gh, q.trim()))
+                sc.spawn(move || search(gh, q.trim(), i == 3))
             })
             .collect();
         hs.into_iter()
@@ -551,7 +733,7 @@ pub fn fetch(s: &Settings, now_ms: i64) -> Result<Snapshot> {
     }
     let user = parts[0].0.clone();
     let truncated = parts.iter().any(|p| p.2);
-    let prs = classify(&user, &parts[0].1, &parts[1].1, &parts[2].1);
+    let prs = classify(&user, &parts[0].1, &parts[1].1, &parts[2].1, &parts[3].1);
     Ok(Snapshot {
         version: 1,
         user,
@@ -612,8 +794,15 @@ pub struct View {
     pub error: Option<String>,
 }
 
-/// Cache-or-fetch per `mode`. Errors only when there is nothing to show.
+/// Cache-or-fetch per `mode`, mentions resolved against what you marked seen. Errors only when
+/// there is nothing to show.
 pub fn get(s: &Settings, mode: Mode, now_ms: i64) -> Result<View> {
+    let mut v = get_snapshot(s, mode, now_ms)?;
+    resolve_mentions(&mut v.snap.prs, &load_seen(&seen_path()));
+    Ok(v)
+}
+
+fn get_snapshot(s: &Settings, mode: Mode, now_ms: i64) -> Result<View> {
     let path = cache_path();
     let cached = load_cache(&path).filter(|c| c.version == 1 && c.scope == s.scope());
     let fresh = |c: &Snapshot| now_ms - c.fetched_at < s.refresh * 1000;
@@ -654,6 +843,52 @@ pub fn get(s: &Settings, mode: Mode, now_ms: i64) -> Result<View> {
             1,
             "no cached pull requests yet: run `fleet prs` without --cached",
         )),
+    }
+}
+
+// ---------- seen mentions ----------
+
+/// How long a mark is kept: past this, the PR is long merged or the mention long answered.
+const SEEN_KEEP_MS: i64 = 180 * 24 * 3600 * 1000;
+
+pub fn seen_path() -> PathBuf {
+    if let Some(p) = std::env::var_os("FLEET_PRS_SEEN").filter(|p| !p.is_empty()) {
+        return PathBuf::from(tools::expand_tilde(&p.to_string_lossy()));
+    }
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .filter(|p| !p.is_empty())
+        .map(|p| PathBuf::from(tools::expand_tilde(&p.to_string_lossy())))
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".local/state"));
+    base.join("fleet").join("prs-seen.json")
+}
+
+/// [`seen_key`] → when it was marked seen (ms).
+pub fn load_seen(path: &Path) -> HashMap<String, i64> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+/// Mark the PR's mentions up to `now_ms` seen (and forget marks older than [`SEEN_KEEP_MS`]).
+pub fn mark_seen(path: &Path, key: &str, now_ms: i64) -> Result<()> {
+    let mut seen = load_seen(path);
+    seen.retain(|_, t| now_ms - *t < SEEN_KEEP_MS);
+    seen.insert(key.to_string(), now_ms);
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, serde_json::to_string_pretty(&seen)? + "\n")?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// The owner of `r` (its own, or from the cache).
+pub fn owner_of(r: &PrRef) -> Result<String> {
+    match &r.owner {
+        Some(o) => Ok(o.clone()),
+        None => owner_from_cache(r),
     }
 }
 
@@ -839,10 +1074,7 @@ fn owner_from_cache(r: &PrRef) -> Result<String> {
 
 /// The PR's head, fresh from GitHub (`gh api repos/O/R/pulls/N`).
 pub fn head(r: &PrRef) -> Result<PrHead> {
-    let owner = match &r.owner {
-        Some(o) => o.clone(),
-        None => owner_from_cache(r)?,
-    };
+    let owner = owner_of(r)?;
     let mut c = Command::new(gh_bin());
     c.args([
         "api",
@@ -1441,7 +1673,7 @@ mod tests {
             // Re-requested after your review: waiting on you, not the author.
             node("api", 10, json!({})),
         ];
-        let prs = classify(me, &mine, &requested, &reviewed);
+        let prs = classify(me, &mine, &requested, &reviewed, &[]);
         let cols: Vec<(u64, Column)> = prs.iter().map(|p| (p.number, p.column)).collect();
         assert_eq!(
             cols,
@@ -1465,8 +1697,147 @@ mod tests {
     }
 
     #[test]
+    fn mentions_match_whole_handles_only() {
+        assert_eq!(
+            mention_in("hey @Me, look", "me").as_deref(),
+            Some("hey @Me, look")
+        );
+        assert_eq!(
+            mention_in("first\n  cc @me  \nlast", "me").as_deref(),
+            Some("cc @me")
+        );
+        for no in ["@meh", "a@me.com", "org/@me", "@me-too", "@me_x", "me", ""] {
+            assert_eq!(mention_in(no, "me"), None, "{no}");
+        }
+        let long = format!("@me {}", "x".repeat(300));
+        let e = mention_in(&long, "me").unwrap();
+        assert_eq!(e.chars().count(), EXCERPT_CHARS);
+        assert!(e.ends_with('…'));
+    }
+
+    fn said(author: &str, at: &str, body: &str, url: &str) -> Value {
+        json!({ "author": { "login": author }, "createdAt": at, "submittedAt": at, "body": body, "url": url })
+    }
+
+    fn mentioned(repo: &str, number: u64, comments: Vec<Value>, reviews: Vec<Value>) -> Value {
+        node(
+            repo,
+            number,
+            json!({
+                "body": "no mention here",
+                "mentionComments": { "nodes": comments },
+                "mentionReviews": { "nodes": reviews },
+            }),
+        )
+    }
+
+    #[test]
+    fn mentions_attach_answer_and_resolve() {
+        let me = "me";
+        let requested = vec![node("api", 10, json!({}))];
+        let mentioned = vec![
+            // On a PR in another column, unanswered: moves to unseen mentions.
+            mentioned(
+                "api",
+                10,
+                vec![
+                    said("ana", "2026-10-02T08:00:00Z", "@me thoughts?", "u/c1"),
+                    said("bo", "2026-10-02T09:00:00Z", "ping @me", "u/c2"),
+                    said("me", "2026-10-02T08:30:00Z", "will look", "u/c3"),
+                ],
+                vec![],
+            ),
+            // Only mentioned, answered in a review comment: gone.
+            mentioned(
+                "app",
+                11,
+                vec![said("ana", "2026-10-02T08:00:00Z", "@me?", "u/c4")],
+                vec![json!({
+                    "author": { "login": "bo" }, "submittedAt": "2026-10-02T07:00:00Z", "body": "", "url": "u/r1",
+                    "comments": { "nodes": [ said("me", "2026-10-02T09:00:00Z", "done", "u/rc1") ] }
+                })],
+            ),
+            // Only mentioned, unanswered: shows.
+            mentioned(
+                "app",
+                12,
+                vec![said("ana", "2026-10-02T08:00:00Z", "cc @me", "u/c5")],
+                vec![],
+            ),
+            // Mentions only you made yourself, or none at all: nothing.
+            mentioned(
+                "app",
+                13,
+                vec![said(
+                    "me",
+                    "2026-10-02T08:00:00Z",
+                    "@me note to self",
+                    "u/c6",
+                )],
+                vec![],
+            ),
+        ];
+        let mut prs = classify(me, &[], &requested, &[], &mentioned);
+        assert_eq!(prs.len(), 3);
+        let p10 = prs.iter().find(|p| p.number == 10).unwrap();
+        assert_eq!(p10.column, Column::WaitingOnMe);
+        let m = p10.mention.as_ref().unwrap();
+        assert_eq!(
+            (m.author.as_str(), m.url.as_str(), m.excerpt.as_str()),
+            ("bo", "u/c2", "ping @me")
+        );
+        assert!(!m.answered);
+        assert!(
+            prs.iter()
+                .find(|p| p.number == 11)
+                .unwrap()
+                .mention
+                .as_ref()
+                .unwrap()
+                .answered
+        );
+
+        let mut seen = HashMap::new();
+        resolve_mentions(&mut prs, &seen);
+        let cols: Vec<(u64, Column)> = prs.iter().map(|p| (p.number, p.column)).collect();
+        assert_eq!(
+            cols,
+            vec![(10, Column::UnseenMentions), (12, Column::UnseenMentions)]
+        );
+
+        // Marked seen after the mention: back to its column, or gone.
+        let mut prs = classify(me, &[], &requested, &[], &mentioned);
+        let at = ms(&json!("2026-10-02T09:00:00Z")).unwrap();
+        seen.insert(seen_key("acme", "API", 10), at);
+        // Marked before its mention: still unseen.
+        let before = ms(&json!("2026-10-02T07:59:00Z")).unwrap();
+        seen.insert(seen_key("acme", "app", 12), before);
+        resolve_mentions(&mut prs, &seen);
+        let cols: Vec<(u64, Column)> = prs.iter().map(|p| (p.number, p.column)).collect();
+        assert_eq!(
+            cols,
+            vec![(12, Column::UnseenMentions), (10, Column::WaitingOnMe)]
+        );
+        assert!(prs[1].mention.as_ref().unwrap().seen);
+    }
+
+    #[test]
+    fn seen_marks_persist_and_expire() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state/prs-seen.json");
+        assert!(load_seen(&path).is_empty());
+        mark_seen(&path, "acme/app#1", 1000).unwrap();
+        mark_seen(&path, "acme/app#2", 2000).unwrap();
+        assert_eq!(load_seen(&path).len(), 2);
+        mark_seen(&path, "acme/app#3", 1500 + SEEN_KEEP_MS).unwrap();
+        let s = load_seen(&path);
+        assert_eq!(s.keys().len(), 2);
+        assert!(!s.contains_key("acme/app#1"));
+    }
+
+    #[test]
     fn non_pr_nodes_are_skipped() {
-        let prs = classify("me", &[json!({}), json!({ "number": 1 })], &[], &[]);
+        let prs = classify("me", &[json!({}), json!({ "number": 1 })], &[], &[], &[]);
         assert!(prs.is_empty());
     }
 
@@ -1847,6 +2218,7 @@ mod tests {
         let mut prs = classify(
             "me",
             &[node("app", 2, json!({})), node("other", 3, json!({}))],
+            &[],
             &[],
             &[],
         );

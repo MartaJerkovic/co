@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
 import { ApiError, api, isAbortError } from '@/api/client'
-import type { PrsResponse } from '@/api/types'
+import type { PrsResponse, PullRequest } from '@/api/types'
 import { useFleet } from '@/hooks/useFleet'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { usePoller } from '@/hooks/usePoller'
 import { PrsContext, type PrsState } from '@/hooks/usePrs'
-import { linkSessions } from '@/lib/prs'
+import { linkSessions, prRef } from '@/lib/prs'
 import { allSessions } from '@/lib/sessions'
 
 // The CLI refetches once its cache is older than `prs.refresh` (5m); polling reads the cache.
@@ -61,10 +61,19 @@ export function PrsProvider({ children }: { children: ReactNode }) {
     }
   }, [load, reload])
 
+  const markSeen = useCallback(
+    async (p: PullRequest) => {
+      if (!host) return
+      await api.prSeen(host, prRef(p))
+      reload()
+    },
+    [host, reload],
+  )
+
   const links = useMemo(() => linkSessions(data?.prs ?? [], data ? host : null, allSessions(fleet)), [data, host, fleet])
   const value = useMemo<PrsState>(
-    () => ({ hosts, host, setHost, data, error, loading, refresh, refreshing, reload, links }),
-    [hosts, host, setHost, data, error, loading, refresh, refreshing, reload, links],
+    () => ({ hosts, host, setHost, data, error, loading, refresh, refreshing, reload, markSeen, links }),
+    [hosts, host, setHost, data, error, loading, refresh, refreshing, reload, markSeen, links],
   )
   return <PrsContext.Provider value={value}>{children}</PrsContext.Provider>
 }

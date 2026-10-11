@@ -65,6 +65,10 @@ function fakeHost(self, sessions) {
     const p = `/home/tester/wt/${repo}-feat`;
     return { owner, repo, number: Number(number), branch: 'feat', path: p, created: true, contextLine: `You're working on pull request ${ref} in ${p}.` };
   };
+  cli.prSeen = async (ref) => {
+    calls.push(['prSeen', ref]);
+    return { pr: ref, seenAt: 1000, applied: true };
+  };
   return { calls, cli, backend, transcripts, spawner, killer, autoNamer, fleet: createFleet({ cli, self }) };
 }
 
@@ -449,6 +453,17 @@ test('prs/spawn: bad input is a 400 before anything is fetched; a failed checkou
   assert.equal((await get(`${urls.laptop}/api/hosts/laptop/prs/spawn`)).status, 405);
 });
 
+test('prs/seen marks a PR seen on the host it was fetched on', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  const r = await post(`${urls.laptop}/api/hosts/workstation/prs/seen`, { pr: 'acme/app#30' });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.host, r.body.pr, r.body.seenAt], ['workstation', 'acme/app#30', 1000]);
+  assert.deepEqual(remote.calls.filter((c) => c[0] === 'prSeen'), [['prSeen', 'acme/app#30']]);
+  assert.equal(lap.calls.filter((c) => c[0] === 'prSeen').length, 0);
+  assert.equal((await post(`${urls.laptop}/api/hosts/laptop/prs/seen`, { pr: 'app#30' })).status, 400);
+  assert.equal(lap.calls.filter((c) => c[0] === 'prCheckout').length, 0);
+});
+
 test('prs: a CLI failure is a 502 with its reason', async () => {
   const host = fakeHost('broken', []);
   const config = normalizeConfig({ self: 'broken' }, { env: {}, home: '/home/tester' });
@@ -487,6 +502,11 @@ test('fleet CLI prCheckout runs `fleet --local pr checkout --json -- <ref>`', as
   assert.deepEqual(calls, [['--local', 'pr', 'checkout', '--json', '--', 'acme/app#3']]);
   stderr = 'Error: git fetch --quiet origin feat: fatal: could not read from remote\n';
   await assert.rejects(cli.prCheckout('acme/app#3'), /^FleetCliError: git fetch --quiet origin feat: fatal/);
+  stderr = null;
+  await cli.prSeen('acme/app#3');
+  assert.deepEqual(calls.at(-1), ['--local', 'pr', 'seen', '--json', '--', 'acme/app#3']);
+  stderr = "error: unrecognized subcommand 'seen'\n";
+  await assert.rejects(cli.prSeen('acme/app#3'), (e) => e.missing === true);
 });
 
 test('harnesses: per host, cached, Claude models from the config, proxied to peers', async (t) => {

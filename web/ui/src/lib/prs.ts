@@ -2,6 +2,7 @@ import type { PrColumn, PrColumnId, PrsResponse, PullRequest, Session } from '@/
 
 /** Display order and titles when a server sends no `columns` (and the order it should send). */
 export const PR_COLUMNS: { id: PrColumnId; title: string }[] = [
+  { id: 'unseenMentions', title: 'Unseen mentions' },
   { id: 'waitingOnMe', title: 'Waiting on me' },
   { id: 'reviewMine', title: 'Mine, in review' },
   { id: 'readyToMergeMine', title: 'Mine, ready to merge' },

@@ -208,7 +208,7 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
 
   /**
    * The GitHub PRs that need you: `fleet --local prs --json [--refresh]` (docs/cli.md → Pull
-   * requests). A fetch is three `gh` searches (several seconds each); a fresh cache is instant.
+   * requests). A fetch is four `gh` searches (several seconds each); a fresh cache is instant.
    */
   async function prs({ refresh = false, timeoutMs: t = 120 * 1000 } = {}) {
     const args = ['--local', 'prs', '--json'];
@@ -237,11 +237,20 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
    * branch, path, repoPath, created, contextLine }`. Fetches the PR's head: can take a while.
    */
   async function prCheckout(ref, { timeoutMs: t = 4 * 60 * 1000 } = {}) {
+    return prCommand('checkout', ref, t);
+  }
+
+  /** Mark a PR's @mentions of you seen: `fleet --local pr seen <ref> --json` → `{ pr, seenAt, applied }`. */
+  async function prSeen(ref, { timeoutMs: t = 30 * 1000 } = {}) {
+    return prCommand('seen', ref, t);
+  }
+
+  async function prCommand(sub, ref, t) {
     let stdout;
     try {
-      ({ stdout } = await run(bin, ['--local', 'pr', 'checkout', '--json', '--', String(ref)], { timeout: t, env: { ...process.env, NO_COLOR: '1' } }));
+      ({ stdout } = await run(bin, ['--local', 'pr', sub, '--json', '--', String(ref)], { timeout: t, env: { ...process.env, NO_COLOR: '1' } }));
     } catch (err) {
-      const e = wrap(err, 'fleet pr checkout', t);
+      const e = wrap(err, `fleet pr ${sub}`, t);
       const why = String(err?.stderr ?? '')
         .split('\n')
         .filter((l) => l.trim() && !l.startsWith('warning:'))
@@ -249,10 +258,10 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
         ?.replace(/^(fleet:\s*)?(Error:\s*)?/i, '')
         .trim();
       if (why && !e.timedOut) e.message = why;
-      e.missing = !e.timedOut && /unrecognized subcommand 'pr'/i.test(String(err?.stderr ?? ''));
+      e.missing = !e.timedOut && new RegExp(`unrecognized subcommand '(pr|${sub})'`, 'i').test(String(err?.stderr ?? ''));
       throw e;
     }
-    return parseObject(stdout, 'fleet pr checkout');
+    return parseObject(stdout, `fleet pr ${sub}`);
   }
 
   /**
@@ -408,6 +417,7 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
     harnesses,
     prs,
     prCheckout,
+    prSeen,
     configSet,
     repos,
     reposSync,

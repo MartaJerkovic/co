@@ -822,7 +822,7 @@ export interface RepoSyncResult {
 }
 
 /** A `fleet prs` column id (docs/cli.md → Pull requests). */
-export type PrColumnId = 'waitingOnMe' | 'reviewMine' | 'readyToMergeMine' | 'draftMine' | 'waitingOnAuthor'
+export type PrColumnId = 'unseenMentions' | 'waitingOnMe' | 'reviewMine' | 'readyToMergeMine' | 'draftMine' | 'waitingOnAuthor'
 
 export interface PrColumn {
   id: PrColumnId
@@ -854,8 +854,24 @@ export interface PullRequest {
   comments: number
   requestedReviewers: string[]
   myReview: { state: string; at: number | null; newCommits: boolean } | null
+  /** The latest @mention of you by someone else; unseen → the PR is in `unseenMentions`. */
+  mention?: PrMention
   /** Where the repo / head branch is checked out on the answering host. */
   local?: { repoPath: string; worktree: string | null }
+}
+
+export interface PrMention {
+  /** ms epoch */
+  at: number
+  author: string
+  /** The comment / review it was said in. */
+  url: string
+  /** The line with the mention, shortened. */
+  excerpt: string
+  /** You commented or reviewed after it. */
+  answered: boolean
+  /** Answered, or marked seen after it. */
+  seen: boolean
 }
 
 /** GET /api/hosts/:host/prs */

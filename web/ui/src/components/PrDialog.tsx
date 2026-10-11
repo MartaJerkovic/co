@@ -8,6 +8,7 @@ import type { PullRequest, Session } from '@/api/types'
 import { watchForSpawned } from '@/api/spawnWatch'
 import { HostDot } from '@/components/HostBadge'
 import { PrSessionLink } from '@/components/PrChip'
+import { PrMention } from '@/components/PrMention'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -151,6 +152,8 @@ export function PrDialog({
             )}
           </dd>
         </dl>
+
+        <PrMention pr={pr} className="rounded-lg border p-2.5" />
 
         {sessions.length ? (
           <div className="space-y-1">

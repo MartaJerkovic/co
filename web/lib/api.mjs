@@ -80,12 +80,12 @@ const SESSION_STACK_SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/st
 const STACK_SPAWN_PROXY_MS = 180 * 1000;
 const REPOS_ROUTE = /^\/api\/hosts\/([^/]+)\/repos(?:\/(sync|service))?$/;
 const USAGE_ROUTE = /^\/api\/hosts\/([^/]+)\/usage$/;
-const PRS_ROUTE = /^\/api\/hosts\/([^/]+)\/prs(?:\/(checkout|spawn))?$/;
+const PRS_ROUTE = /^\/api\/hosts\/([^/]+)\/prs(?:\/(checkout|spawn|seen))?$/;
 /** `owner/repo#123` — what the PR screen sends; the CLI parses it again. */
 const PR_REF_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,9}$/;
 /** A checkout fetches the PR's head (a big repo, a slow link): the peer gets as long as the CLI. */
 const PR_CHECKOUT_PROXY_MS = 5 * 60 * 1000;
-/** A PR fetch is three `gh` searches, up to 4 pages each: give a peer as long as its CLI gets. */
+/** A PR fetch is four `gh` searches, up to 4 pages each: give a peer as long as its CLI gets. */
 const PRS_PROXY_MS = 130 * 1000;
 const HARNESSES_ROUTE = /^\/api\/hosts\/([^/]+)\/harnesses$/;
 /** `fleet harness list` runs `pi --list-models` (a node start): keep its answer a while. */
@@ -827,6 +827,7 @@ export function createApi({
     const body = await readJsonBody(req);
     const ref = typeof body?.pr === 'string' ? body.pr.trim() : '';
     if (!PR_REF_RE.test(ref)) throw new HttpError('pr must look like owner/repo#123', 400);
+    if (action === 'seen') return localPrSeen(ref);
     let check = null;
     if (action === 'spawn') {
       // Validate before anything is fetched; the real dir is the worktree.
@@ -858,6 +859,18 @@ export function createApi({
     refreshFleet();
     if (!nameGiven && spawnNamer && check.harness === 'claude') spawnNamer.schedule(result.tmuxSession).catch(() => {});
     return { status: 200, body: { host: config.self, worktree, spawn: { ok: true, host: config.self, ...result } } };
+  }
+
+  /** POST prs/seen `{ pr }` → `{ host, pr, seenAt }`: its @mentions of you so far are seen. */
+  async function localPrSeen(ref) {
+    if (typeof cli?.prSeen !== 'function') throw new HttpError('pull requests are not available on this server', 501);
+    try {
+      const r = await cli.prSeen(ref);
+      return { status: 200, body: { host: config.self, pr: r?.pr ?? ref, seenAt: r?.seenAt ?? null } };
+    } catch (err) {
+      if (err?.missing) throw new HttpError('this host’s fleet CLI has no `pr seen` command — update it', 501);
+      throw new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
+    }
   }
 
   async function localUsage(url) {

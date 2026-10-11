@@ -15,6 +15,7 @@ import type { PullRequest, Session } from '@/api/types'
 import { HostDot } from '@/components/HostBadge'
 import { ChecksIcon, PrSessionLink } from '@/components/PrChip'
 import { PrDialog } from '@/components/PrDialog'
+import { PrMention } from '@/components/PrMention'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,7 +29,7 @@ import { cn } from '@/lib/utils'
 
 /**
  * `#/prs`: the GitHub pull requests that need you (`fleet prs` on one host), by column —
- * waiting on you, yours in review / ready / drafts, waiting on their author. `pane` = the
+ * unseen @mentions of you, waiting on you, yours in review / ready / drafts, waiting on their author. `pane` = the
  * desktop layout (a board over the whole window, like the notes explorer); `screen` = mobile
  * (the columns stacked, swipe back).
  */
@@ -173,7 +174,10 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
                   {skeleton}
                 </div>
               ))
-            : groups.map((g) => <Column key={g.id} group={g} now={now} onOpen={setOpen} sessionsOf={(p) => links.byPr.get(p.url)} />)}
+            : groups
+                // Mostly empty: a column only while something is in it.
+                .filter((g) => g.id !== 'unseenMentions' || g.prs.length)
+                .map((g) => <Column key={g.id} group={g} now={now} onOpen={setOpen} sessionsOf={(p) => links.byPr.get(p.url)} />)}
         </div>
         {dialog}
       </section>
@@ -297,6 +301,7 @@ function PrCard({ pr: p, now, onOpen, sessions }: { pr: PullRequest; now: number
           ) : null}
         </div>
       </button>
+      {p.column === 'unseenMentions' ? <PrMention pr={p} className="border-t px-3 py-2" /> : null}
       {sessions?.length ? (
         <div className="flex flex-col gap-0.5 border-t px-2 py-1.5">
           {sessions.map((s) => (

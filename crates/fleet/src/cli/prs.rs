@@ -22,9 +22,16 @@ fn checks_cell(c: Option<&str>) -> colored::ColoredString {
     }
 }
 
-/// `new commits · worktree` and the like.
+/// `new commits · worktree` and the like; in Unseen mentions, what was said.
 fn note(pr: &Pr) -> String {
     let mut parts = Vec::new();
+    if let Some(m) = pr
+        .mention
+        .as_ref()
+        .filter(|_| pr.column == Column::UnseenMentions)
+    {
+        parts.push(format!("“{}”", m.excerpt));
+    }
     if pr.my_review.as_ref().is_some_and(|r| r.new_commits) {
         parts.push("new commits".to_string());
     }
@@ -125,6 +132,11 @@ pub fn run(o: Opts) -> Result<()> {
             .iter()
             .map(|(_, p)| match c {
                 Column::WaitingOnMe | Column::WaitingOnAuthor => format!("@{}", p.author),
+                Column::UnseenMentions => p
+                    .mention
+                    .as_ref()
+                    .map(|m| format!("@{}", m.author))
+                    .unwrap_or_default(),
                 _ => String::new(),
             })
             .collect();
@@ -133,6 +145,12 @@ pub fn run(o: Opts) -> Result<()> {
             let tail = note(p);
             // ref, checks, size, age, author; the title and the note share what is left.
             let used = 2 + ref_w + 2 + 2 + 3 + 5 + if who_w > 0 { who_w + 2 } else { 0 };
+            // The quote gets at most half of what is left; the title the rest.
+            let tail = if c == Column::UnseenMentions {
+                fit(&tail, (width.saturating_sub(used) / 2).max(10))
+            } else {
+                tail
+            };
             let title_w = width
                 .saturating_sub(
                     used + if tail.is_empty() {
@@ -180,14 +198,43 @@ pub fn run(o: Opts) -> Result<()> {
     Ok(())
 }
 
-/// `fleet pr checkout <ref>`: the PR's worktree (made when missing). → the worktree.
-pub fn checkout(r: &str, json: bool) -> Result<prs::Worktree> {
-    let pr_ref = prs::PrRef::parse(r).ok_or_else(|| {
+/// `fleet pr seen <ref>`: its mentions so far are seen.
+pub fn seen(r: &str, json: bool) -> Result<()> {
+    let pr_ref = parse_ref(r)?;
+    let owner = prs::owner_of(&pr_ref)?;
+    let key = prs::seen_key(&owner, &pr_ref.repo, pr_ref.number);
+    let now = chrono::Utc::now().timestamp_millis();
+    let dry = crate::core::hosts::dry_run();
+    if !dry {
+        prs::mark_seen(&prs::seen_path(), &key, now)?;
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &serde_json::json!({ "pr": key, "seenAt": now, "applied": !dry })
+            )?
+        );
+    } else if dry {
+        println!("dry-run: would mark the mentions on {key} seen");
+    } else {
+        println!("{} the mentions on {key}", "seen".green());
+    }
+    Ok(())
+}
+
+fn parse_ref(r: &str) -> Result<prs::PrRef> {
+    prs::PrRef::parse(r).ok_or_else(|| {
         Error::exit(
             2,
             format!("'{r}' is not a pull request: use owner/repo#123, repo#123 or its URL"),
         )
-    })?;
+    })
+}
+
+/// `fleet pr checkout <ref>`: the PR's worktree (made when missing). → the worktree.
+pub fn checkout(r: &str, json: bool) -> Result<prs::Worktree> {
+    let pr_ref = parse_ref(r)?;
     let s = Settings::load();
     for p in &s.problems {
         eprintln!("{} {p}", "warning:".yellow());

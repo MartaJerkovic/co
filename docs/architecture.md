@@ -352,7 +352,9 @@ dormant ones are in `fleet restore --json`.
 ### `fleet prs --json`
 
 See [cli.md](cli.md#pull-requests) for the shape. Column ids and `Pr` fields follow the add-only
-rule; `local` is joined on every call and never cached.
+rule; `local` is joined on every call and never cached, and so is the **unseenMentions** column:
+the cache keeps each PR's own column and its `mention`, and every read moves the PRs whose mention
+is neither answered nor marked seen (`prs-seen.json`) there.
 
 ### `fleet restore --json`
 
@@ -379,6 +381,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | GET | `/api/hosts/:host/harnesses[?refresh=1]` | `{ host, harnesses: [{ id, label, command, installed, models }] }` — `fleet --local harness list --json`, cached 10 min; Claude's `models` are `web.models`. An older CLI answers Claude alone |
 | GET | `/api/hosts/:host/usage[?refresh=1]` | that host's Claude subscription limits: `fleet usage --json` + `host` (see [Subscription usage](#subscription-usage)); 502 with the CLI's reason (no login, endpoint down with nothing cached) |
 | POST | `/api/hosts/:host/prs/checkout` | `{ pr: "owner/repo#123" }` → `{ host, worktree }`: `fleet pr checkout --json` on that host |
+| POST | `/api/hosts/:host/prs/seen` | `{ pr: "owner/repo#123" }` → `{ host, pr, seenAt }`: `fleet pr seen --json` on that host — its @mentions of you so far are seen |
 | POST | `/api/hosts/:host/prs/spawn` | `{ pr, prompt?, name?, model?, harness? }` → `{ host, worktree, spawn }`: the checkout, then a new session in the worktree whose first prompt is `worktree.contextLine` + `prompt` (like a stack sibling: the web spawner, not `fleet pr spawn`). Starts an agent |
 | GET | `/api/hosts/:host/prs[?refresh=1]` | the GitHub PRs that need you, as `gh` on that host sees them: `fleet prs --json` + `host` (see [cli.md](cli.md#pull-requests)); 502 with the CLI's reason (no `gh`, not logged in, GitHub down with nothing cached), 501 when that host's CLI predates `fleet prs` |
 | GET | `/api/hosts/:host/spawn-dirs` | that host's stored `spawnDirs` (canonical `{ label, paths }`), whether each of its own paths is a directory there, and what it offers now |

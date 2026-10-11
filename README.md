@@ -85,7 +85,7 @@ Building the whole setup from scratch (always-on Mac, Tailscale, ssh, tmux, phon
 | after a reboot | `restore` — dormant sessions: list, bring back (same tmux layout, `claude --resume`), forget |
 | hosts | `exec` · `ssh` · `doctor` |
 | setup | `init` · `config path\|show\|edit\|set` · `install --host <name>` |
-| pull requests | `prs` — the GitHub PRs that need you (yours, waiting on your review, waiting on their author), through `gh`, with their local worktrees |
+| pull requests | `prs` — the GitHub PRs that need you (unseen @mentions, yours, waiting on your review, waiting on their author), through `gh`, with their local worktrees |
 | git repos | `repos` · `repos sync` · `repos install-service` — fetch + fast-forward every repo under `~/Code`, on a timer |
 | web | `web serve` · `web build` · `web install-service` |
 

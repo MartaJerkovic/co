@@ -717,6 +717,13 @@ enum PrCmd {
         #[arg(long)]
         json: bool,
     },
+    /// Mark the PR's @mentions of you seen (out of the Unseen mentions column)
+    Seen {
+        /// owner/repo#123, repo#123 (from your cached PRs) or the PR's URL
+        pr: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove the worktrees under prs.worktrees whose PR merged or closed (lists them without --apply)
     CleanupWorktrees {
         /// Remove them (default: only list what would go and why the rest stays)
@@ -1266,6 +1273,7 @@ fn run(cli: Cli) -> Result<i32> {
         })?,
         Commands::Pr { cmd } => match cmd {
             PrCmd::CleanupWorktrees { apply, json } => prs_cmd::cleanup_worktrees(apply, json)?,
+            PrCmd::Seen { pr, json } => prs_cmd::seen(&pr, json)?,
             PrCmd::Checkout { pr, json } => {
                 prs_cmd::checkout(&pr, json)?;
             }

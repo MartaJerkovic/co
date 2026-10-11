@@ -35,7 +35,7 @@ fn page(nodes: Vec<Value>) -> String {
     .to_string()
 }
 
-/// A `gh` that answers each of the three searches from a file, logs its calls, and fails
+/// A `gh` that answers each of the four searches from a file, logs its calls, and fails
 /// while `fail` exists.
 fn fake_gh(env: &Env) -> std::path::PathBuf {
     std::fs::write(
@@ -62,6 +62,13 @@ fn fake_gh(env: &Env) -> std::path::PathBuf {
         )]),
     )
     .unwrap();
+    let mut mentioned = pr("app", 30, "ana", false, json!([]));
+    mentioned["body"] = json!("");
+    mentioned["mentionComments"] = json!({ "nodes": [
+        { "author": { "login": "ana" }, "createdAt": "2026-10-02T11:00:00Z", "body": "@me can you look?", "url": "https://github.com/acme/app/pull/30#c1" }
+    ] });
+    mentioned["mentionReviews"] = json!({ "nodes": [] });
+    std::fs::write(env.path("mentioned.json"), page(vec![mentioned])).unwrap();
     let dir = env.dir.path().display();
     let script = format!(
         r#"#!/bin/sh
@@ -69,6 +76,7 @@ echo call >> {dir}/calls
 [ -e {dir}/fail ] && {{ echo "HTTP 502" >&2; exit 1; }}
 for a in "$@"; do
   case "$a" in
+    q=*mentions:@me*) cat {dir}/mentioned.json; exit 0 ;;
     q=*reviewed-by:@me*) cat {dir}/reviewed.json; exit 0 ;;
     q=*user-review-requested:@me*) cat {dir}/requested.json; exit 0 ;;
     q=*author:@me*) cat {dir}/mine.json; exit 0 ;;
@@ -89,7 +97,8 @@ fn cmd(env: &Env, gh: &std::path::Path) -> assert_cmd::Command {
     );
     let mut c = env.cmd();
     c.env("FLEET_GH", gh)
-        .env("FLEET_PRS_CACHE", env.path("prs.json"));
+        .env("FLEET_PRS_CACHE", env.path("prs.json"))
+        .env("FLEET_PRS_SEEN", env.path("prs-seen.json"));
     c
 }
 
@@ -126,21 +135,25 @@ fn prs_json_sorts_into_columns_and_caches() {
     assert_eq!(
         cols,
         vec![
+            ("app#30".into(), "unseenMentions".into()),
             ("api#10".into(), "waitingOnMe".into()),
             ("app#2".into(), "reviewMine".into()),
             ("app#1".into(), "draftMine".into()),
             ("api#20".into(), "waitingOnAuthor".into()),
         ]
     );
-    assert_eq!(v["prs"][0]["checks"], "pending");
-    assert_eq!(v["columns"].as_array().unwrap().len(), 5);
-    assert_eq!(v["columns"][0]["id"], "waitingOnMe");
-    assert_eq!(v["columns"][0]["count"], 1);
-    assert_eq!(calls(&env), 3);
+    assert_eq!(v["prs"][0]["mention"]["author"], "ana");
+    assert_eq!(v["prs"][0]["mention"]["excerpt"], "@me can you look?");
+    assert_eq!(v["prs"][1]["checks"], "pending");
+    assert_eq!(v["columns"].as_array().unwrap().len(), 6);
+    assert_eq!(v["columns"][0]["id"], "unseenMentions");
+    assert_eq!(v["columns"][1]["id"], "waitingOnMe");
+    assert_eq!(v["columns"][1]["count"], 1);
+    assert_eq!(calls(&env), 4);
 
     // Fresh cache: no fetch.
     cmd(&env, &gh).args(["prs", "--json"]).assert().success();
-    assert_eq!(calls(&env), 3);
+    assert_eq!(calls(&env), 4);
 
     // --column filters, by any spelling.
     let out = cmd(&env, &gh)
@@ -165,7 +178,36 @@ fn a_failed_refresh_serves_the_cache_with_the_error() {
     let v = json_of(&out.get_output().stdout);
     assert_eq!(v["stale"], true);
     assert!(v["error"].as_str().unwrap().contains("502"), "{v}");
-    assert_eq!(v["prs"].as_array().unwrap().len(), 4);
+    assert_eq!(v["prs"].as_array().unwrap().len(), 5);
+}
+
+#[test]
+fn pr_seen_takes_a_mention_out_of_its_column() {
+    let env = Env::new();
+    let gh = fake_gh(&env);
+    cmd(&env, &gh).args(["prs", "--json"]).assert().success();
+    let out = cmd(&env, &gh)
+        .args(["pr", "seen", "--json", "app#30"])
+        .assert()
+        .success();
+    assert_eq!(json_of(&out.get_output().stdout)["pr"], "acme/app#30");
+    let out = cmd(&env, &gh).args(["prs", "--json"]).assert().success();
+    let v = json_of(&out.get_output().stdout);
+    assert!(
+        v["prs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["number"] != 30),
+        "{v}"
+    );
+    assert_eq!(v["columns"][0]["count"], 0);
+    // Ambiguity-free refs only: an unknown repo#N needs its owner.
+    cmd(&env, &gh)
+        .args(["pr", "seen", "nope#1"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("owner"));
 }
 
 #[test]

@@ -17,6 +17,8 @@ export interface PrsState {
   refreshing: boolean
   /** Read again now (the CLI's cache — cheap; re-joins the local worktrees). */
   reload: () => void
+  /** Its @mentions of you so far are seen (on `host`), then read again. */
+  markSeen: (p: PullRequest) => Promise<void>
   links: PrLinks
 }
 
@@ -30,6 +32,7 @@ const EMPTY: PrsState = {
   refresh: async () => {},
   refreshing: false,
   reload: () => {},
+  markSeen: async () => {},
   links: { bySession: new Map(), byPr: new Map() },
 }
 

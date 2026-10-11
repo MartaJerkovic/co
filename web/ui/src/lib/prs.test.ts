@@ -54,7 +54,14 @@ describe('groupPrs', () => {
 
   it('falls back to the default columns and copes with nothing', () => {
     expect(groupPrs(null)).toEqual([])
-    expect(groupPrs({ columns: [], prs: [] }).map((c) => c.id)).toEqual(['waitingOnMe', 'reviewMine', 'readyToMergeMine', 'draftMine', 'waitingOnAuthor'])
+    expect(groupPrs({ columns: [], prs: [] }).map((c) => c.id)).toEqual([
+      'unseenMentions',
+      'waitingOnMe',
+      'reviewMine',
+      'readyToMergeMine',
+      'draftMine',
+      'waitingOnAuthor',
+    ])
   })
 })
 

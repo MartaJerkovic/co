@@ -223,6 +223,9 @@ export const api = {
   /** Check a PR (`owner/repo#123`) out in a worktree on that host, or find the one it is in. */
   prCheckout: (host: string, pr: string, o: Opts = {}) =>
     request<{ host: string; worktree: PrWorktree }>(`${hostPath(host)}/prs/checkout`, { ...o, method: 'POST', body: { pr } }),
+  /** Mark its @mentions of you so far seen (out of the Unseen mentions column). */
+  prSeen: (host: string, pr: string, o: Opts = {}) =>
+    request<{ host: string; pr: string; seenAt: number | null }>(`${hostPath(host)}/prs/seen`, { ...o, method: 'POST', body: { pr } }),
   /** Check it out, then start a session in the worktree whose first prompt says what the PR is. */
   prSpawn: (host: string, body: { pr: string; prompt?: string; name?: string; model?: string; harness?: string }, o: Opts = {}) =>
     request<PrSpawnResponse>(`${hostPath(host)}/prs/spawn`, { ...o, method: 'POST', body }),
