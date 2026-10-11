@@ -53,6 +53,11 @@ function fakeHost(self, sessions) {
     if (self === 'broken') throw new Error('no Claude Code login found');
     return { account: { email: `me@${self}` }, limits: [{ kind: 'session', percent: 25 }], stale: false };
   };
+  cli.prs = async ({ refresh }) => {
+    calls.push(['prs', refresh]);
+    if (self === 'broken') throw new Error('gh not found: install the GitHub CLI and run `gh auth login`');
+    return { user: `me-${self}`, stale: false, error: null, columns: [{ id: 'waitingOnMe', title: 'Waiting on me', count: 1 }], prs: [{ column: 'waitingOnMe', repo: 'app', number: 1 }] };
+  };
   return { calls, cli, backend, transcripts, spawner, killer, autoNamer, fleet: createFleet({ cli, self }) };
 }
 
@@ -390,6 +395,43 @@ test('usage is GET-only, served locally or proxied once, with ?refresh=1 passed 
   assert.deepEqual(remote.calls.filter((c) => c[0] === 'usage'), [['usage', true]]);
   assert.equal((await post(`${urls.laptop}/api/hosts/laptop/usage`, {})).status, 405);
   assert.equal((await get(`${urls.laptop}/api/hosts/nope/usage`)).status, 404);
+});
+
+test('prs is GET-only, served locally or proxied, with ?refresh=1 passed through', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  const here = await get(`${urls.laptop}/api/hosts/laptop/prs`);
+  assert.equal(here.status, 200);
+  assert.deepEqual([here.body.host, here.body.user, here.body.prs[0].column], ['laptop', 'me-laptop', 'waitingOnMe']);
+  const there = await get(`${urls.laptop}/api/hosts/workstation/prs?refresh=1`);
+  assert.deepEqual([there.body.host, there.body.user], ['workstation', 'me-workstation']);
+  assert.deepEqual(lap.calls.filter((c) => c[0] === 'prs'), [['prs', false]]);
+  assert.deepEqual(remote.calls.filter((c) => c[0] === 'prs'), [['prs', true]]);
+  assert.equal((await post(`${urls.laptop}/api/hosts/laptop/prs`, {})).status, 405);
+});
+
+test('prs: a CLI failure is a 502 with its reason', async () => {
+  const host = fakeHost('broken', []);
+  const config = normalizeConfig({ self: 'broken' }, { env: {}, home: '/home/tester' });
+  const api = createApi({ config, ...host, warmFleet: false });
+  await assert.rejects(api({ method: 'GET', headers: {} }, new URL('http://x/api/hosts/broken/prs')), (e) => e.status === 502 && /gh auth login/.test(e.message));
+});
+
+test('fleet CLI prs runs `fleet --local prs --json [--refresh]` and surfaces the last error line', async () => {
+  const calls = [];
+  let stderr = null;
+  const run = async (bin, args) => {
+    calls.push(args);
+    if (stderr) throw Object.assign(new Error('exit 1'), { code: 1, stderr });
+    return { stdout: JSON.stringify({ prs: [], stale: false }), stderr: '' };
+  };
+  const cli = createFleetCli({ run, bin: '/x/fleet' });
+  assert.deepEqual(await cli.prs(), { prs: [], stale: false });
+  await cli.prs({ refresh: true });
+  assert.deepEqual(calls, [['--local', 'prs', '--json'], ['--local', 'prs', '--json', '--refresh']]);
+  stderr = 'warning: prs.orgs: 3 is not a name\nError: gh api graphql failed: HTTP 502\n';
+  await assert.rejects(cli.prs(), /^FleetCliError: gh api graphql failed: HTTP 502$/);
+  stderr = "error: unrecognized subcommand 'prs'\n";
+  await assert.rejects(cli.prs(), (e) => e.missing === true);
 });
 
 test('harnesses: per host, cached, Claude models from the config, proxied to peers', async (t) => {

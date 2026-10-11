@@ -79,6 +79,9 @@ const SESSION_STACK_SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/st
 const STACK_SPAWN_PROXY_MS = 180 * 1000;
 const REPOS_ROUTE = /^\/api\/hosts\/([^/]+)\/repos(?:\/(sync|service))?$/;
 const USAGE_ROUTE = /^\/api\/hosts\/([^/]+)\/usage$/;
+const PRS_ROUTE = /^\/api\/hosts\/([^/]+)\/prs$/;
+/** A PR fetch is three `gh` searches, up to 4 pages each: give a peer as long as its CLI gets. */
+const PRS_PROXY_MS = 130 * 1000;
 const HARNESSES_ROUTE = /^\/api\/hosts\/([^/]+)\/harnesses$/;
 /** `fleet harness list` runs `pi --list-models` (a node start): keep its answer a while. */
 const HARNESSES_TTL_MS = 10 * 60 * 1000;
@@ -104,7 +107,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   transcripts lib/transcript.mjs reader
  *   spawner     lib/spawn.mjs spawner
  *   killer      lib/kill.mjs killer (kill action; absent → 501)
- *   cli         lib/fleet-cli.mjs instance — `rename`, `usage` (absent → 501)
+ *   cli         lib/fleet-cli.mjs instance — `rename`, `usage`, `prs` (absent → 501)
  *   autoNamer   lib/autoname.mjs instance (autoname route + health; absent → 501)
  *   spawnNamer  lib/autoname.mjs#createSpawnNamer — a targeted naming pass after an unnamed
  *               spawn with a first prompt (only when web.autoName is enabled; absent → none)
@@ -601,6 +604,12 @@ export function createApi({
       return forHost({ req, url, host: decodeURIComponent(us[1]), local: () => localUsage(url) });
     }
 
+    const pr = PRS_ROUTE.exec(url.pathname);
+    if (pr) {
+      if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
+      return forHost({ req, url, host: decodeURIComponent(pr[1]), timeoutMs: PRS_PROXY_MS, local: () => localPrs(url) });
+    }
+
     const u = UPLOAD_ROUTE.exec(url.pathname);
     if (u) {
       if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
@@ -788,6 +797,18 @@ export function createApi({
   }
 
   /** GET usage: this host's Claude subscription limits (`fleet usage --json`). */
+  /** `fleet --local prs --json` on this host (its `gh` login, its checkouts). */
+  async function localPrs(url) {
+    if (typeof cli?.prs !== 'function') throw new HttpError('pull requests are not available on this server', 501);
+    try {
+      const prs = await cli.prs({ refresh: url.searchParams.get('refresh') === '1' });
+      return { status: 200, body: { host: config.self, ...prs } };
+    } catch (err) {
+      if (err?.missing) throw new HttpError('this host’s fleet CLI has no `prs` command — update it', 501);
+      throw new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
+    }
+  }
+
   async function localUsage(url) {
     if (typeof cli?.usage !== 'function') throw new HttpError('usage is not available on this server', 501);
     try {

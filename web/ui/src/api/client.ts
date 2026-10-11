@@ -36,6 +36,7 @@ import type {
   StacksResponse,
   StackView,
   UploadResponse,
+  PrsResponse,
   UsageResponse,
 } from './types'
 import type { GroupEdit } from '@/lib/groups'
@@ -212,6 +213,10 @@ export const api = {
   /** The Claude subscription limits of the account logged in on that host (`refresh` skips its 60s cache). */
   usage: (host: string, { refresh = false, ...o }: Opts & { refresh?: boolean } = {}) =>
     request<UsageResponse>(`${hostPath(host)}/usage${refresh ? '?refresh=1' : ''}`, o),
+
+  /** The GitHub PRs that need you, as `gh` on that host sees them (`refresh` skips its cache). */
+  prs: (host: string, { refresh = false, ...o }: Opts & { refresh?: boolean } = {}) =>
+    request<PrsResponse>(`${hostPath(host)}/prs${refresh ? '?refresh=1' : ''}`, o),
 
   /** Sessions a reboot left dormant on `host` (404 / 501 on servers or CLIs that predate session recovery). */
   dormant: (host: string, o: Opts = {}) => request<DormantResponse>(`${hostPath(host)}/dormant`, o),

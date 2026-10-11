@@ -1,7 +1,7 @@
 // The one place the web server talks to the `fleet` CLI. Everything the server needs
 // from the CLI goes through here, so an alternative UI/TUI server can reuse it and the
 // contracts (`fleet list --json`, `fleet rename --json`, `fleet name --all --apply`, `fleet name <id> --apply`, `fleet group` (+ `--rename` / `--move`),
-// `fleet usage --json`, `fleet config set`, `fleet --local repos …`, `fleet --local stack … --json`, `fleet --local restore … --json`) are documented in one
+// `fleet usage --json`, `fleet --local prs --json`, `fleet config set`, `fleet --local repos …`, `fleet --local stack … --json`, `fleet --local restore … --json`) are documented in one
 // spot (see ARCHITECTURE.md).
 //
 // Peek/send/keys are NOT done through the CLI: `fleet peek` truncates to terminal width
@@ -207,6 +207,31 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
   }
 
   /**
+   * The GitHub PRs that need you: `fleet --local prs --json [--refresh]` (docs/cli.md → Pull
+   * requests). A fetch is three `gh` searches (several seconds each); a fresh cache is instant.
+   */
+  async function prs({ refresh = false, timeoutMs: t = 120 * 1000 } = {}) {
+    const args = ['--local', 'prs', '--json'];
+    if (refresh) args.push('--refresh');
+    let stdout;
+    try {
+      ({ stdout } = await run(bin, args, { timeout: t, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, NO_COLOR: '1' } }));
+    } catch (err) {
+      const e = wrap(err, 'fleet prs', t);
+      const why = String(err?.stderr ?? '')
+        .split('\n')
+        .filter((l) => l.trim() && !l.startsWith('warning:'))
+        .pop()
+        ?.replace(/^(fleet:\s*)?(Error:\s*)?/i, '')
+        .trim();
+      if (why && !e.timedOut) e.message = why;
+      e.missing = !e.timedOut && /unrecognized subcommand 'prs'/i.test(String(err?.stderr ?? ''));
+      throw e;
+    }
+    return parseObject(stdout, 'fleet prs');
+  }
+
+  /**
    * The harnesses this machine can spawn (claude, codex, pi) and their model pickers:
    * `fleet --local harness list --json` → `[{ id, label, command, installed, models }]`.
    */
@@ -357,6 +382,7 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
     groupEdit,
     usage,
     harnesses,
+    prs,
     configSet,
     repos,
     reposSync,

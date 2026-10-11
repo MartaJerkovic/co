@@ -23,6 +23,7 @@ import {
   SparklesIcon,
   SquareTerminalIcon,
   SunIcon,
+  GitPullRequestIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Redirect, useLocation, useRoute } from 'wouter'
@@ -77,6 +78,7 @@ import {
 import { sessionTitle } from '@/lib/title'
 import { cn } from '@/lib/utils'
 import { NotesScreen } from '@/screens/NotesScreen'
+import { PrsScreen } from '@/screens/PrsScreen'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
@@ -98,6 +100,8 @@ export function DesktopShell() {
   const [match, params] = useRoute('/s/:host/:id')
   const [settingsOpen] = useRoute('/settings')
   const [usageOpen] = useRoute('/usage')
+  // `#/prs`: the pull requests board takes the whole window too.
+  const [prsOpen] = useRoute('/prs')
   // `#/notes…`: the notes explorer takes the whole window (no sidebar / board).
   const notesLoc = parseNotesLocation(location)
   const notesOpen = notesLoc !== null
@@ -238,6 +242,7 @@ export function DesktopShell() {
     const cur = cursorKey ? byKey.get(cursorKey) : null
     // The session list isn't on screen in the notes explorer: its keys do nothing there.
     if (notesOpen && !['search', 'new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
+    if (prsOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
     switch (action) {
       case 'next':
         moveCursor(1)
@@ -262,7 +267,7 @@ export function DesktopShell() {
         setNewOpen(true)
         return true
       case 'back':
-        if (selectedKey || settingsOpen || usageOpen || notesOpen) {
+        if (selectedKey || settingsOpen || usageOpen || notesOpen || prsOpen) {
           navigate('/')
           return true
         }
@@ -464,6 +469,13 @@ export function DesktopShell() {
           ? [{ id: 'notes', label: 'Notes…', icon: <NotebookTextIcon />, shortcut: shortcutHint('notes'), keywords: ['notes', 'markdown', 'knowledge', 'wiki', 'search'], run: () => navigate(notesHref()) }]
           : []),
         {
+          id: 'prs',
+          label: 'Pull requests…',
+          icon: <GitPullRequestIcon />,
+          keywords: ['pull requests', 'prs', 'github', 'review', 'code review', 'drafts'],
+          run: () => navigate('/prs'),
+        },
+        {
           id: 'usage',
           label: 'Usage limits…',
           icon: <GaugeIcon />,
@@ -509,8 +521,8 @@ export function DesktopShell() {
     },
   ]
 
-  // Anything but `/`, `/settings`, `/usage` and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !notesOpen && location !== '/') return <Redirect to="/" replace />
+  // Anything but `/`, `/settings`, `/usage`, `/prs`, notes and `/s/:host/:id` → the list (same as mobile).
+  if (!match && !settingsOpen && !usageOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -543,6 +555,10 @@ export function DesktopShell() {
       {notesOpen ? (
         <main className="flex min-w-0 flex-1">
           <NotesScreen layout="pane" searchRef={notesSearchRef} />
+        </main>
+      ) : prsOpen ? (
+        <main className="flex min-w-0 flex-1">
+          <PrsScreen layout="pane" />
         </main>
       ) : board ? (
         <div ref={boardAreaRef} className="relative flex min-w-0 flex-1">
@@ -665,7 +681,7 @@ export function DesktopShell() {
         />
       )}
 
-      {board || notesOpen ? null : (
+      {board || notesOpen || prsOpen ? null : (
         <main className="flex min-w-0 flex-1" style={titlebarOffset(sidebarOpen ? sidebarW : '3rem')}>
           {pane ?? (
             <EmptyPane

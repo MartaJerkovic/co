@@ -1,0 +1,57 @@
+import type { PrColumn, PrColumnId, PrsResponse, PullRequest } from '@/api/types'
+
+/** Display order and titles when a server sends no `columns` (and the order it should send). */
+export const PR_COLUMNS: { id: PrColumnId; title: string }[] = [
+  { id: 'waitingOnMe', title: 'Waiting on me' },
+  { id: 'reviewMine', title: 'Mine, in review' },
+  { id: 'readyToMergeMine', title: 'Mine, ready to merge' },
+  { id: 'draftMine', title: 'My drafts' },
+  { id: 'waitingOnAuthor', title: 'Waiting on author' },
+]
+
+export interface PrGroup extends PrColumn {
+  prs: PullRequest[]
+}
+
+/** The answer's columns, each with its PRs (in the server's order); unknown columns are kept, last. */
+export function groupPrs(r: Pick<PrsResponse, 'columns' | 'prs'> | null, filter = ''): PrGroup[] {
+  if (!r) return []
+  const cols = r.columns?.length ? r.columns : PR_COLUMNS.map((c) => ({ ...c, count: 0 }))
+  const q = filter.trim().toLowerCase()
+  const hit = (p: PullRequest) =>
+    !q || [p.title, p.repo, `#${p.number}`, `${p.repo}#${p.number}`, p.author, p.headBranch].some((s) => s.toLowerCase().includes(q))
+  const groups: PrGroup[] = cols.map((c) => ({ ...c, prs: [] }))
+  const byId = new Map(groups.map((g) => [g.id as string, g]))
+  for (const p of r.prs ?? []) {
+    if (!hit(p)) continue
+    let g = byId.get(p.column)
+    if (!g) {
+      g = { id: p.column, title: p.column, count: 0, prs: [] }
+      byId.set(p.column, g)
+      groups.push(g)
+    }
+    g.prs.push(p)
+  }
+  return groups
+}
+
+export type ChecksTone = 'ok' | 'bad' | 'running' | 'none'
+
+export function checksTone(c: PullRequest['checks']): ChecksTone {
+  if (c === 'success') return 'ok'
+  if (c === 'failure' || c === 'error') return 'bad'
+  if (c === 'pending' || c === 'expected') return 'running'
+  return 'none'
+}
+
+export const CHECKS_LABEL: Record<ChecksTone, string> = { ok: 'Checks passed', bad: 'Checks failed', running: 'Checks running', none: 'No checks' }
+
+/** Short review state for a card: what this PR is waiting for, from your side. */
+export function reviewLabel(p: PullRequest): string | null {
+  if (p.myReview?.newCommits) return 'new commits since your review'
+  if (p.myReview?.state === 'changesRequested') return 'you requested changes'
+  if (p.myReview?.state === 'commented') return 'you commented'
+  if (p.reviewDecision === 'changesRequested') return 'changes requested'
+  if (p.reviewDecision === 'approved') return 'approved'
+  return null
+}

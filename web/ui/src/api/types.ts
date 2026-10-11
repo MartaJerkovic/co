@@ -820,3 +820,53 @@ export interface RepoSyncResult {
   defaultBranch?: { branch: string; pulled: number }
   detail?: string
 }
+
+/** A `fleet prs` column id (docs/cli.md → Pull requests). */
+export type PrColumnId = 'waitingOnMe' | 'reviewMine' | 'readyToMergeMine' | 'draftMine' | 'waitingOnAuthor'
+
+export interface PrColumn {
+  id: PrColumnId
+  title: string
+  count: number
+}
+
+export interface PullRequest {
+  column: PrColumnId
+  owner: string
+  repo: string
+  number: number
+  title: string
+  url: string
+  author: string
+  draft: boolean
+  /** ms epoch */
+  createdAt: number
+  updatedAt: number
+  additions: number
+  deletions: number
+  changedFiles: number
+  size: 'XS' | 'S' | 'M' | 'L' | 'XL'
+  baseBranch: string
+  headBranch: string
+  headOid: string | null
+  reviewDecision: 'approved' | 'changesRequested' | 'reviewRequired' | null
+  checks: 'success' | 'failure' | 'error' | 'pending' | 'expected' | null
+  comments: number
+  requestedReviewers: string[]
+  myReview: { state: string; at: number | null; newCommits: boolean } | null
+  /** Where the repo / head branch is checked out on the answering host. */
+  local?: { repoPath: string; worktree: string | null }
+}
+
+/** GET /api/hosts/:host/prs */
+export interface PrsResponse {
+  host: string
+  user: string
+  scope: string
+  fetchedAt: number
+  stale: boolean
+  error: string | null
+  truncated: boolean
+  columns: PrColumn[]
+  prs: PullRequest[]
+}

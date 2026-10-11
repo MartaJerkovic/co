@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { CommandIcon, GaugeIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon } from 'lucide-react'
+import { CommandIcon, GaugeIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon, GitPullRequestIcon } from 'lucide-react'
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
@@ -226,6 +226,11 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
         </Button>
         <NotesLink size="icon-sm" />
         <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
+          <a href="#/prs" aria-label="Pull requests" title="Pull requests">
+            <GitPullRequestIcon />
+          </a>
+        </Button>
+        <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
           <a href="#/usage" aria-label="Usage limits" title="Usage limits">
             <GaugeIcon />
           </a>
@@ -280,6 +285,11 @@ export function SidebarRail({
       </Button>
       <ScratchpadButton />
       <NotesLink />
+      <Button asChild variant="ghost" size="icon">
+        <a href="#/prs" aria-label="Pull requests" title="Pull requests">
+          <GitPullRequestIcon />
+        </a>
+      </Button>
       <Button asChild variant="ghost" size="icon">
         <a href="#/usage" aria-label="Usage limits" title="Usage limits">
           <GaugeIcon />

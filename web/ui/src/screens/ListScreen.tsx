@@ -1,5 +1,5 @@
 import { useRef, useState, type TouchEvent } from 'react'
-import { GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon } from 'lucide-react'
+import { GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { GroupedList } from '@/components/board/GroupedList'
@@ -111,6 +111,11 @@ export function ListScreen() {
               </a>
             </Button>
           ) : null}
+          <Button asChild variant="ghost" size="icon" className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
+            <a href="#/prs" aria-label="Pull requests" title="Pull requests">
+              <GitPullRequestIcon />
+            </a>
+          </Button>
           <Button asChild variant="ghost" size="icon" className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
             <a href="#/usage" aria-label="Usage limits" title="Usage limits">
               <GaugeIcon />
