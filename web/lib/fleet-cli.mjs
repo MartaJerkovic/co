@@ -207,6 +207,22 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
   }
 
   /**
+   * The harnesses this machine can spawn (claude, codex, pi) and their model pickers:
+   * `fleet --local harness list --json` → `[{ id, label, command, installed, models }]`.
+   */
+  async function harnesses({ timeoutMs: t = 30 * 1000 } = {}) {
+    let stdout;
+    try {
+      ({ stdout } = await run(bin, ['--local', 'harness', 'list', '--json'], { timeout: t, env: { ...process.env, NO_COLOR: '1' } }));
+    } catch (err) {
+      throw wrap(err, 'fleet harness list', t);
+    }
+    const rows = JSON.parse(stdout);
+    if (!Array.isArray(rows)) throw new Error('fleet harness list: expected an array');
+    return rows;
+  }
+
+  /**
    * Write one config key: `fleet --local config set <key> <json>` against `configFile`
    * (FLEET_CONFIG). The CLI owns the config file: it rewrites the raw JSON atomically
    * (tmp + rename), keeps every other key and refuses a file that does not parse.
@@ -340,6 +356,7 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
     groupCached,
     groupEdit,
     usage,
+    harnesses,
     configSet,
     repos,
     reposSync,

@@ -9,6 +9,14 @@ export function trimTitle(title, max = TITLE_MAX) {
 }
 
 /**
+ * Every route and view keys a session by `session_id`. A Codex session has none until its first
+ * prompt (no transcript yet): it goes by `pid-<pid>` until then. Claude rows always carry one.
+ */
+export function placeholderId(s) {
+  return Number.isInteger(s?.pid) ? `pid-${s.pid}` : null;
+}
+
+/**
  * Local session discovery (via the `fleet` CLI, see lib/fleet-cli.mjs) with a short TTL
  * cache and in-flight de-duplication. Never throws: failures come back as { ok:false, error }.
  */
@@ -22,7 +30,7 @@ export function createFleet({ cli, self = 'local', ttlMs = 2000, now = Date.now 
     const fetchedAt = now();
     try {
       const raw = await cli.list();
-      const sessions = sortSessions(raw).map((s) => ({ ...s, title: trimTitle(s.title), host: self }));
+      const sessions = sortSessions(raw).map((s) => ({ ...s, session_id: s.session_id ?? placeholderId(s), title: trimTitle(s.title), host: self }));
       return { name: self, ok: true, fetchedAt, sessions };
     } catch (err) {
       return { name: self, ok: false, error: String(err?.message ?? err), fetchedAt, sessions: [] };

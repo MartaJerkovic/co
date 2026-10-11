@@ -79,6 +79,9 @@ const SESSION_STACK_SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/st
 const STACK_SPAWN_PROXY_MS = 180 * 1000;
 const REPOS_ROUTE = /^\/api\/hosts\/([^/]+)\/repos(?:\/(sync|service))?$/;
 const USAGE_ROUTE = /^\/api\/hosts\/([^/]+)\/usage$/;
+const HARNESSES_ROUTE = /^\/api\/hosts\/([^/]+)\/harnesses$/;
+/** `fleet harness list` runs `pi --list-models` (a node start): keep its answer a while. */
+const HARNESSES_TTL_MS = 10 * 60 * 1000;
 const DORMANT_ROUTE = /^\/api\/hosts\/([^/]+)\/dormant(?:\/(restore|forget))?$/;
 /** A restore types launch lines into new tmux panes; `--all` may bring back many sessions. */
 const DORMANT_PROXY_MS = 6 * 60 * 1000;
@@ -269,7 +272,7 @@ export function createApi({
       if (!check.ok) throw new HttpError(check.error, 400);
       const session = await resolveLocalSession(id);
       // The session id, never a fuzzy name: `fleet rename` types into a live agent.
-      const target = session.session_id || String(session.pid);
+      const target = session.session_id && !session.session_id.startsWith('pid-') ? session.session_id : String(session.pid);
       let report;
       try {
         report = await cli.rename({ target, title: check.title });
@@ -342,8 +345,9 @@ export function createApi({
       const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
       const result = await spawner.spawn({ ...check, nameGiven });
       refreshFleet();
-      // Name it as soon as it has answered, not at the next periodic pass.
-      if (!nameGiven && check.prompt.trim() && spawnNamer) {
+      // Name it as soon as it has answered, not at the next periodic pass. Codex titles its
+      // own threads and pi keeps the first prompt; the namer drives Claude's `/rename`.
+      if (!nameGiven && check.prompt.trim() && spawnNamer && check.harness === 'claude') {
         spawnNamer.schedule(result.tmuxSession).catch(() => {});
       }
       return { status: 200, body: { ok: true, host: config.self, ...result } };
@@ -585,6 +589,12 @@ export function createApi({
       return forHost({ req, url, host: decodeURIComponent(rp[1]), timeoutMs, local: () => localRepos(req, action) });
     }
 
+    const hr = HARNESSES_ROUTE.exec(url.pathname);
+    if (hr) {
+      if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
+      return forHost({ req, url, host: decodeURIComponent(hr[1]), local: () => localHarnesses(url) });
+    }
+
     const us = USAGE_ROUTE.exec(url.pathname);
     if (us) {
       if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
@@ -753,6 +763,30 @@ export function createApi({
     });
   }
 
+  /**
+   * GET harnesses: what this host can spawn (`fleet harness list --json`), cached
+   * HARNESSES_TTL_MS (`?refresh=1` skips it). A CLI without `harness` (older fleet) answers
+   * Claude alone, with the configured model list, so the New session form still works.
+   */
+  let harnessCache = null; // { at, rows }
+  async function localHarnesses(url) {
+    const refresh = url.searchParams.get('refresh') === '1';
+    if (!refresh && harnessCache && Date.now() - harnessCache.at < HARNESSES_TTL_MS) {
+      return { status: 200, body: { host: config.self, harnesses: harnessCache.rows } };
+    }
+    let rows;
+    try {
+      if (typeof cli?.harnesses !== 'function') throw new Error('no harness support');
+      rows = await cli.harnesses();
+    } catch {
+      rows = [{ id: 'claude', label: 'Claude Code', command: config.claude ?? 'claude', installed: true, models: [] }];
+    }
+    // Claude's picker is the configured one (`web.models`), like before harnesses.
+    rows = rows.map((r) => (r.id === 'claude' ? { ...r, models: config.models ?? DEFAULT_MODELS } : r));
+    harnessCache = { at: Date.now(), rows };
+    return { status: 200, body: { host: config.self, harnesses: rows } };
+  }
+
   /** GET usage: this host's Claude subscription limits (`fleet usage --json`). */
   async function localUsage(url) {
     if (typeof cli?.usage !== 'function') throw new HttpError('usage is not available on this server', 501);
@@ -902,13 +936,13 @@ export function createApi({
     const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
     let result;
     try {
-      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model });
+      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;
     }
     refreshFleet();
-    if (!nameGiven && check.prompt.trim() && spawnNamer) spawnNamer.schedule(result.tmuxSession).catch(() => {});
+    if (!nameGiven && check.prompt.trim() && spawnNamer && check.harness === 'claude') spawnNamer.schedule(result.tmuxSession).catch(() => {});
     stacks.join(result.tmuxSession, stack.id);
     return {
       status: 200,

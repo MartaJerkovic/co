@@ -127,7 +127,7 @@ const handleApi = createApi({
   fleet,
   backend,
   transcripts: createTranscriptReader(),
-  spawner: createSpawner({ run, tmux: config.tmux, launcher: config.claude }),
+  spawner: createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers }),
   killer: createKiller({ run, tmux: config.tmux, closeIterm: (s) => backend.closeIterm(s) }),
   cli,
   autoNamer,

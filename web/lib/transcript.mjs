@@ -189,6 +189,79 @@ export function parseTranscript(text) {
   return out;
 }
 
+// ------------------------------------------------------------------ Codex and pi
+
+/** Codex wraps its own context (AGENTS.md, environment, permissions) in user messages. */
+function isCodexContext(text) {
+  return text.startsWith('<') || text.startsWith('# AGENTS.md');
+}
+
+/**
+ * Codex rollout JSONL (`~/.codex/sessions/…/rollout-*.jsonl`) → chat messages, same shape as
+ * parseTranscript. Assistant text is `final` unless a tool call follows it within the turn.
+ */
+export function parseCodexTranscript(text) {
+  const out = [];
+  let lastAssistant = null; // the turn's latest assistant message, until a tool call or user turn
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const p = entry?.payload;
+    if (!p || typeof p !== 'object') continue;
+    const ts = entry.timestamp ? Date.parse(entry.timestamp) || null : null;
+    if (entry.type === 'response_item' && p.type === 'message') {
+      const body = textOfContent(p.content, p.role === 'user' ? 'input_text' : 'output_text').trim();
+      if (!body) continue;
+      if (p.role === 'user') {
+        if (isCodexContext(body)) continue;
+        out.push({ role: 'user', kind: 'user', text: body, ts });
+        lastAssistant = null;
+      } else if (p.role === 'assistant') {
+        lastAssistant = { role: 'assistant', kind: 'assistant', text: body, ts, final: true };
+        out.push(lastAssistant);
+      }
+      continue;
+    }
+    if (entry.type === 'response_item' && /call$/.test(p.type ?? '') && lastAssistant) {
+      lastAssistant.final = false; // narration before a tool call
+      lastAssistant = null;
+    }
+  }
+  return out;
+}
+
+/** pi session JSONL (`~/.pi/agent/sessions/<cwd>/*.jsonl`) → chat messages. */
+export function parsePiTranscript(text) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry?.type !== 'message') continue;
+    const msg = entry.message;
+    if (!msg || typeof msg !== 'object') continue;
+    const ts = entry.timestamp ? Date.parse(entry.timestamp) || null : null;
+    const body = textOfContent(msg.content).trim();
+    if (!body) continue;
+    if (msg.role === 'user') out.push({ role: 'user', kind: 'user', text: body, ts });
+    else if (msg.role === 'assistant') {
+      out.push({ role: 'assistant', kind: 'assistant', text: body, ts, final: msg.stopReason !== 'toolUse' });
+    }
+  }
+  return out;
+}
+
+const PARSERS = { claude: parseTranscript, codex: parseCodexTranscript, pi: parsePiTranscript };
+
 // ------------------------------------------------------------------ service
 
 /**
@@ -200,8 +273,15 @@ export function createTranscriptReader({ home = claudeHome(), maxBytes = MAX_TAI
 
   async function load(session) {
     const id = session.session_id;
+    const harness = PARSERS[session.harness] ? session.harness : 'claude';
     const cached = cache.get(id);
-    const file = cached?.file ?? (await locateTranscript(session.cwd, id, home));
+    // Codex / pi: discovery names the file; Claude's is found from cwd + id.
+    const file =
+      harness === 'claude'
+        ? (cached?.file ?? (await locateTranscript(session.cwd, id, home)))
+        : typeof session.transcript === 'string' && session.transcript
+          ? session.transcript
+          : null;
     if (!file) return null;
     let stat;
     try {
@@ -217,7 +297,7 @@ export function createTranscriptReader({ home = claudeHome(), maxBytes = MAX_TAI
       size: tail.size,
       mtimeMs: tail.mtimeMs,
       truncated: tail.truncated,
-      messages: parseTranscript(tail.text),
+      messages: PARSERS[harness](tail.text),
     };
     cache.set(id, fresh);
     return fresh;

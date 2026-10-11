@@ -1,6 +1,7 @@
-// Start a fresh Claude Code session in a new tmux session (one tmux session = one job,
-// same convention as `fleet tmux new`). Mirrors `fleet spawn` (tmux): open the pane in `dir`,
-// then type `claude [--model <id>] [-n <name>] '<prompt>'` into the shell so the user's PATH/profile apply.
+// Start a fresh agent session — Claude Code, Codex or pi — in a new tmux session (one tmux
+// session = one job, same convention as `fleet tmux new`). Mirrors `fleet spawn` (tmux): open the
+// pane in `dir`, then type `<harness> [--model <id>] [-n <name>] '<prompt>'` into the shell so the
+// user's PATH/profile apply.
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,13 +48,18 @@ export function defaultName(now = new Date()) {
  */
 export const TYPED_LINE_MAX = 900;
 
+/** The coding agents a spawn can start (`core::harness::Harness`). */
+export const HARNESSES = ['claude', 'codex', 'pi'];
+export const HARNESS_LABELS = { claude: 'Claude', codex: 'Codex', pi: 'pi' };
+
 /** Build the shell line typed into the new pane (`promptFile`: read the prompt from there). */
-export function launchCommand({ launcher = 'claude', name, prompt, model, promptFile }) {
+export function launchCommand({ launcher = 'claude', harness = 'claude', name, prompt, model, promptFile }) {
   // No name → plain `claude`: it derives `<cwd>-9d` and the auto-namer (lib/autoname.mjs)
   // replaces that with a task-shaped name, tmux session included, once the session is idle.
+  // Codex has no name flag: its tmux session carries the name, and Codex titles the thread.
   const parts = [launcher];
   if (model) parts.push('--model', shq(model));
-  if (name) parts.push('-n', shq(name));
+  if (name && harness !== 'codex') parts.push('-n', shq(name));
   if (promptFile) parts.push(`"$(cat ${shq(promptFile)})"`);
   else if (prompt && prompt.trim()) parts.push(shqTyped(prompt));
   return parts.join(' ');
@@ -76,15 +82,20 @@ export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
     else if (body.prompt.length > 8000) errors.push('prompt too long (max 8000 chars)');
     else prompt = body.prompt;
   }
-  // Typed into a shell: a strict charset on top of the quoting. '' / absent = Claude's default.
+  // Typed into a shell: a strict charset on top of the quoting. '' / absent = the harness's default.
   let model = '';
   if (body?.model != null && body.model !== '') {
     if (typeof body.model !== 'string' || !MODEL_ID_RE.test(body.model)) {
-      errors.push('model must be 1-100 chars of letters, digits, . _ [ ] or -');
+      errors.push('model must be 1-100 chars of letters, digits, . _ [ ] / : or -');
     } else model = body.model;
   }
+  let harness = 'claude';
+  if (body?.harness != null && body.harness !== '') {
+    if (!HARNESSES.includes(body.harness)) errors.push(`harness must be one of ${HARNESSES.join(', ')}`);
+    else harness = body.harness;
+  }
   if (errors.length) return { ok: false, error: errors.join('; ') };
-  return { ok: true, name, dir, prompt, nameGiven, model };
+  return { ok: true, name, dir, prompt, nameGiven, model, harness };
 }
 
 /** True when `child` is `root` or lies beneath it (both already resolved). */
@@ -145,6 +156,7 @@ export function createSpawner({
   run,
   tmux = 'tmux',
   launcher = 'claude',
+  launchers = {},
   enterDelayMs = 400,
   sleep,
   promptDir = path.join(os.homedir(), '.claude', 'fleet-prompts'),
@@ -160,8 +172,8 @@ export function createSpawner({
     }
   }
 
-  /** @returns {{ name, dir, tmuxSession, command, trusted, model }} */
-  async function spawn({ name, dir, prompt, nameGiven = true, model = '' }) {
+  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness }} */
+  async function spawn({ name, dir, prompt, nameGiven = true, model = '', harness = 'claude' }) {
     let st;
     try {
       st = await fs.stat(dir);
@@ -173,7 +185,7 @@ export function createSpawner({
       throw Object.assign(new Error(`tmux session "${name}" already exists`), { status: 409 });
     }
     await run(tmux, ['new-session', '-d', '-s', name, '-c', dir], { timeout: 8000 });
-    const launch = { launcher, name: nameGiven ? name : null, prompt, model };
+    const launch = { launcher: launchers[harness] || (harness === 'claude' ? launcher : harness), harness, name: nameGiven ? name : null, prompt, model };
     let command = launchCommand(launch);
     if (Buffer.byteLength(command) > TYPED_LINE_MAX) {
       const d = new Date();
@@ -189,9 +201,9 @@ export function createSpawner({
     await run(tmux, ['send-keys', '-t', `${name}:`, '-l', '--', command], { timeout: 8000 });
     await wait(150);
     await run(tmux, ['send-keys', '-t', `${name}:`, 'Enter'], { timeout: 8000 });
-    const trusted = await acceptTrustPrompt(name);
-    if (!trusted) await ensureStarted(name);
-    return { name, dir, tmuxSession: name, command, trusted, model: model || null };
+    const trusted = await acceptTrustPrompt(name, { harness });
+    if (!trusted) await ensureStarted(name, { harness });
+    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness };
   }
 
   /**
@@ -200,7 +212,7 @@ export function createSpawner({
    * The user picked the directory explicitly, so answer "Yes" (Down, Enter) for them.
    * Polls the pane for up to ~10s; returns true when the prompt was seen and accepted.
    */
-  async function acceptTrustPrompt(name, { tries = 20, intervalMs = 500, settleMs = 1200 } = {}) {
+  async function acceptTrustPrompt(name, { tries = 20, intervalMs = 500, settleMs = 1200, harness = 'claude' } = {}) {
     for (let i = 0; i < tries; i += 1) {
       await wait(intervalMs);
       let text = '';
@@ -208,6 +220,22 @@ export function createSpawner({
         ({ stdout: text } = await run(tmux, ['capture-pane', '-p', '-t', `${name}:`], { timeout: 5000 }));
       } catch {
         return false; // pane gone
+      }
+      if (harness === 'codex') {
+        // Codex: "Trust this folder?" with "› 1. Trust and continue" preselected → Enter.
+        if (/Trust this folder\?/.test(text)) {
+          await wait(settleMs);
+          const { stdout: now } = await run(tmux, ['capture-pane', '-p', '-t', `${name}:`], { timeout: 5000 });
+          if (!/›\s*1\.\s*Trust and continue/.test(now)) return false;
+          await run(tmux, ['send-keys', '-t', `${name}:`, 'Enter'], { timeout: 5000 });
+          return true;
+        }
+        if (/OpenAI Codex|Ask Codex|for shortcuts/.test(text)) return false; // Codex is up
+        continue;
+      }
+      if (harness === 'pi') {
+        if (/escape interrupt|ctrl\+c\/ctrl\+d|Pi can explain/i.test(text)) return false; // pi is up (no trust prompt)
+        continue;
       }
       if (/trust this folder/i.test(text)) {
         // The dialog is drawn before Ink listens for keys: settle, move to "Yes",
@@ -236,12 +264,13 @@ export function createSpawner({
    * session and fail with the pane's last lines, so the caller sees why (and keeps the prompt).
    * Anything else in the foreground (Claude shows as its version, e.g. `2.1.285`) counts as started.
    */
-  async function ensureStarted(name) {
+  async function ensureStarted(name, { harness = 'claude' } = {}) {
+    const who = HARNESS_LABELS[harness] ?? harness;
     let current = '';
     try {
       ({ stdout: current } = await run(tmux, ['display-message', '-p', '-t', `${name}:`, '#{pane_current_command}'], { timeout: 5000 }));
     } catch {
-      throw Object.assign(new Error(`Claude did not start: tmux session "${name}" is gone`), { status: 502 });
+      throw Object.assign(new Error(`${who} did not start: tmux session "${name}" is gone`), { status: 502 });
     }
     if (!SHELLS.has(current.trim().replace(/^-/, ''))) return;
     let tail = '';
@@ -252,7 +281,7 @@ export function createSpawner({
       /* best effort */
     }
     await run(tmux, ['kill-session', '-t', `=${name}`], { timeout: 5000 }).catch(() => {});
-    throw Object.assign(new Error(`Claude did not start${tail ? `:\n${tail}` : ''}`), { status: 502 });
+    throw Object.assign(new Error(`${who} did not start${tail ? `:\n${tail}` : ''}`), { status: 502 });
   }
 
   return { spawn, tmuxHasSession, acceptTrustPrompt, ensureStarted };

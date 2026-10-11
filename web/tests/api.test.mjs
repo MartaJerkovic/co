@@ -41,6 +41,13 @@ function fakeHost(self, sessions) {
     if (title === 'explode') throw new Error('tmux: boom');
     return { ok: true, result: 'renamed', title, from: 'app-9d', held: null, tmux: { renamed: true, from: 'fw-101010', to: 'fix-login', note: '⧉ fw-101010 → fix-login' }, message: `app-9d → ${title}` };
   };
+  cli.harnesses = async () => {
+    calls.push(['harnesses']);
+    return [
+      { id: 'claude', label: 'Claude Code', command: 'claude', installed: true, models: [{ id: 'x', label: 'X' }] },
+      { id: 'codex', label: 'Codex', command: 'codex', installed: self === 'workstation', models: [{ id: '', label: 'Default' }] },
+    ];
+  };
   cli.usage = async ({ refresh }) => {
     calls.push(['usage', refresh]);
     if (self === 'broken') throw new Error('no Claude Code login found');
@@ -383,6 +390,19 @@ test('usage is GET-only, served locally or proxied once, with ?refresh=1 passed 
   assert.deepEqual(remote.calls.filter((c) => c[0] === 'usage'), [['usage', true]]);
   assert.equal((await post(`${urls.laptop}/api/hosts/laptop/usage`, {})).status, 405);
   assert.equal((await get(`${urls.laptop}/api/hosts/nope/usage`)).status, 404);
+});
+
+test('harnesses: per host, cached, Claude models from the config, proxied to peers', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  const here = await get(`${urls.laptop}/api/hosts/laptop/harnesses`);
+  assert.equal(here.status, 200);
+  assert.deepEqual(here.body.harnesses.map((h) => [h.id, h.installed]), [['claude', true], ['codex', false]]);
+  assert.ok(here.body.harnesses[0].models.some((m) => m.id === '')); // DEFAULT_MODELS, not the CLI's
+  await get(`${urls.laptop}/api/hosts/laptop/harnesses`);
+  assert.equal(lap.calls.filter((c) => c[0] === 'harnesses').length, 1);
+  const there = await get(`${urls.laptop}/api/hosts/workstation/harnesses`);
+  assert.deepEqual([there.body.host, there.body.harnesses[1].installed], ['workstation', true]);
+  assert.equal(remote.calls.filter((c) => c[0] === 'harnesses').length, 1);
 });
 
 test('usage: a CLI failure is a 502 with its reason', async () => {

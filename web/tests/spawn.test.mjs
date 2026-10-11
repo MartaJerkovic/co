@@ -93,6 +93,37 @@ test('spawner types --model when one was picked', async () => {
   assert.equal(res.model, 'claude-haiku-4-5-20251001');
 });
 
+test('codex and pi: their launcher, --model, -n for pi only; a bad harness is refused', () => {
+  assert.equal(launchCommand({ launcher: 'codex', harness: 'codex', name: 'job', model: 'gpt-6', prompt: 'go' }), "codex --model 'gpt-6' 'go'");
+  assert.equal(launchCommand({ launcher: 'pi', harness: 'pi', name: 'job', model: 'openai/gpt-5.5:high', prompt: '' }), "pi --model 'openai/gpt-5.5:high' -n 'job'");
+  const ok = validateSpawnRequest({ dir: '/tmp', harness: 'pi', model: 'openai/gpt-5.5' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.harness, 'pi');
+  assert.equal(validateSpawnRequest({ dir: '/tmp' }).harness, 'claude');
+  assert.equal(validateSpawnRequest({ dir: '/tmp', harness: 'bash' }).ok, false);
+});
+
+test('spawner launches codex with its configured command and accepts its trust prompt', async () => {
+  const calls = [];
+  let captures = 0;
+  const run = async (bin, args) => {
+    calls.push([bin, ...args]);
+    if (args[0] === 'has-session') throw new Error('no such session');
+    if (args[0] === 'capture-pane') {
+      captures += 1;
+      return { stdout: 'Trust this folder? Codex can read…\n› 1. Trust and continue\n  2. Back' };
+    }
+    return { stdout: '', stderr: '' };
+  };
+  const sp = createSpawner({ run, launcher: 'claude', launchers: { codex: 'cx' }, sleep: async () => {} });
+  const res = await sp.spawn({ name: 'job', dir: '/tmp', prompt: 'go', harness: 'codex' });
+  assert.deepEqual(calls[2], ['tmux', 'send-keys', '-t', 'job:', '-l', '--', "cx 'go'"]);
+  assert.equal(res.harness, 'codex');
+  assert.equal(res.trusted, true);
+  assert.ok(captures >= 2);
+  assert.deepEqual(calls.at(-1), ['tmux', 'send-keys', '-t', 'job:', 'Enter']);
+});
+
 test('spawner passes a prompt too long to type via a file', async (t) => {
   const promptDir = mkdtempSync(path.join(os.tmpdir(), 'fleet-prompts-'));
   t.after(() => rmSync(promptDir, { recursive: true, force: true }));

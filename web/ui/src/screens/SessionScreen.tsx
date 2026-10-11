@@ -47,6 +47,7 @@ import { useSessionTitle } from '@/hooks/useTitles'
 import { CHAT_LIMITS, CHAT_POLL_MS, PEEK_POLL_MS, TERM_LINES, nextChatLimit, parseMode, parseSize, type DetailMode } from '@/lib/chat'
 import { continueDraft } from '@/lib/brief'
 import { modelLabel, relTime, shortCwd } from '@/lib/format'
+import { harnessLabel } from '@/lib/harness'
 import { tailAnchor } from '@/lib/outbox'
 import { findSession, statusMeta, withoutSession } from '@/lib/sessions'
 import { stacksKnown } from '@/lib/stacks'
@@ -655,6 +656,7 @@ export function SessionScreen({
         attachRef={attachRef}
         draftKey={sessionKey}
         apiRef={composerApi}
+        agent={harnessLabel(session?.harness)}
       />
       <DropOverlay show={drop.dragging} hint={`Uploaded to ${host}; the path goes into the message`} />
       <FilePreview host={host} id={id} file={preview} onClose={() => setPreviewOf(null)} desktop={pane} />

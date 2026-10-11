@@ -25,6 +25,7 @@ import { editorLabel } from '@/lib/brief'
 import { canAttachInApp, copyWithToast, sessionAttachCommand, sessionAttachLink } from '@/lib/clipboard'
 import type { DetailMode } from '@/lib/chat'
 import { ctxLevel, ctxSummary, relTime, shortCwd } from '@/lib/format'
+import { harnessLabel } from '@/lib/harness'
 import { withHint } from '@/lib/shortcuts'
 import { CTX_TEXT } from '@/lib/styles'
 import { cn } from '@/lib/utils'
@@ -332,6 +333,8 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 py-3 text-xs">
                 {(
                   [
+                    ['agent', s.harness ? harnessLabel(s.harness) : null],
+                    ['model', s.model],
                     ['tmux', s.tmux_session],
                     ['backend', s.backend],
                     ['pid', s.pid],
@@ -358,7 +361,7 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
                 {closing ? 'Closing…' : armed ? (panel ? 'Click again to close' : 'Tap again to close') : 'Close session…'}
               </Button>
               <p className="pt-1.5 text-center text-xs text-dimmer">
-                Ends Claude and its {s?.backend === 'iterm' ? 'iTerm tab' : 'tmux window'}.
+                Ends {harnessLabel(s?.harness)} and its {s?.backend === 'iterm' ? 'iTerm tab' : 'tmux window'}.
               </p>
             </div>
           </Section>

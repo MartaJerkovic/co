@@ -42,6 +42,30 @@ export interface Session {
    * Older CLIs omit the field entirely (undefined = this host knows no stacks).
    */
   stack?: StackRef | null
+  /** The coding agent running it (`fleet list --json` → `harness`); older CLIs omit it (= claude). */
+  harness?: HarnessId | string | null
+  /** The model it runs, when known. */
+  model?: string | null
+  /** Absolute transcript path (Codex / pi only). */
+  transcript?: string | null
+}
+
+/** The coding agents fleet drives — see docs/cli.md → Harnesses. */
+export type HarnessId = 'claude' | 'codex' | 'pi'
+
+/** GET /api/hosts/:host/harnesses → `harnesses[]` (`fleet harness list --json`). */
+export interface HarnessInfo {
+  id: HarnessId | string
+  label: string
+  command: string
+  installed: boolean
+  /** The picker; `id: ''` is the harness's own default. */
+  models: ModelOption[]
+}
+
+export interface HarnessesResponse {
+  host: string
+  harnesses: HarnessInfo[]
 }
 
 /** `stack` on a session row. */
@@ -293,8 +317,10 @@ export interface SpawnRequest {
   name?: string
   dir?: string
   prompt?: string
-  /** A `models` id; '' / absent = Claude's default. */
+  /** A `models` id; '' / absent = the harness's default. */
   model?: string
+  /** Which coding agent to start; absent = claude. */
+  harness?: HarnessId | string
 }
 
 export interface SpawnResponse {
@@ -456,6 +482,7 @@ export interface StackSpawnRequest {
   prompt?: string
   name?: string
   model?: string
+  harness?: HarnessId | string
   /** Label for a stack this spawn creates (the model's otherwise). */
   label?: string
 }

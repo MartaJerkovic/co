@@ -10,6 +10,7 @@ import { useLongPress } from '@/hooks/useLongPress'
 import { openTitleEditor, useSessionTitle } from '@/hooks/useTitles'
 import { STATUS_TEXT } from '@/lib/styles'
 import { relTime, sessionSubtitle, shortCwd } from '@/lib/format'
+import { harnessLabel, sessionHarness } from '@/lib/harness'
 import { sessionHref, statusLabel, statusMeta } from '@/lib/sessions'
 import { sessionKey } from '@/lib/shortcuts'
 import { echoesTitle } from '@/lib/title'
@@ -39,6 +40,7 @@ export function SessionRow({ session: s, now, selected, cursor }: SessionRowProp
   const subtitle = echoesTitle(title, prompt) ? '' : prompt
   const cwd = shortCwd(s.cwd)
   const backend = String(s.backend || 'unknown')
+  const harness = sessionHarness(s)
   const waiting = meta.key === 'waiting'
   const longPress = useLongPress(() => openTitleEditor('row', sessionKey(s)))
 
@@ -66,6 +68,11 @@ export function SessionRow({ session: s, now, selected, cursor }: SessionRowProp
       <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-dimmer">
         <StackChip session={s} />
         {cwd ? <span className="min-w-0 truncate font-mono">{cwd}</span> : null}
+        {harness !== 'claude' ? (
+          <span className={cn(chip, 'border-primary/40 text-primary')} title={s.model ?? undefined}>
+            {harnessLabel(harness)}
+          </span>
+        ) : null}
         {backend !== 'unknown' ? <span className={cn(chip, 'border-border')}>{backend}</span> : null}
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <ContextMeter context={s.context} />

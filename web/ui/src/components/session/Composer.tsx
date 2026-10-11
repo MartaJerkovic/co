@@ -50,6 +50,8 @@ export interface ComposerProps {
   draftKey?: string
   /** Receives the composer's API: put a cancelled / failed message back (lib/outbox.ts restoreText). */
   apiRef?: React.Ref<ComposerApi>
+  /** Who the message goes to, for the placeholder ("Claude", "Codex", "pi"). */
+  agent?: string
 }
 
 export interface ComposerApi {
@@ -59,7 +61,19 @@ export interface ComposerApi {
 
 const MAX_TEXTAREA_PX = 21 * 5 + 22 // ~5 rows + padding
 
-export function Composer({ quickReplies, lockedReason, onSend, onKey, desktop = false, inputRef, host, attachRef, draftKey, apiRef }: ComposerProps) {
+export function Composer({
+  quickReplies,
+  lockedReason,
+  onSend,
+  onKey,
+  desktop = false,
+  inputRef,
+  host,
+  attachRef,
+  draftKey,
+  apiRef,
+  agent = 'Claude',
+}: ComposerProps) {
   const [text, setText] = useState(() => takeDraft(draftKey))
   useEffect(() => saveDraft(draftKey, text), [draftKey, text])
   const ta = useRef<HTMLTextAreaElement>(null)
@@ -236,7 +250,7 @@ export function Composer({ quickReplies, lockedReason, onSend, onKey, desktop = 
               }
             }}
             disabled={locked}
-            placeholder={locked ? 'Read-only' : desktop ? 'Message Claude…  (Enter to send, Shift+Enter for a new line)' : 'Message Claude…'}
+            placeholder={locked ? 'Read-only' : desktop ? `Message ${agent}…  (Enter to send, Shift+Enter for a new line)` : `Message ${agent}…`}
             aria-label="Message"
             autoCapitalize="sentences"
             autoComplete="off"

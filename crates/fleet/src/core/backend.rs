@@ -170,6 +170,11 @@ end run"#
                 std::thread::sleep(std::time::Duration::from_millis(150));
             } else {
                 send_keys(handle, &["-l", text])?;
+                // Codex and pi take keys arriving in one burst as a paste, and an Enter
+                // inside it never submits (Codex's slash-command popup also needs a beat).
+                if s.harness != Harness::Claude {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
             }
             send_keys(handle, &["Enter"])?;
             Ok(())

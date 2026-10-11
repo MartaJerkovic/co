@@ -10,6 +10,7 @@ import type {
   FileStatResponse,
   FleetResponse,
   GroupsResponse,
+  HarnessesResponse,
   Health,
   KillResponse,
   MessagesResponse,
@@ -126,6 +127,7 @@ export const api = {
   spawn: (host: string, body: SpawnRequest, o: Opts = {}) =>
     request<SpawnResponse>(`${hostPath(host)}/spawn`, { ...o, method: 'POST', body }),
   /** The host's Start directories (config `spawnDirs`) and whether its own paths exist. */
+  harnesses: (host: string, o: Opts = {}) => request<HarnessesResponse>(`${hostPath(host)}/harnesses`, o),
   spawnDirs: (host: string, o: Opts = {}) => request<SpawnDirsResponse>(`${hostPath(host)}/spawn-dirs`, o),
   /** Replace the host's list (400 `SpawnDirsError` when invalid); `dryRun` validates only. */
   saveSpawnDirs: (host: string, spawnDirs: SpawnDirEntry[], { dryRun = false, ...o }: Opts & { dryRun?: boolean } = {}) =>

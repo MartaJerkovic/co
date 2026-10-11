@@ -57,7 +57,13 @@ export function fleetStateDir(env = process.env, home = os.homedir()) {
 }
 
 /** A model id typed after `--model` in a shell: letters, digits and `._[]-` only. */
-export const MODEL_ID_RE = /^[A-Za-z0-9._[\]-]{1,100}$/;
+/** `harnesses.<id>.command` when it is a non-blank string, else the bare id. Read leniently. */
+function harnessCommand(raw, id, home) {
+  const c = raw?.harnesses?.[id]?.command;
+  return typeof c === 'string' && c.trim() ? expandHome(c.trim(), home) : id;
+}
+
+export const MODEL_ID_RE = /^[A-Za-z0-9._[\]\/:-]{1,100}$/;
 
 /** The New session form's model picker when `web.models` is unset ('' = no flag, Claude's default). */
 export const DEFAULT_MODELS = [
@@ -457,6 +463,12 @@ export function normalizeConfig(
     fleetBin: resolveFleetBin(raw, { env, home, fsImpl }),
     tmux: resolveBinary('tmux', { explicit: env.FLEET_TMUX || raw.tmux, env, home, fsImpl }),
     claude: typeof raw.claude === 'string' && raw.claude ? expandHome(raw.claude, home) : 'claude',
+    // How each harness launches in a spawned session (`claude`, `harnesses.<id>.command`).
+    launchers: {
+      claude: typeof raw.claude === 'string' && raw.claude ? expandHome(raw.claude, home) : 'claude',
+      codex: harnessCommand(raw, 'codex', home),
+      pi: harnessCommand(raw, 'pi', home),
+    },
     spawnDirs,
     uiDir,
     quickReplies,

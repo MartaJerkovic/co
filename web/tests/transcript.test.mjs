@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyUserText, encodeCwd, parseTranscript } from '../lib/transcript.mjs';
+import { classifyUserText, createTranscriptReader, encodeCwd, parseCodexTranscript, parsePiTranscript, parseTranscript } from '../lib/transcript.mjs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const line = (obj) => JSON.stringify(obj);
 const user = (content, extra = {}) => line({ type: 'user', timestamp: '2026-09-18T18:01:52.017Z', message: { role: 'user', content }, ...extra });
@@ -89,4 +92,58 @@ test('parseTranscript turns AskUserQuestion into a question message with its out
   assert.equal(out[2].declined, true);
   assert.equal(out[3].answers, undefined, 'still pending');
   assert.equal(out[3].declined, undefined);
+});
+
+test('parseCodexTranscript: prompts and replies, Codex context dropped, narration before a tool call not final', () => {
+  const j = (o) => JSON.stringify(o);
+  const msg = (role, type, text) => j({ timestamp: '2026-10-11T19:50:53.000Z', type: 'response_item', payload: { type: 'message', role, content: [{ type, text }] } });
+  const text = [
+    j({ type: 'session_meta', payload: { id: 'c1', cwd: '/w' } }),
+    msg('developer', 'input_text', 'You are Codex'),
+    msg('user', 'input_text', '# AGENTS.md instructions for /w'),
+    msg('user', 'input_text', '<environment_context>x</environment_context>'),
+    msg('user', 'input_text', 'fix the bug'),
+    msg('assistant', 'output_text', 'Looking at it.'),
+    j({ type: 'response_item', payload: { type: 'function_call', name: 'exec' } }),
+    msg('assistant', 'output_text', 'Fixed.'),
+    j({ type: 'event_msg', payload: { type: 'task_complete' } }),
+  ].join('\n');
+  const m = parseCodexTranscript(text);
+  assert.deepEqual(
+    m.map((x) => [x.role, x.text, x.final]),
+    [
+      ['user', 'fix the bug', undefined],
+      ['assistant', 'Looking at it.', false],
+      ['assistant', 'Fixed.', true],
+    ],
+  );
+});
+
+test('parsePiTranscript: user and assistant text; a tool-call stop is not final', () => {
+  const j = (o) => JSON.stringify(o);
+  const text = [
+    j({ type: 'session', id: 'p1', cwd: '/w' }),
+    j({ type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } }),
+    j({ type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'checking' }], stopReason: 'toolUse' } }),
+    j({ type: 'message', message: { role: 'toolResult', content: [{ type: 'text', text: 'out' }] } }),
+    j({ type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }], stopReason: 'stop' } }),
+  ].join('\n');
+  assert.deepEqual(
+    parsePiTranscript(text).map((x) => [x.role, x.text, x.final]),
+    [
+      ['user', 'hi', undefined],
+      ['assistant', 'checking', false],
+      ['assistant', 'done', true],
+    ],
+  );
+});
+
+test('the reader reads a Codex / pi session from the transcript path discovery gave it', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'fleet-tr-'));
+  const file = path.join(dir, 's.jsonl');
+  writeFileSync(file, JSON.stringify({ type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'yo' }] } }) + '\n');
+  const r = createTranscriptReader({ home: dir });
+  const got = await r.messages({ session_id: 'p1', cwd: '/w', harness: 'pi', transcript: file });
+  assert.equal(got.messages[0].text, 'yo');
+  assert.equal(await r.messages({ session_id: 'p2', cwd: '/w', harness: 'pi', transcript: null }), null);
 });
