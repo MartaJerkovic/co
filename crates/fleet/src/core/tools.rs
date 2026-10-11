@@ -16,8 +16,16 @@ fn fallback_dirs() -> Vec<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/bin"));
         dirs.push(home.join(".cargo/bin"));
+        dirs.push(home.join("bin"));
     }
     dirs
+}
+
+/// `$PATH` with the fallback dirs appended — for a child that itself looks things up
+/// (pi's launcher is a script that runs `node`).
+pub fn search_path() -> std::ffi::OsString {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::join_paths(std::env::split_paths(&path).chain(fallback_dirs())).unwrap_or(path)
 }
 
 pub fn is_executable(p: &Path) -> bool {

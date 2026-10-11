@@ -218,7 +218,10 @@ pub fn pi_models(home: &Path, launcher: &str) -> Vec<ModelOption> {
     let bin = launcher.split_whitespace().next().unwrap_or("pi");
     let bin = crate::core::tools::resolve_binary(bin, None);
     if let Some(text) = run_with_timeout(
-        Command::new(bin).arg("--list-models").arg("--offline"),
+        Command::new(bin)
+            .arg("--list-models")
+            .arg("--offline")
+            .env("PATH", crate::core::tools::search_path()),
         Duration::from_secs(15),
     ) {
         out.extend(parse_pi_models(&text));
