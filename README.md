@@ -4,7 +4,10 @@ Supervise a fleet of Claude Code sessions across your machines — from a termin
 
 `fleet` is one Rust CLI plus a small web app (a zero-dependency Node server and a React PWA). It finds every live Claude Code
 session on a machine (in tmux panes or iTerm tabs), shows what each one is doing, and lets you
-peek at, steer, rename, spawn and hand work off to them. It also manages the tmux sessions on an
+peek at, steer, rename, spawn and hand work off to them. [Codex](https://github.com/openai/codex)
+and [pi](https://pi.dev) sessions are found and driven too — pick the agent and its model when you
+spawn (`fleet spawn --harness codex`, or the web New session form); see
+[docs/cli.md → Harnesses](docs/cli.md#harnesses). It also manages the tmux sessions on an
 always-on **workstation** over ssh, so the same command works from your laptop and on the
 workstation itself.
 

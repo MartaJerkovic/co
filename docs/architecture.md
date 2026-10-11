@@ -1,6 +1,7 @@
 # Architecture
 
-`fleet` has one core and several front-ends. The core knows how to find Claude Code sessions on a
+`fleet` has one core and several front-ends. The core knows how to find Claude Code sessions (and
+Codex and pi ones — [Other harnesses](#other-harnesses)) on a
 machine, drive them, manage tmux sessions and reach other machines. The CLI, the TUI dashboard and
 the web app are views on top of it.
 
@@ -232,7 +233,9 @@ One title per session, one source of truth (`core::title`):
   session **waiting** on a permission prompt or question is held (the keys would answer it; `--force`
   overrides). A **busy** session is renamed: Claude Code runs `/rename` as a local command the moment
   it is submitted, mid-turn, and the turn carries on untouched (verified live; an older Claude that
-  queues input would run it after the turn). Nothing is queued by fleet — a held rename is refused
+  queues input would run it after the turn). Codex and pi get their own command (`/rename`,
+  `/name`), and a **busy** one is held (`held: "busy"`): they would queue the text as a message.
+  Nothing is queued by fleet — a held rename is refused
   with a message and retried by the caller. Known gap: text half-typed into the session's prompt
   box would be prefixed to `/rename`.
 
@@ -371,7 +374,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | POST | `/api/hosts/:host/sessions/:id/send` | `{ text }` → typed + Enter |
 | POST | `/api/hosts/:host/sessions/:id/keys` | `{ key }` (Enter, Escape, …) |
 | POST | `/api/hosts/:host/sessions/:id/answer` | `{ toolUseId, answers: [{ options: [index…], text? }] }` (one per question) → types the arrows/Enter/text a human would into the pending AskUserQuestion prompt. 400 bad answer (single-select: one option or text; multi-select: at least one), 404 unknown question, **409** (nothing typed) when it is already answered, the session isn't waiting, or the terminal isn't showing that prompt untouched (first question, cursor on option 1) |
-| POST | `/api/hosts/:host/sessions/:id/rename` | `{ title }` (1–64 chars, one line) → `fleet rename <session_id> <title> --json`; 200 with the report, **409** when held (waiting on a prompt, nothing typed), 400 bad title, 502 CLI failure |
+| POST | `/api/hosts/:host/sessions/:id/rename` | `{ title }` (1–64 chars, one line) → `fleet rename <session_id> <title> --json`; 200 with the report, **409** when held (waiting on a prompt, or a busy Codex / pi session; nothing typed), 400 bad title, 502 CLI failure |
 | POST | `/api/hosts/:host/spawn` | `{ name?, dir?, prompt?, model?, harness? }` → new tmux session running that [harness](#other-harnesses) (`claude` default, `codex`, `pi`; its launcher is config `claude` / `harnesses.<id>.command`; `-n <name>` for Claude and pi only); `dir` must resolve inside one of the host's `spawnDirs` (else 400); a prompt too long to type (the launch line over ~900 bytes) is written to `~/.claude/fleet-prompts/` and passed as `"$(cat <file>)"`; a first-run trust prompt is accepted (Claude: Down + Enter; Codex: Enter on "Trust and continue"); when the agent never starts (the pane is still just a shell after ~10s) the tmux session is killed and the answer is 502 with the pane's last lines |
 | GET | `/api/hosts/:host/harnesses[?refresh=1]` | `{ host, harnesses: [{ id, label, command, installed, models }] }` — `fleet --local harness list --json`, cached 10 min; Claude's `models` are `web.models`. An older CLI answers Claude alone |
 | GET | `/api/hosts/:host/usage[?refresh=1]` | that host's Claude subscription limits: `fleet usage --json` + `host` (see [Subscription usage](#subscription-usage)); 502 with the CLI's reason (no login, endpoint down with nothing cached) |
