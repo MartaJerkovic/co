@@ -870,3 +870,28 @@ export interface PrsResponse {
   columns: PrColumn[]
   prs: PullRequest[]
 }
+
+/** A PR checked out in a worktree (`fleet pr checkout --json`). */
+export interface PrWorktree {
+  owner: string
+  repo: string
+  number: number
+  title?: string
+  url?: string
+  headBranch?: string
+  baseBranch?: string
+  /** The local branch (`pr-<n>` for a fork's PR). */
+  branch: string
+  path: string
+  repoPath?: string
+  /** Made by this call (false: it was already checked out). */
+  created: boolean
+  contextLine: string
+}
+
+/** POST /api/hosts/:host/prs/spawn */
+export interface PrSpawnResponse {
+  host: string
+  worktree: PrWorktree
+  spawn: SpawnResponse
+}

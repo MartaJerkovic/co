@@ -13,11 +13,12 @@
 //! Config (`prs` in config.json — per machine, read leniently):
 //!
 //! ```json
-//! "prs": { "orgs": ["acme"], "repos": ["someone/tool"], "refresh": "5m" }
+//! "prs": { "orgs": ["acme"], "repos": ["someone/tool"], "refresh": "5m", "worktrees": "~/Code/worktrees" }
 //! ```
 //!
 //! `orgs` / `repos` scope the searches (any of them; none = all of GitHub). `refresh` is how old
-//! the cache may get before a plain `fleet prs` fetches again.
+//! the cache may get before a plain `fleet prs` fetches again. `worktrees` is where
+//! [`checkout`] puts new worktrees (default [`DEFAULT_WORKTREES`]).
 //!
 //! Cache (`$FLEET_PRS_CACHE`, else `${XDG_CACHE_HOME:-~/.cache}/fleet/prs.json`): the last
 //! successful fetch. A failed fetch keeps serving it, with the error alongside.
@@ -36,6 +37,8 @@ use crate::core::{repos, tools};
 use crate::error::{Error, Result};
 
 pub const DEFAULT_REFRESH: &str = "5m";
+pub const DEFAULT_WORKTREES: &str = "~/Code/worktrees";
+const GIT_FETCH_TIMEOUT: Duration = Duration::from_secs(180);
 /// One search page; GitHub's gateway gives up on bigger ones (~10 s) with all the fields below.
 const PAGE: usize = 50;
 const MAX_PAGES: usize = 4;
@@ -51,6 +54,8 @@ pub struct Settings {
     pub repos: Vec<String>,
     /// Max cache age in seconds.
     pub refresh: i64,
+    /// Where `fleet pr checkout` puts new worktrees (`~` allowed).
+    pub worktrees: String,
     /// What was wrong with the section; the bad parts fall back to defaults.
     pub problems: Vec<String>,
 }
@@ -93,10 +98,21 @@ impl Settings {
                 }
             },
         };
+        let worktrees = match v.get("worktrees").filter(|x| !x.is_null()) {
+            None => DEFAULT_WORKTREES.to_string(),
+            Some(x) => match x.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(s) => s.to_string(),
+                None => {
+                    problems.push(format!("prs.worktrees: {x} is not a path"));
+                    DEFAULT_WORKTREES.to_string()
+                }
+            },
+        };
         Settings {
             orgs,
             repos,
             refresh,
+            worktrees,
             problems,
         }
     }
@@ -203,6 +219,9 @@ pub struct Pr {
     pub size: String,
     pub base_branch: String,
     pub head_branch: String,
+    /// The head branch lives in a fork; its local branch is `pr-<number>`.
+    #[serde(default)]
+    pub cross_repository: bool,
     pub head_oid: Option<String>,
     /// `approved` · `changesRequested` · `reviewRequired`; `None` when the repo requires none.
     pub review_decision: Option<String>,
@@ -225,6 +244,15 @@ pub struct Local {
     pub repo_path: String,
     /// The worktree (or the main checkout) that has the head branch checked out.
     pub worktree: Option<String>,
+}
+
+/// The local branch a PR is checked out on: its head branch, or `pr-<n>` for a fork's.
+pub fn local_branch(cross_repository: bool, head: &str, number: u64) -> String {
+    if cross_repository {
+        format!("pr-{number}")
+    } else {
+        head.to_string()
+    }
 }
 
 pub fn size_label(lines: u64) -> &'static str {
@@ -323,6 +351,7 @@ fn parse_node(n: &Value, column: Column, me: &str) -> Option<Pr> {
         size: size_label(additions + deletions).into(),
         base_branch: n["baseRefName"].as_str().unwrap_or("").to_string(),
         head_branch: n["headRefName"].as_str().unwrap_or("").to_string(),
+        cross_repository: n["isCrossRepository"].as_bool().unwrap_or(false),
         head_oid,
         review_decision: n["reviewDecision"].as_str().map(camel),
         checks,
@@ -383,7 +412,7 @@ pub fn classify(me: &str, mine: &[Value], requested: &[Value], reviewed: &[Value
 const FIELDS: &str = r#"
 fragment pr on PullRequest {
   number title url isDraft createdAt updatedAt additions deletions changedFiles
-  baseRefName headRefName reviewDecision
+  baseRefName headRefName isCrossRepository reviewDecision
   repository { name owner { login } }
   author { login }
   comments { totalCount }
@@ -661,41 +690,374 @@ fn origin_is(repo: &Path, owner: &str, name: &str) -> bool {
 }
 
 /// A repo's path and its (branch, worktree path) pairs.
-type Checkout = (PathBuf, Vec<(String, String)>);
+type RepoCheckout = (PathBuf, Vec<(String, String)>);
+
+/// The checkout of `owner/name` among `all`: the directory named `name`, by `origin` when two are.
+fn find_repo<'a>(all: &'a [repos::Repo], owner: &str, name: &str) -> Option<&'a repos::Repo> {
+    let named: Vec<&repos::Repo> = all
+        .iter()
+        .filter(|r| r.name.eq_ignore_ascii_case(name))
+        .collect();
+    match named.len() {
+        0 => None,
+        1 => Some(named[0]),
+        _ => named
+            .iter()
+            .copied()
+            .find(|r| origin_is(&r.path, owner, name)),
+    }
+}
 
 /// Fill in [`Pr::local`] from the `fleet repos` checkouts: the repo whose directory name is
 /// the PR's repo name (and, when two share it, whose `origin` is the PR's repo), and the
 /// worktree that has the head branch. Repos are matched once each, not once per PR.
 pub fn link_local(prs: &mut [Pr], roots: &repos::Settings) {
     let all = repos::discover(roots);
-    let mut found: HashMap<(String, String), Option<Checkout>> = HashMap::new();
+    let mut found: HashMap<(String, String), Option<RepoCheckout>> = HashMap::new();
     for pr in prs.iter_mut() {
         let key = (pr.owner.clone(), pr.repo.clone());
         let hit = found.entry(key).or_insert_with(|| {
-            let named: Vec<&repos::Repo> = all
-                .iter()
-                .filter(|r| r.name.eq_ignore_ascii_case(&pr.repo))
-                .collect();
-            let repo = match named.len() {
-                0 => None,
-                1 => Some(named[0]),
-                _ => named
-                    .iter()
-                    .copied()
-                    .find(|r| origin_is(&r.path, &pr.owner, &pr.repo)),
-            }?;
+            let repo = find_repo(&all, &pr.owner, &pr.repo)?;
             Some((repo.path.clone(), worktrees(&repo.path)))
         });
         if let Some((path, wts)) = hit {
+            let branch = local_branch(pr.cross_repository, &pr.head_branch, pr.number);
             pr.local = Some(Local {
                 repo_path: path.display().to_string(),
                 worktree: wts
                     .iter()
-                    .find(|(b, _)| *b == pr.head_branch)
+                    .find(|(b, _)| *b == branch)
                     .map(|(_, p)| p.clone()),
             });
         }
     }
+}
+
+// ---------- checkout ----------
+
+/// `owner/repo#12`, `repo#12` or a pull request URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrRef {
+    pub owner: Option<String>,
+    pub repo: String,
+    pub number: u64,
+}
+
+impl PrRef {
+    pub fn parse(s: &str) -> Option<PrRef> {
+        let s = s.trim().trim_end_matches('/');
+        // Goes into a GitHub API path: no `.`/`..`, nothing that could start another segment.
+        let ok = |x: &str| {
+            !x.is_empty()
+                && !x.starts_with('.')
+                && x.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        };
+        if let Some(rest) = s.split_once("github.com/").map(|(_, r)| r) {
+            // owner/repo/pull/12[/files…]
+            let parts: Vec<&str> = rest.split('/').collect();
+            if parts.len() >= 4 && parts[2] == "pull" && ok(parts[0]) && ok(parts[1]) {
+                return Some(PrRef {
+                    owner: Some(parts[0].into()),
+                    repo: parts[1].into(),
+                    number: parts[3].parse().ok()?,
+                });
+            }
+            return None;
+        }
+        let (left, num) = s.rsplit_once('#')?;
+        let number = num.parse().ok().filter(|n| *n > 0)?;
+        match left.split_once('/') {
+            Some((o, r)) if ok(o) && ok(r) => Some(PrRef {
+                owner: Some(o.into()),
+                repo: r.into(),
+                number,
+            }),
+            None if ok(left) => Some(PrRef {
+                owner: None,
+                repo: left.into(),
+                number,
+            }),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for PrRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.owner {
+            Some(o) => write!(f, "{o}/{}#{}", self.repo, self.number),
+            None => write!(f, "{}#{}", self.repo, self.number),
+        }
+    }
+}
+
+/// What `fleet pr checkout` needs to know about a PR.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrHead {
+    pub owner: String,
+    pub repo: String,
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub cross_repository: bool,
+}
+
+/// The owner of a `repo#12` ref, from the cache — an error naming the candidates when two
+/// owners have a PR with that repo name and number.
+fn owner_from_cache(r: &PrRef) -> Result<String> {
+    let cache = load_cache(&cache_path()).unwrap_or_default();
+    let mut owners: Vec<String> = cache
+        .prs
+        .iter()
+        .filter(|p| p.repo.eq_ignore_ascii_case(&r.repo) && p.number == r.number)
+        .map(|p| p.owner.clone())
+        .collect();
+    owners.dedup();
+    match owners.len() {
+        1 => Ok(owners.remove(0)),
+        0 => Err(Error::exit(
+            1,
+            format!("{r} is not among your cached PRs: name its owner (owner/{r}) or pass its URL"),
+        )),
+        _ => Err(Error::exit(
+            1,
+            format!(
+                "{r} is ambiguous: {}",
+                owners
+                    .iter()
+                    .map(|o| format!("{o}/{}#{}", r.repo, r.number))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )),
+    }
+}
+
+/// The PR's head, fresh from GitHub (`gh api repos/O/R/pulls/N`).
+pub fn head(r: &PrRef) -> Result<PrHead> {
+    let owner = match &r.owner {
+        Some(o) => o.clone(),
+        None => owner_from_cache(r)?,
+    };
+    let mut c = Command::new(gh_bin());
+    c.args([
+        "api",
+        &format!("repos/{owner}/{}/pulls/{}", r.repo, r.number),
+    ])
+    .env("PATH", tools::search_path())
+    .env("GH_PROMPT_DISABLED", "1")
+    .stdin(std::process::Stdio::null());
+    let o = repos::output_with_timeout(c, GH_TIMEOUT).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Error::exit(
+                1,
+                "gh not found: install the GitHub CLI and run `gh auth login`",
+            )
+        } else {
+            Error::Other(format!("gh: {e}"))
+        }
+    })?;
+    if !o.status.success() {
+        let err = String::from_utf8_lossy(&o.stderr);
+        let line = err.lines().map(str::trim).find(|l| !l.is_empty());
+        return Err(Error::exit(
+            1,
+            format!(
+                "{owner}/{}#{}: {}",
+                r.repo,
+                r.number,
+                line.unwrap_or("gh api failed")
+            ),
+        ));
+    }
+    let v: Value = serde_json::from_slice(&o.stdout)?;
+    let head_branch = str_at(&v, &["head", "ref"]).unwrap_or("").to_string();
+    if head_branch.is_empty() {
+        return Err(Error::Other(format!(
+            "{owner}/{}#{}: GitHub returned no head branch",
+            r.repo, r.number
+        )));
+    }
+    let base_full = str_at(&v, &["base", "repo", "full_name"]);
+    let head_full = str_at(&v, &["head", "repo", "full_name"]);
+    Ok(PrHead {
+        owner,
+        repo: r.repo.clone(),
+        number: r.number,
+        title: v["title"].as_str().unwrap_or("").to_string(),
+        url: v["html_url"].as_str().unwrap_or("").to_string(),
+        head_branch,
+        base_branch: str_at(&v, &["base", "ref"]).unwrap_or("").to_string(),
+        // A deleted fork has no head repo: still not the base's branch.
+        cross_repository: head_full.is_none() || head_full != base_full,
+    })
+}
+
+/// A PR checked out in a worktree.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Worktree {
+    #[serde(flatten)]
+    pub pr: PrHead,
+    /// The local branch (the head branch, or `pr-<n>` for a fork's).
+    pub branch: String,
+    /// The worktree.
+    pub path: String,
+    /// The main checkout it belongs to.
+    pub repo_path: String,
+    /// Made by this call (false: it was already checked out).
+    pub created: bool,
+    /// The first line a session spawned there gets.
+    pub context_line: String,
+}
+
+/// `fix/login-form` → `fix-login-form`.
+fn slug(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+            out.push(c);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+pub fn context_line(pr: &PrHead, branch: &str, path: &str) -> String {
+    let title = pr.title.replace(['\n', '\r'], " ");
+    format!(
+        "You're working on pull request {}/{}#{} \"{}\" ({}): branch `{branch}` (into `{}`), checked out in the worktree {path} — work there. `gh pr view {}` and `gh pr diff {}` show its description, review comments, CI and diff.",
+        pr.owner, pr.repo, pr.number, title, pr.url, pr.base_branch, pr.number, pr.number
+    )
+}
+
+fn git_run(dir: &Path, args: &[&str], timeout: Duration) -> Result<String> {
+    let o = repos::output_with_timeout(repos::git_cmd(dir, args), timeout)
+        .map_err(|e| Error::Other(format!("git {}: {e}", args.join(" "))))?;
+    if !o.status.success() {
+        let err = String::from_utf8_lossy(&o.stderr);
+        let line = err
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("fatal:") || l.starts_with("error:"))
+            .or_else(|| err.lines().map(str::trim).find(|l| !l.is_empty()))
+            .unwrap_or("failed")
+            .to_string();
+        return Err(Error::exit(1, format!("git {}: {line}", args.join(" "))));
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Check `pr` out in a worktree of its repo (found under the `fleet repos` roots): the
+/// existing one when its branch is already checked out somewhere, else a new one under
+/// `prs.worktrees`, named `<repo>-<branch>`. Fetches the head first. A same-repo PR gets its
+/// real branch (tracking `origin/<branch>`, or the local branch when there is one); a fork's
+/// PR gets `pr-<n>` from `pull/<n>/head`. Never resets or moves an existing branch.
+/// `dry_run`: change nothing; `created: true` then means "would be made at `path`".
+pub fn checkout(
+    s: &Settings,
+    roots: &repos::Settings,
+    pr: PrHead,
+    dry_run: bool,
+) -> Result<Worktree> {
+    let all = repos::discover(roots);
+    let repo = find_repo(&all, &pr.owner, &pr.repo).ok_or_else(|| {
+        Error::exit(
+            1,
+            format!(
+                "no checkout of {}/{} under the repos roots ({}) — clone it there first",
+                pr.owner,
+                pr.repo,
+                roots.roots.join(", ")
+            ),
+        )
+    })?;
+    let branch = local_branch(pr.cross_repository, &pr.head_branch, pr.number);
+    let done = |path: String, created: bool| {
+        let context_line = context_line(&pr, &branch, &path);
+        Worktree {
+            pr: pr.clone(),
+            branch: branch.clone(),
+            path,
+            repo_path: repo.path.display().to_string(),
+            created,
+            context_line,
+        }
+    };
+    if let Some((_, p)) = worktrees(&repo.path)
+        .into_iter()
+        .find(|(b, _)| *b == branch)
+    {
+        return Ok(done(p, false));
+    }
+
+    let root = PathBuf::from(tools::expand_tilde(&s.worktrees));
+    let base = format!("{}-{}", repo.name, slug(&branch));
+    let mut path = root.join(&base);
+    if path.exists() {
+        path = root.join(format!("{base}-pr{}", pr.number));
+    }
+    if path.exists() {
+        return Err(Error::exit(
+            1,
+            format!("{} already exists and is not on {branch}", path.display()),
+        ));
+    }
+    let path_s = path.display().to_string();
+    if dry_run {
+        return Ok(done(path_s, true));
+    }
+
+    if pr.cross_repository {
+        // `+`: a force-push to the fork moves pr-<n> too — it is ours, nobody commits to it.
+        let spec = format!("+pull/{}/head:refs/heads/{branch}", pr.number);
+        git_run(
+            &repo.path,
+            &["fetch", "--quiet", "origin", &spec],
+            GIT_FETCH_TIMEOUT,
+        )?;
+    } else {
+        git_run(
+            &repo.path,
+            &["fetch", "--quiet", "origin", &pr.head_branch],
+            GIT_FETCH_TIMEOUT,
+        )?;
+    }
+
+    std::fs::create_dir_all(&root)?;
+    let has_local = repos::git(
+        &repo.path,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .is_some();
+    let t = Duration::from_secs(120);
+    if has_local {
+        git_run(
+            &repo.path,
+            &["worktree", "add", "--quiet", &path_s, &branch],
+            t,
+        )?;
+    } else {
+        let upstream = format!("origin/{}", pr.head_branch);
+        git_run(
+            &repo.path,
+            &[
+                "worktree", "add", "--quiet", "--track", "-b", &branch, &path_s, &upstream,
+            ],
+            t,
+        )?;
+    }
+    Ok(done(path_s, true))
 }
 
 #[cfg(test)]
@@ -838,6 +1200,173 @@ mod tests {
         assert_eq!(size_label(500), "M");
         assert_eq!(size_label(1000), "L");
         assert_eq!(size_label(1001), "XL");
+    }
+
+    #[test]
+    fn pr_refs() {
+        let r = |owner: Option<&str>, repo: &str, number| PrRef {
+            owner: owner.map(String::from),
+            repo: repo.into(),
+            number,
+        };
+        assert_eq!(
+            PrRef::parse("acme/app#12"),
+            Some(r(Some("acme"), "app", 12))
+        );
+        assert_eq!(PrRef::parse(" app#7 "), Some(r(None, "app", 7)));
+        assert_eq!(
+            PrRef::parse("https://github.com/acme/app/pull/12/files"),
+            Some(r(Some("acme"), "app", 12))
+        );
+        for bad in [
+            "app",
+            "app#",
+            "app#0",
+            "a b#1",
+            "https://github.com/acme/app/issues/3",
+            "../x#1",
+        ] {
+            assert_eq!(PrRef::parse(bad), None, "{bad}");
+        }
+        assert_eq!(r(Some("acme"), "app", 12).to_string(), "acme/app#12");
+    }
+
+    #[test]
+    fn slugs() {
+        assert_eq!(slug("fix/login form"), "fix-login-form");
+        assert_eq!(slug("feat//x_y.z"), "feat-x_y.z");
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let o = Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(
+            o.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+    }
+
+    /// A bare "GitHub" with `main`, a PR branch `feat/login` and a fork PR at `pull/7/head`,
+    /// and a clone of it named `app` under a repos root. → (tmp, root, clone).
+    fn origin_and_clone() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let seed = tmp.path().join("seed");
+        std::fs::create_dir_all(&seed).unwrap();
+        let commit = [
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+        ];
+        git(&seed, &["init", "-q", "-b", "main"]);
+        git(&seed, &[&commit[..], &["base"]].concat());
+        git(&seed, &["checkout", "-q", "-b", "feat/login"]);
+        git(&seed, &[&commit[..], &["login"]].concat());
+        git(&seed, &["checkout", "-q", "-b", "fork-work", "main"]);
+        git(&seed, &[&commit[..], &["fork"]].concat());
+        let bare = tmp.path().join("origin.git");
+        git(
+            tmp.path(),
+            &[
+                "clone",
+                "-q",
+                "--bare",
+                seed.to_str().unwrap(),
+                bare.to_str().unwrap(),
+            ],
+        );
+        git(
+            &bare,
+            &["update-ref", "refs/pull/7/head", "refs/heads/fork-work"],
+        );
+        git(&bare, &["branch", "-D", "fork-work"]);
+        let root = tmp.path().join("code");
+        std::fs::create_dir_all(&root).unwrap();
+        let clone = root.join("app");
+        git(&root, &["clone", "-q", bare.to_str().unwrap(), "app"]);
+        (tmp, root, clone)
+    }
+
+    fn head_of(branch: &str, number: u64, cross: bool) -> PrHead {
+        PrHead {
+            owner: "acme".into(),
+            repo: "app".into(),
+            number,
+            title: "Login".into(),
+            url: format!("https://github.com/acme/app/pull/{number}"),
+            head_branch: branch.into(),
+            base_branch: "main".into(),
+            cross_repository: cross,
+        }
+    }
+
+    #[test]
+    fn checkout_makes_a_tracking_worktree_once() {
+        let (tmp, root, clone) = origin_and_clone();
+        let s =
+            Settings::from_value(&json!({ "worktrees": tmp.path().join("wt").to_str().unwrap() }));
+        let roots = repos::Settings::from_value(&json!({ "roots": [root.to_str().unwrap()] }));
+
+        let plan = checkout(&s, &roots, head_of("feat/login", 12, false), true).unwrap();
+        assert!(plan.created);
+        assert!(
+            !Path::new(&plan.path).exists(),
+            "dry run made {}",
+            plan.path
+        );
+
+        let wt = checkout(&s, &roots, head_of("feat/login", 12, false), false).unwrap();
+        assert!(wt.created);
+        assert_eq!(
+            wt.path,
+            tmp.path().join("wt/app-feat-login").display().to_string()
+        );
+        assert_eq!(wt.branch, "feat/login");
+        let up = repos::git(Path::new(&wt.path), &["rev-parse", "--abbrev-ref", "@{u}"]);
+        assert_eq!(up.as_deref(), Some("origin/feat/login"));
+        assert!(wt.context_line.contains(&wt.path));
+        assert!(wt.context_line.contains("acme/app#12"));
+
+        let again = checkout(&s, &roots, head_of("feat/login", 12, false), false).unwrap();
+        assert!(!again.created);
+        assert_eq!(
+            std::fs::canonicalize(&again.path).unwrap(),
+            std::fs::canonicalize(&wt.path).unwrap()
+        );
+        assert_eq!(again.repo_path, clone.display().to_string());
+    }
+
+    #[test]
+    fn checkout_of_a_fork_pr_uses_pull_head() {
+        let (tmp, root, _clone) = origin_and_clone();
+        let s =
+            Settings::from_value(&json!({ "worktrees": tmp.path().join("wt").to_str().unwrap() }));
+        let roots = repos::Settings::from_value(&json!({ "roots": [root.to_str().unwrap()] }));
+        let wt = checkout(&s, &roots, head_of("fork-work", 7, true), false).unwrap();
+        assert_eq!(wt.branch, "pr-7");
+        assert!(wt.path.ends_with("app-pr-7"));
+        let msg = repos::git(Path::new(&wt.path), &["log", "-1", "--format=%s"]);
+        assert_eq!(msg.as_deref(), Some("fork"));
+    }
+
+    #[test]
+    fn checkout_without_a_local_repo_says_so() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = Settings::from_value(&Value::Null);
+        let roots =
+            repos::Settings::from_value(&json!({ "roots": [tmp.path().to_str().unwrap()] }));
+        let e = checkout(&s, &roots, head_of("x", 1, false), true).unwrap_err();
+        assert!(e.to_string().contains("no checkout of acme/app"), "{e}");
     }
 
     #[test]

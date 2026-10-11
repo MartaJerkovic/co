@@ -55,3 +55,16 @@ export function reviewLabel(p: PullRequest): string | null {
   if (p.reviewDecision === 'approved') return 'approved'
   return null
 }
+
+/** `owner/repo#123`: how the server names a PR. */
+export const prRef = (p: Pick<PullRequest, 'owner' | 'repo' | 'number'>) => `${p.owner}/${p.repo}#${p.number}`
+
+/** Starting prompts offered for a PR, the most likely first. */
+export function promptChips(p: Pick<PullRequest, 'column' | 'checks'>): { label: string; text: string }[] {
+  const review = { label: 'Review', text: 'Review this pull request: read the description and the diff, run what is worth running, and list what should change before it merges.' }
+  const ci = { label: 'Fix CI', text: 'Find out why CI fails on this pull request and fix it.' }
+  const comments = { label: 'Address review', text: 'Go through the open review comments on this pull request and address them.' }
+  const resume = { label: 'Continue', text: 'Pick up the work on this pull request: see where it stands and what is left.' }
+  const chips = p.column === 'waitingOnMe' || p.column === 'waitingOnAuthor' ? [review, ci] : [resume, comments, ci]
+  return checksTone(p.checks) === 'bad' ? [ci, ...chips.filter((c) => c !== ci)] : chips
+}

@@ -458,6 +458,12 @@ enum Commands {
         cached: bool,
     },
 
+    /// One pull request: check it out in a worktree, or start a session on it
+    Pr {
+        #[command(subcommand)]
+        cmd: PrCmd,
+    },
+
     /// Keep the git repos under the configured roots fresh (fetch + fast-forward only)
     Repos {
         #[command(subcommand)]
@@ -699,6 +705,42 @@ enum TmuxCmd {
         /// Idle threshold: 30m, 12h, 7d, or hours
         #[arg(long, default_value = "24h")]
         older_than: String,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+enum PrCmd {
+    /// Check the PR out in a worktree under prs.worktrees (or find the one it is in)
+    Checkout {
+        /// owner/repo#123, repo#123 (from your cached PRs) or the PR's URL
+        pr: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check the PR out, then start a session in its worktree that is told what the PR is
+    Spawn {
+        /// owner/repo#123, repo#123 (from your cached PRs) or the PR's URL
+        pr: String,
+        /// The first prompt (after the PR's context line)
+        prompt: Option<String>,
+        /// Backend to spawn into (default: tmux inside tmux, over ssh or off macOS; else iterm)
+        #[arg(long, value_enum)]
+        backend: Option<BackendArg>,
+        /// Display name for the new session
+        #[arg(long)]
+        name: Option<String>,
+        /// Model for the new session (`<harness> --model <id>`)
+        #[arg(long, value_name = "ID")]
+        model: Option<String>,
+        /// Coding agent to run: claude (default), codex or pi
+        #[arg(long, value_enum)]
+        harness: Option<HarnessArg>,
+        /// Open a window in this tmux session instead of a new session per job (tmux only)
+        #[arg(long)]
+        tmux_session: Option<String>,
+        /// Open a new window instead of a tab (iterm backend only)
+        #[arg(long)]
+        window: bool,
     },
 }
 
@@ -1214,6 +1256,33 @@ fn run(cli: Cli) -> Result<i32> {
                 fleet::core::prs::Mode::Auto
             },
         })?,
+        Commands::Pr { cmd } => match cmd {
+            PrCmd::Checkout { pr, json } => {
+                prs_cmd::checkout(&pr, json)?;
+            }
+            PrCmd::Spawn {
+                pr,
+                prompt,
+                backend,
+                name,
+                model,
+                harness,
+                tmux_session,
+                window,
+            } => prs_cmd::spawn(
+                &pr,
+                prompt,
+                commands::SpawnOpts {
+                    dir: None,
+                    backend: backend.map(Into::into),
+                    name,
+                    model,
+                    harness: harness.map(Into::into).unwrap_or_default(),
+                    tmux_session,
+                    window,
+                },
+            )?,
+        },
         Commands::Repos { cmd, json, all } => match cmd.unwrap_or(ReposCmd::Status { json, all }) {
             ReposCmd::Status { json: j, all: a } => repos_cmd::status(json || j, all || a)?,
             ReposCmd::Sync {

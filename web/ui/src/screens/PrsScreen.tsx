@@ -16,6 +16,7 @@ import { useLocation } from 'wouter'
 
 import type { PullRequest } from '@/api/types'
 import { HostDot } from '@/components/HostBadge'
+import { PrDialog } from '@/components/PrDialog'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +25,7 @@ import { useNow } from '@/hooks/useNow'
 import { usePrs } from '@/hooks/usePrs'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { relTime } from '@/lib/format'
-import { CHECKS_LABEL, checksTone, groupPrs, reviewLabel, type ChecksTone, type PrGroup } from '@/lib/prs'
+import { CHECKS_LABEL, checksTone, groupPrs, prRef, reviewLabel, type ChecksTone, type PrGroup } from '@/lib/prs'
 import { cn } from '@/lib/utils'
 
 const CHECKS_ICON: Record<ChecksTone, React.ReactNode> = {
@@ -43,7 +44,8 @@ const CHECKS_ICON: Record<ChecksTone, React.ReactNode> = {
 export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }) {
   const pane = layout === 'pane'
   const [, navigate] = useLocation()
-  const { hosts, host, setHost, data, error, loading, refresh, refreshing } = usePrs()
+  const { hosts, host, setHost, data, error, loading, refresh, refreshing, reload } = usePrs()
+  const [open, setOpen] = useState<PullRequest | null>(null)
   const [q, setQ] = useState('')
   const now = useNow(30_000)
   const groups = groupPrs(data, q)
@@ -138,6 +140,10 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
   )
   const showSkeleton = loading && !data && !error
 
+  // The open PR, refreshed from the latest answer (its worktree shows up after a checkout).
+  const current = open ? (data?.prs.find((p) => p.url === open.url) ?? open) : null
+  const dialog = current ? <PrDialog key={prRef(current)} pr={current} host={host} onClose={() => setOpen(null)} onChanged={reload} /> : null
+
   if (pane) {
     return (
       <section aria-label="Pull requests" className="flex h-full min-w-0 flex-1 flex-col bg-background">
@@ -165,8 +171,9 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
                   {skeleton}
                 </div>
               ))
-            : groups.map((g) => <Column key={g.id} group={g} now={now} />)}
+            : groups.map((g) => <Column key={g.id} group={g} now={now} onOpen={setOpen} />)}
         </div>
+        {dialog}
       </section>
     )
   }
@@ -196,7 +203,7 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
               <ColumnTitle group={g} />
               <div className="space-y-2">
                 {g.prs.map((p) => (
-                  <PrCard key={p.url} pr={p} now={now} />
+                  <PrCard key={p.url} pr={p} now={now} onOpen={setOpen} />
                 ))}
               </div>
             </section>
@@ -205,6 +212,7 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
           <p className="py-8 text-center text-sm text-muted-foreground">{q ? 'No pull request matches.' : 'No open pull requests need you.'}</p>
         ) : null}
       </div>
+      {dialog}
     </div>
   )
 }
@@ -218,13 +226,13 @@ function ColumnTitle({ group: g }: { group: PrGroup }) {
   )
 }
 
-function Column({ group: g, now }: { group: PrGroup; now: number }) {
+function Column({ group: g, now, onOpen }: { group: PrGroup; now: number; onOpen: (p: PullRequest) => void }) {
   return (
     <section aria-label={g.title} className="flex w-80 shrink-0 flex-col">
       <ColumnTitle group={g} />
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {g.prs.map((p) => (
-          <PrCard key={p.url} pr={p} now={now} />
+          <PrCard key={p.url} pr={p} now={now} onOpen={onOpen} />
         ))}
         {!g.prs.length ? <p className="rounded-lg border border-dashed p-3 text-center text-xs text-dimmer">Nothing here</p> : null}
       </div>
@@ -232,17 +240,16 @@ function Column({ group: g, now }: { group: PrGroup; now: number }) {
   )
 }
 
-function PrCard({ pr: p, now }: { pr: PullRequest; now: number }) {
+function PrCard({ pr: p, now, onOpen }: { pr: PullRequest; now: number; onOpen: (p: PullRequest) => void }) {
   const tone = checksTone(p.checks)
   const review = reviewLabel(p)
   const mine = p.column === 'draftMine' || p.column === 'reviewMine' || p.column === 'readyToMergeMine'
   const worktree = p.local?.worktree
   return (
-    <a
-      href={p.url}
-      target="_blank"
-      rel="noreferrer"
-      className="block rounded-lg border bg-card p-3 text-sm outline-none hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+    <button
+      type="button"
+      onClick={() => onOpen(p)}
+      className="block w-full rounded-lg border bg-card p-3 text-left text-sm outline-none hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
     >
       <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
         {p.draft ? <GitPullRequestDraftIcon className="size-3.5 shrink-0" /> : <GitPullRequestIcon className="size-3.5 shrink-0" />}
@@ -278,6 +285,6 @@ function PrCard({ pr: p, now }: { pr: PullRequest; now: number }) {
           </span>
         ) : null}
       </div>
-    </a>
+    </button>
   )
 }

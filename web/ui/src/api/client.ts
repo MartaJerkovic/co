@@ -36,6 +36,8 @@ import type {
   StacksResponse,
   StackView,
   UploadResponse,
+  PrSpawnResponse,
+  PrWorktree,
   PrsResponse,
   UsageResponse,
 } from './types'
@@ -217,6 +219,13 @@ export const api = {
   /** The GitHub PRs that need you, as `gh` on that host sees them (`refresh` skips its cache). */
   prs: (host: string, { refresh = false, ...o }: Opts & { refresh?: boolean } = {}) =>
     request<PrsResponse>(`${hostPath(host)}/prs${refresh ? '?refresh=1' : ''}`, o),
+
+  /** Check a PR (`owner/repo#123`) out in a worktree on that host, or find the one it is in. */
+  prCheckout: (host: string, pr: string, o: Opts = {}) =>
+    request<{ host: string; worktree: PrWorktree }>(`${hostPath(host)}/prs/checkout`, { ...o, method: 'POST', body: { pr } }),
+  /** Check it out, then start a session in the worktree whose first prompt says what the PR is. */
+  prSpawn: (host: string, body: { pr: string; prompt?: string; name?: string; model?: string; harness?: string }, o: Opts = {}) =>
+    request<PrSpawnResponse>(`${hostPath(host)}/prs/spawn`, { ...o, method: 'POST', body }),
 
   /** Sessions a reboot left dormant on `host` (404 / 501 on servers or CLIs that predate session recovery). */
   dormant: (host: string, o: Opts = {}) => request<DormantResponse>(`${hostPath(host)}/dormant`, o),

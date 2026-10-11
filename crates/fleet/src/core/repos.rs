@@ -217,7 +217,7 @@ pub fn discover_all(s: &Settings) -> Vec<(Repo, bool)> {
 
 // ---------- git ----------
 
-fn git_cmd(dir: &Path, args: &[&str]) -> Command {
+pub(crate) fn git_cmd(dir: &Path, args: &[&str]) -> Command {
     let mut c = Command::new("git");
     c.arg("-C")
         .arg(dir)

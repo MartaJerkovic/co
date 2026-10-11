@@ -179,3 +179,73 @@ pub fn run(o: Opts) -> Result<()> {
     println!("\n{}", fetched.dimmed());
     Ok(())
 }
+
+/// `fleet pr checkout <ref>`: the PR's worktree (made when missing). → the worktree.
+pub fn checkout(r: &str, json: bool) -> Result<prs::Worktree> {
+    let pr_ref = prs::PrRef::parse(r).ok_or_else(|| {
+        Error::exit(
+            2,
+            format!("'{r}' is not a pull request: use owner/repo#123, repo#123 or its URL"),
+        )
+    })?;
+    let s = Settings::load();
+    for p in &s.problems {
+        eprintln!("{} {p}", "warning:".yellow());
+    }
+    let head = prs::head(&pr_ref)?;
+    let dry = crate::core::hosts::dry_run();
+    let wt = prs::checkout(&s, &repos::Settings::load(), head, dry)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&wt)?);
+    } else if dry && wt.created {
+        println!(
+            "dry-run: would check out {}/{}#{} on {} in {}",
+            wt.pr.owner,
+            wt.pr.repo,
+            wt.pr.number,
+            wt.branch,
+            crate::cli::render::home_rel(&wt.path)
+        );
+    } else if wt.created {
+        println!(
+            "{} {}/{}#{} on {} in {}",
+            "checked out".green(),
+            wt.pr.owner,
+            wt.pr.repo,
+            wt.pr.number,
+            wt.branch.cyan(),
+            crate::cli::render::home_rel(&wt.path)
+        );
+    } else {
+        println!(
+            "{}/{}#{} is already checked out on {} in {}",
+            wt.pr.owner,
+            wt.pr.repo,
+            wt.pr.number,
+            wt.branch.cyan(),
+            crate::cli::render::home_rel(&wt.path)
+        );
+    }
+    Ok(wt)
+}
+
+/// `fleet pr spawn <ref> [prompt]`: check the PR out, then a new session in its worktree whose
+/// first prompt is the PR's context line (what it is, where it is checked out) + `prompt`.
+pub fn spawn(
+    r: &str,
+    prompt: Option<String>,
+    mut opts: crate::cli::commands::SpawnOpts,
+) -> Result<()> {
+    let wt = checkout(r, false)?;
+    let extra = prompt.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    let first = match extra {
+        Some(p) => format!("{} {p}", wt.context_line),
+        None => wt.context_line.clone(),
+    };
+    if crate::core::hosts::dry_run() && wt.created {
+        println!("dry-run: then would spawn a session there, first prompt: {first}");
+        return Ok(());
+    }
+    opts.dir = Some(wt.path.clone());
+    crate::cli::commands::spawn(Some(first), None, opts)
+}

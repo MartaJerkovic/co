@@ -1,6 +1,7 @@
 // The HTTP JSON API (/api/*), independent of any UI. server.mjs mounts it next to the
 // static UI; tests mount it on an ephemeral port with fake dependencies.
 // Endpoint reference: ARCHITECTURE.md → "HTTP API".
+import path from 'node:path';
 import { HttpError, readJsonBody } from './http.mjs';
 import { clampLines, findSession, resolveHost, sleep as defaultSleep, validateKey, validateSendText, validateTitle } from './util.mjs';
 import { answerSteps, screenShowsPrompt, validateAnswer } from './questions.mjs';
@@ -79,7 +80,11 @@ const SESSION_STACK_SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/st
 const STACK_SPAWN_PROXY_MS = 180 * 1000;
 const REPOS_ROUTE = /^\/api\/hosts\/([^/]+)\/repos(?:\/(sync|service))?$/;
 const USAGE_ROUTE = /^\/api\/hosts\/([^/]+)\/usage$/;
-const PRS_ROUTE = /^\/api\/hosts\/([^/]+)\/prs$/;
+const PRS_ROUTE = /^\/api\/hosts\/([^/]+)\/prs(?:\/(checkout|spawn))?$/;
+/** `owner/repo#123` — what the PR screen sends; the CLI parses it again. */
+const PR_REF_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,9}$/;
+/** A checkout fetches the PR's head (a big repo, a slow link): the peer gets as long as the CLI. */
+const PR_CHECKOUT_PROXY_MS = 5 * 60 * 1000;
 /** A PR fetch is three `gh` searches, up to 4 pages each: give a peer as long as its CLI gets. */
 const PRS_PROXY_MS = 130 * 1000;
 const HARNESSES_ROUTE = /^\/api\/hosts\/([^/]+)\/harnesses$/;
@@ -107,7 +112,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   transcripts lib/transcript.mjs reader
  *   spawner     lib/spawn.mjs spawner
  *   killer      lib/kill.mjs killer (kill action; absent → 501)
- *   cli         lib/fleet-cli.mjs instance — `rename`, `usage`, `prs` (absent → 501)
+ *   cli         lib/fleet-cli.mjs instance — `rename`, `usage`, `prs`, `prCheckout` (absent → 501)
  *   autoNamer   lib/autoname.mjs instance (autoname route + health; absent → 501)
  *   spawnNamer  lib/autoname.mjs#createSpawnNamer — a targeted naming pass after an unnamed
  *               spawn with a first prompt (only when web.autoName is enabled; absent → none)
@@ -606,8 +611,11 @@ export function createApi({
 
     const pr = PRS_ROUTE.exec(url.pathname);
     if (pr) {
-      if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
-      return forHost({ req, url, host: decodeURIComponent(pr[1]), timeoutMs: PRS_PROXY_MS, local: () => localPrs(url) });
+      const action = pr[2] ?? null;
+      if (req.method !== (action ? 'POST' : 'GET')) throw new HttpError('method not allowed', 405);
+      const host = decodeURIComponent(pr[1]);
+      if (!action) return forHost({ req, url, host, timeoutMs: PRS_PROXY_MS, local: () => localPrs(url) });
+      return forHost({ req, url, host, timeoutMs: PR_CHECKOUT_PROXY_MS, local: () => localPrAction(req, action) });
     }
 
     const u = UPLOAD_ROUTE.exec(url.pathname);
@@ -807,6 +815,49 @@ export function createApi({
       if (err?.missing) throw new HttpError('this host’s fleet CLI has no `prs` command — update it', 501);
       throw new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
     }
+  }
+
+  /**
+   * POST prs/checkout `{ pr }` → `{ host, worktree }`; POST prs/spawn `{ pr, prompt?, name?,
+   * model?, harness? }` → `{ host, worktree, spawn }`: the PR's worktree (made when missing),
+   * then a new session there whose first prompt is the PR's context line + `prompt`.
+   */
+  async function localPrAction(req, action) {
+    if (typeof cli?.prCheckout !== 'function') throw new HttpError('pull requests are not available on this server', 501);
+    const body = await readJsonBody(req);
+    const ref = typeof body?.pr === 'string' ? body.pr.trim() : '';
+    if (!PR_REF_RE.test(ref)) throw new HttpError('pr must look like owner/repo#123', 400);
+    let check = null;
+    if (action === 'spawn') {
+      // Validate before anything is fetched; the real dir is the worktree.
+      check = validateSpawnRequest({ ...body, dir: '/' }, { spawnDirs: [] });
+      if (!check.ok) throw new HttpError(check.error, 400);
+    }
+    let worktree;
+    try {
+      worktree = await cli.prCheckout(ref);
+    } catch (err) {
+      if (err?.missing) throw new HttpError('this host’s fleet CLI has no `pr` command — update it', 501);
+      throw new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
+    }
+    if (typeof worktree?.path !== 'string' || !path.isAbsolute(worktree.path) || typeof worktree.contextLine !== 'string') {
+      throw new HttpError('fleet pr checkout returned no worktree path — update fleet on this host', 502);
+    }
+    if (action === 'checkout') return { status: 200, body: { host: config.self, worktree } };
+
+    const userPrompt = check.prompt.trim();
+    const prompt = userPrompt ? `${worktree.contextLine} ${userPrompt}` : worktree.contextLine;
+    const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
+    let result;
+    try {
+      result = await spawner.spawn({ name: check.name, dir: worktree.path, prompt, nameGiven, model: check.model, harness: check.harness });
+    } catch (err) {
+      if (err?.status) throw new HttpError(err.message, err.status);
+      throw err;
+    }
+    refreshFleet();
+    if (!nameGiven && spawnNamer && check.harness === 'claude') spawnNamer.schedule(result.tmuxSession).catch(() => {});
+    return { status: 200, body: { host: config.self, worktree, spawn: { ok: true, host: config.self, ...result } } };
   }
 
   async function localUsage(url) {

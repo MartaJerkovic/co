@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PullRequest } from '@/api/types'
 
-import { checksTone, groupPrs, reviewLabel } from './prs'
+import { checksTone, groupPrs, promptChips, prRef, reviewLabel } from './prs'
 
 const pr = (o: Partial<PullRequest>): PullRequest => ({
   column: 'waitingOnMe',
@@ -67,5 +67,14 @@ describe('labels', () => {
     expect(reviewLabel(pr({ myReview: { state: 'changesRequested', at: null, newCommits: false } }))).toBe('you requested changes')
     expect(reviewLabel(pr({ reviewDecision: 'approved' }))).toBe('approved')
     expect(reviewLabel(pr({}))).toBeNull()
+  })
+})
+
+describe('actions', () => {
+  it('refs and prompt chips', () => {
+    expect(prRef(pr({ number: 12 }))).toBe('acme/app#12')
+    expect(promptChips(pr({})).map((c) => c.label)).toEqual(['Review', 'Fix CI'])
+    expect(promptChips(pr({ column: 'draftMine' })).map((c) => c.label)).toEqual(['Continue', 'Address review', 'Fix CI'])
+    expect(promptChips(pr({ column: 'draftMine', checks: 'failure' }))[0].label).toBe('Fix CI')
   })
 })

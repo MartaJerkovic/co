@@ -61,5 +61,6 @@ export function usePrs() {
     }
   }, [load, poll])
 
-  return { hosts, host, setHost, data, error, loading, refresh, refreshing }
+  // `reload`: read again now (the CLI's cache — cheap; re-joins the local worktrees).
+  return { hosts, host, setHost, data, error, loading, refresh, refreshing, reload: poll }
 }

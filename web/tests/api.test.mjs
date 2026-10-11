@@ -58,6 +58,13 @@ function fakeHost(self, sessions) {
     if (self === 'broken') throw new Error('gh not found: install the GitHub CLI and run `gh auth login`');
     return { user: `me-${self}`, stale: false, error: null, columns: [{ id: 'waitingOnMe', title: 'Waiting on me', count: 1 }], prs: [{ column: 'waitingOnMe', repo: 'app', number: 1 }] };
   };
+  cli.prCheckout = async (ref) => {
+    calls.push(['prCheckout', ref]);
+    if (ref === 'acme/gone#9') throw new Error('no checkout of acme/gone under the repos roots (~/Code) — clone it there first');
+    const [, owner, repo, number] = /^(.+)\/(.+)#(\d+)$/.exec(ref);
+    const p = `/home/tester/wt/${repo}-feat`;
+    return { owner, repo, number: Number(number), branch: 'feat', path: p, created: true, contextLine: `You're working on pull request ${ref} in ${p}.` };
+  };
   return { calls, cli, backend, transcripts, spawner, killer, autoNamer, fleet: createFleet({ cli, self }) };
 }
 
@@ -409,6 +416,39 @@ test('prs is GET-only, served locally or proxied, with ?refresh=1 passed through
   assert.equal((await post(`${urls.laptop}/api/hosts/laptop/prs`, {})).status, 405);
 });
 
+test('prs/checkout and prs/spawn: worktree first, then a session there told about the PR; proxied to peers', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  const co = await post(`${urls.laptop}/api/hosts/laptop/prs/checkout`, { pr: 'acme/app#12' });
+  assert.equal(co.status, 200);
+  assert.deepEqual([co.body.host, co.body.worktree.path], ['laptop', '/home/tester/wt/app-feat']);
+  assert.equal(lap.calls.filter((c) => c[0] === 'spawn').length, 0);
+
+  const sp = await post(`${urls.laptop}/api/hosts/workstation/prs/spawn`, { pr: 'acme/app#12', prompt: '  Check CI. ', name: 'pr-12', model: 'opus' });
+  assert.equal(sp.status, 200);
+  assert.equal(sp.body.host, 'workstation');
+  assert.equal(sp.body.spawn.tmuxSession, 'pr-12');
+  const [, req] = remote.calls.find((c) => c[0] === 'spawn');
+  assert.equal(req.dir, '/home/tester/wt/app-feat');
+  assert.equal(req.prompt, "You're working on pull request acme/app#12 in /home/tester/wt/app-feat. Check CI.");
+  assert.equal(req.model, 'opus');
+  assert.equal(lap.calls.filter((c) => c[0] === 'spawn').length, 0);
+});
+
+test('prs/spawn: bad input is a 400 before anything is fetched; a failed checkout spawns nothing', async (t) => {
+  const { urls, lap } = await startPair(t);
+  for (const pr of ['app#12', 'acme/app', '../x#1', 'acme/app#0', 42]) {
+    const r = await post(`${urls.laptop}/api/hosts/laptop/prs/spawn`, { pr });
+    assert.equal(r.status, 400, String(pr));
+  }
+  assert.equal((await post(`${urls.laptop}/api/hosts/laptop/prs/spawn`, { pr: 'acme/app#1', model: 'x y' })).status, 400);
+  assert.equal(lap.calls.filter((c) => c[0] === 'prCheckout').length, 0);
+  const r = await post(`${urls.laptop}/api/hosts/laptop/prs/spawn`, { pr: 'acme/gone#9' });
+  assert.equal(r.status, 502);
+  assert.match(r.body.error, /clone it there first/);
+  assert.equal(lap.calls.filter((c) => c[0] === 'spawn').length, 0);
+  assert.equal((await get(`${urls.laptop}/api/hosts/laptop/prs/spawn`)).status, 405);
+});
+
 test('prs: a CLI failure is a 502 with its reason', async () => {
   const host = fakeHost('broken', []);
   const config = normalizeConfig({ self: 'broken' }, { env: {}, home: '/home/tester' });
@@ -432,6 +472,21 @@ test('fleet CLI prs runs `fleet --local prs --json [--refresh]` and surfaces the
   await assert.rejects(cli.prs(), /^FleetCliError: gh api graphql failed: HTTP 502$/);
   stderr = "error: unrecognized subcommand 'prs'\n";
   await assert.rejects(cli.prs(), (e) => e.missing === true);
+});
+
+test('fleet CLI prCheckout runs `fleet --local pr checkout --json -- <ref>`', async () => {
+  const calls = [];
+  let stderr = null;
+  const run = async (bin, args) => {
+    calls.push(args);
+    if (stderr) throw Object.assign(new Error('exit 1'), { code: 1, stderr });
+    return { stdout: JSON.stringify({ path: '/w', created: true }), stderr: '' };
+  };
+  const cli = createFleetCli({ run, bin: '/x/fleet' });
+  assert.deepEqual(await cli.prCheckout('acme/app#3'), { path: '/w', created: true });
+  assert.deepEqual(calls, [['--local', 'pr', 'checkout', '--json', '--', 'acme/app#3']]);
+  stderr = 'Error: git fetch --quiet origin feat: fatal: could not read from remote\n';
+  await assert.rejects(cli.prCheckout('acme/app#3'), /^FleetCliError: git fetch --quiet origin feat: fatal/);
 });
 
 test('harnesses: per host, cached, Claude models from the config, proxied to peers', async (t) => {
