@@ -820,6 +820,14 @@ test('editor: links are built for the machine the browser is on', () => {
   assert.equal(editorUrl(editorViewer({ ...cfg, editorSsh: 'ws' }, req('100.0.0.1')), 'workstation', '/p'), 'vscode://vscode-remote/ssh-remote+ws/p');
   assert.equal(url(req('100.0.0.9'), 'laptop'), 'vscode://vscode-remote/ssh-remote+lt/w/p');
   assert.equal(url(req('100.0.0.9', '[fd00::1]:7777'), 'workstation'), null, 'an IPv6 literal is not a usable destination');
+  // Behind a local HTTPS proxy (`tailscale serve`): the forwarded address counts, the proxy's own does not.
+  const proxied = (xff, host = 'ws.tailnet.ts.net:7443') => ({ socket: { remoteAddress: '127.0.0.1' }, headers: { host, 'x-forwarded-for': xff } });
+  assert.equal(url(proxied('100.0.0.1'), 'laptop'), 'vscode://file/w/p');
+  assert.equal(url(proxied('100.0.0.1'), 'workstation'), 'vscode://vscode-remote/ssh-remote+me@ws.tailnet.ts.net/w/p');
+  assert.equal(url(proxied('100.0.0.9, 100.0.0.1'), 'laptop'), 'vscode://file/w/p', 'the last hop is the one the proxy added');
+  assert.equal(url(proxied(''), 'workstation'), 'vscode://file/w/p', 'no forwarded address: loopback');
+  const remoteSpoof = { socket: { remoteAddress: '100.0.0.9' }, headers: { host: '100.0.0.2:7777', 'x-forwarded-for': '100.0.0.1' } };
+  assert.equal(url(remoteSpoof, 'laptop'), 'vscode://vscode-remote/ssh-remote+lt/w/p', 'X-Forwarded-For is trusted from loopback only');
   // No request: the config as is.
   assert.equal(editorViewer(cfg, null), cfg);
 });

@@ -1,6 +1,6 @@
 // "Open in editor" links (`web.editor`: "vscode" | "cursor" | null). The browser follows them,
 // so they are built for the machine the browser runs on (editorViewer: loopback = this host, a
-// peer's web address = that peer): a session on that machine opens as a local folder
+// peer's web address = that peer; behind a local HTTPS proxy, its X-Forwarded-For): a session on that machine opens as a local folder
 // (`vscode://file/<path>`), a session on another host through Remote-SSH with that host's ssh
 // alias from this server's config (`vscode://vscode-remote/ssh-remote+<alias><path>`) — for this
 // server's own host `web.editorSsh`, else `<user>@<the address the browser used>`. A proxied
@@ -37,12 +37,24 @@ export function editorUrl(config, host, absPath) {
 const LOOPBACK_RE = /^(?:127\.\d+\.\d+\.\d+|::1)$/;
 
 /**
+ * The browser's address: the socket's, or — behind a reverse proxy on this machine (`tailscale
+ * serve` for HTTPS) — the last `X-Forwarded-For` entry, the one that proxy added.
+ */
+function clientAddr(req) {
+  const socket = String(req?.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+  if (!LOOPBACK_RE.test(socket)) return socket;
+  const xff = req?.headers?.['x-forwarded-for'];
+  const forwarded = typeof xff === 'string' ? (xff.split(',').pop() ?? '').trim().replace(/^::ffff:/, '') : '';
+  return forwarded || socket;
+}
+
+/**
  * The config to build editor links with for this request: `self` becomes the host the browser is
  * on (null when it is none of ours — a phone), and this server's host gets an ssh destination
  * when the browser is elsewhere. Without a request (or a socket address): `config` as is.
  */
 export function editorViewer(config, req, { user = safeUser() } = {}) {
-  const addr = String(req?.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+  const addr = clientAddr(req);
   if (!config || !addr || LOOPBACK_RE.test(addr)) return config;
   const viewer = Object.entries(config.hostAddrs ?? {}).find(([, a]) => a === addr)?.[0] ?? null;
   if (viewer === config.self) return config;

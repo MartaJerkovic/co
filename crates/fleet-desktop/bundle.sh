@@ -59,6 +59,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
   <!-- Attach opens an iTerm tab through AppleScript. -->
   <key>NSAppleEventsUsageDescription</key><string>Fleet opens iTerm tabs attached to your tmux sessions.</string>
+  <!-- Voice input in the composer (the page must be HTTPS or localhost — see docs/desktop.md). -->
+  <key>NSMicrophoneUsageDescription</key><string>Fleet records voice messages that are transcribed into your prompts.</string>
   <!-- The Fleet server is plain http on the tailnet (100.x.y.z), which ATS would block. -->
   <key>NSAppTransportSecurity</key>
   <dict>

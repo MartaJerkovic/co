@@ -49,6 +49,20 @@ The first of:
 
 Since every server merges its peers, the local server shows the whole fleet.
 
+**Voice input needs a secure origin.** WebKit only exposes the microphone to HTTPS pages and
+`localhost`, so with a remote server over plain `http://100.x.y.z:7777` the composer's mic just
+says so. Put the server behind Tailscale HTTPS on that machine (tailnet only, a real certificate):
+
+```sh
+tailscale serve --bg --https=7443 http://localhost:7777       # on the workstation
+fleet config set desktop.url https://workstation.<tailnet>.ts.net:7443   # on the laptop
+```
+
+The server takes the browser's address from `X-Forwarded-For` when the request comes from this
+machine's proxy, so "Open in editor" links still know which machine you are on. The first
+recording asks for microphone access (`NSMicrophoneUsageDescription`); the server needs a
+transcription key (see `POST /api/transcribe` in [architecture](architecture.md)).
+
 On launch a small start page checks `GET /api/health`. If the server answers, the window loads
 it. If not and the URL is this machine's (3, 4, or a loopback 1/2), the app starts
 `fleet --local web serve --port <that port>` (plus `--bind 127.0.0.1` for a loopback URL) with the
