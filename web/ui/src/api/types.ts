@@ -859,7 +859,8 @@ export interface PullRequest {
   /** How long it has waited, by its column's thresholds (absent from older servers). */
   rotting?: PrRotting
   /** Where the repo / head branch is checked out on the answering host. */
-  local?: { repoPath: string; worktree: string | null }
+  /** `editorUrl`: "Open in VS Code / Cursor" for the worktree, from the server the browser asked (null: no link). */
+  local?: { repoPath: string; worktree: string | null; editorUrl?: string | null }
 }
 
 export type PrRotting = 'fresh' | 'warming' | 'stale' | 'rotting' | 'critical'
@@ -907,6 +908,8 @@ export interface PrWorktree {
   /** Made by this call (false: it was already checked out). */
   created: boolean
   contextLine: string
+  /** "Open in VS Code / Cursor" for `path` (null: no link). */
+  editorUrl?: string | null
 }
 
 /** POST /api/hosts/:host/prs/spawn */

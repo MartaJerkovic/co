@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ExternalLinkIcon, FolderGit2Icon, GitBranchIcon, Loader2Icon, PlayIcon } from 'lucide-react'
+import { CodeXmlIcon, ExternalLinkIcon, FolderGit2Icon, GitBranchIcon, Loader2Icon, PlayIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useLocation } from 'wouter'
 
@@ -16,6 +16,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useFleet } from '@/hooks/useFleet'
+import { editorLabel } from '@/lib/brief'
 import { copyText } from '@/lib/clipboard'
 import { shortCwd } from '@/lib/format'
 import { CHECKS_LABEL, checksTone, prRef, promptChips } from '@/lib/prs'
@@ -49,6 +50,8 @@ export function PrDialog({
   if (!pr || !host) return null
   const ref = prRef(pr)
   const worktree = pr.local?.worktree ?? null
+  const editorUrl = worktree ? (pr.local?.editorUrl ?? null) : null
+  const editorText = editorLabel(null, editorUrl)
   const tone = checksTone(pr.checks)
 
   const checkout = async () => {
@@ -56,9 +59,13 @@ export function PrDialog({
     setError(null)
     try {
       const { worktree: wt } = await api.prCheckout(host, ref)
+      const open = editorLabel(null, wt.editorUrl)
       toast.success(wt.created ? `Checked out ${ref}` : `${ref} was already checked out`, {
         description: shortCwd(wt.path),
-        action: { label: 'Copy path', onClick: () => void copyText(wt.path) },
+        action:
+          open && wt.editorUrl
+            ? { label: open.replace(/^Open in /, ''), onClick: () => window.location.assign(wt.editorUrl!) }
+            : { label: 'Copy path', onClick: () => void copyText(wt.path) },
       })
       onChanged()
       setBusy(null)
@@ -135,14 +142,24 @@ export function PrDialog({
           <dd className="flex min-w-0 items-center gap-1.5">
             <HostDot host={host} />
             {worktree ? (
-              <button
-                type="button"
-                className="min-w-0 truncate text-left font-mono text-xs hover:underline"
-                title="Copy path"
-                onClick={() => void copyText(worktree)}
-              >
-                {shortCwd(worktree)}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="min-w-0 truncate text-left font-mono text-xs hover:underline"
+                  title="Copy path"
+                  onClick={() => void copyText(worktree)}
+                >
+                  {shortCwd(worktree)}
+                </button>
+                {/* A desktop editor link makes no sense on a phone: hidden on touch-first screens. */}
+                {editorText && editorUrl ? (
+                  <Button asChild variant="outline" size="sm" className="-my-1 ml-auto h-6 shrink-0 px-2 text-xs pointer-coarse:hidden">
+                    <a href={editorUrl} title={editorText}>
+                      <CodeXmlIcon /> {editorText.replace(/^Open in /, '')}
+                    </a>
+                  </Button>
+                ) : null}
+              </>
             ) : pr.local ? (
               <span className="text-muted-foreground">not checked out on {host}</span>
             ) : (

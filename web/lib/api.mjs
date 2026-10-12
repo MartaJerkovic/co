@@ -614,8 +614,10 @@ export function createApi({
       const action = pr[2] ?? null;
       if (req.method !== (action ? 'POST' : 'GET')) throw new HttpError('method not allowed', 405);
       const host = decodeURIComponent(pr[1]);
-      if (!action) return forHost({ req, url, host, timeoutMs: PRS_PROXY_MS, local: () => localPrs(url) });
-      return forHost({ req, url, host, timeoutMs: PR_CHECKOUT_PROXY_MS, local: () => localPrAction(req, action) });
+      const r = action
+        ? await forHost({ req, url, host, timeoutMs: PR_CHECKOUT_PROXY_MS, local: () => localPrAction(req, action) })
+        : await forHost({ req, url, host, timeoutMs: PRS_PROXY_MS, local: () => localPrs(url) });
+      return withPrEditors(r, editorViewer(config, req), host);
     }
 
     const u = UPLOAD_ROUTE.exec(url.pathname);
@@ -802,6 +804,20 @@ export function createApi({
     rows = rows.map((r) => (r.id === 'claude' ? { ...r, models: config.models ?? DEFAULT_MODELS } : r));
     harnessCache = { at: Date.now(), rows };
     return { status: 200, body: { host: config.self, harnesses: rows } };
+  }
+
+  /**
+   * Editor links for worktrees in a PR answer (each PR's `local.editorUrl`, a checkout's
+   * `worktree.editorUrl`), built by the server the browser asked — like the notes and briefs.
+   */
+  function withPrEditors(r, viewer, host) {
+    if (r?.status !== 200 || !r.body || r.stream) return r;
+    const body = { ...r.body };
+    if (Array.isArray(body.prs)) {
+      body.prs = body.prs.map((p) => (p?.local?.worktree ? { ...p, local: { ...p.local, editorUrl: editorUrl(viewer, host, p.local.worktree) } } : p));
+    }
+    if (body.worktree?.path) body.worktree = { ...body.worktree, editorUrl: editorUrl(viewer, host, body.worktree.path) };
+    return { ...r, body };
   }
 
   /** GET usage: this host's Claude subscription limits (`fleet usage --json`). */

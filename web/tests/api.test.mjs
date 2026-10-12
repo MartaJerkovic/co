@@ -56,7 +56,7 @@ function fakeHost(self, sessions) {
   cli.prs = async ({ refresh }) => {
     calls.push(['prs', refresh]);
     if (self === 'broken') throw new Error('gh not found: install the GitHub CLI and run `gh auth login`');
-    return { user: `me-${self}`, stale: false, error: null, columns: [{ id: 'waitingOnMe', title: 'Waiting on me', count: 1 }], prs: [{ column: 'waitingOnMe', repo: 'app', number: 1 }] };
+    return { user: `me-${self}`, stale: false, error: null, columns: [{ id: 'waitingOnMe', title: 'Waiting on me', count: 1 }], prs: [{ column: 'waitingOnMe', repo: 'app', number: 1, local: { repoPath: '/home/tester/app', worktree: '/home/tester/wt/app feat' } }, { column: 'draftMine', repo: 'app', number: 2 }] };
   };
   cli.prCheckout = async (ref) => {
     calls.push(['prCheckout', ref]);
@@ -413,8 +413,12 @@ test('prs is GET-only, served locally or proxied, with ?refresh=1 passed through
   const here = await get(`${urls.laptop}/api/hosts/laptop/prs`);
   assert.equal(here.status, 200);
   assert.deepEqual([here.body.host, here.body.user, here.body.prs[0].column], ['laptop', 'me-laptop', 'waitingOnMe']);
+  // Worktrees get "Open in editor" links from the server the browser asked (no ssh alias: none).
+  assert.equal(here.body.prs[0].local.editorUrl, 'vscode://file/home/tester/wt/app%20feat');
+  assert.equal(here.body.prs[1].local, undefined);
   const there = await get(`${urls.laptop}/api/hosts/workstation/prs?refresh=1`);
   assert.deepEqual([there.body.host, there.body.user], ['workstation', 'me-workstation']);
+  assert.equal(there.body.prs[0].local.editorUrl, null);
   assert.deepEqual(lap.calls.filter((c) => c[0] === 'prs'), [['prs', false]]);
   assert.deepEqual(remote.calls.filter((c) => c[0] === 'prs'), [['prs', true]]);
   assert.equal((await post(`${urls.laptop}/api/hosts/laptop/prs`, {})).status, 405);
@@ -425,6 +429,7 @@ test('prs/checkout and prs/spawn: worktree first, then a session there told abou
   const co = await post(`${urls.laptop}/api/hosts/laptop/prs/checkout`, { pr: 'acme/app#12' });
   assert.equal(co.status, 200);
   assert.deepEqual([co.body.host, co.body.worktree.path], ['laptop', '/home/tester/wt/app-feat']);
+  assert.equal(co.body.worktree.editorUrl, 'vscode://file/home/tester/wt/app-feat');
   assert.equal(lap.calls.filter((c) => c[0] === 'spawn').length, 0);
 
   const sp = await post(`${urls.laptop}/api/hosts/workstation/prs/spawn`, { pr: 'acme/app#12', prompt: '  Check CI. ', name: 'pr-12', model: 'opus' });
