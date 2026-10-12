@@ -12,6 +12,7 @@ import './snapshot.test.mjs';
 import './ui.test.mjs';
 import './grouping.test.mjs';
 import './uploads.test.mjs';
+import './transcribe.test.mjs';
 import './files.test.mjs';
 import './touched.test.mjs';
 import './briefs.test.mjs';

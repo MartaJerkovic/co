@@ -166,12 +166,20 @@ export interface Settings {
   quickReplies: QuickReply[]
   /** `web.uploads.maxMB` of this server (older servers: absent). */
   uploads?: { maxMB: number | null }
+  /** Voice prompts (POST /api/transcribe): this server has a transcription key (older servers: absent). */
+  transcribe?: { enabled: boolean }
   /** The New session model picker (older servers: absent → lib/models.ts defaults). */
   models?: ModelOption[]
   /** This server's notes explorer (older servers: absent). */
   notes?: { enabled: boolean; name?: string | null }
   /** Session stacks on this server (older servers: absent); `generate` = creating one calls `model`. */
   stacks?: { enabled: boolean; model?: string; generate?: boolean }
+}
+
+/** POST /api/transcribe — the recording as text. */
+export interface TranscribeResponse {
+  text: string
+  model: string
 }
 
 /** POST /api/hosts/:host/uploads — the stored copy on that host. */

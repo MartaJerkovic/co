@@ -659,6 +659,7 @@ export function SessionScreen({
         draftKey={sessionKey}
         apiRef={composerApi}
         agent={harnessLabel(session?.harness)}
+        voiceHint={[name, session?.cwd?.split('/').pop()].filter(Boolean).join(', ')}
       />
       <DropOverlay show={drop.dragging} hint={`Uploaded to ${host}; the path goes into the message`} />
       <FilePreview host={host} id={id} file={preview} onClose={() => setPreviewOf(null)} desktop={pane} />

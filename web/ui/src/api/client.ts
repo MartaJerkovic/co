@@ -35,6 +35,7 @@ import type {
   StackSpawnResponse,
   StacksResponse,
   StackView,
+  TranscribeResponse,
   UploadResponse,
   PrSpawnResponse,
   PrWorktree,
@@ -148,6 +149,10 @@ export const api = {
     request<ReposResponse>(`${hostPath(host)}/repos/service`, { ...o, method: 'POST', body: { install } }),
   autoname: (host: string, o: Opts = {}) =>
     request<AutoNameRun>(`${hostPath(host)}/autoname`, { ...o, method: 'POST', body: {} }),
+
+  /** A voice recording as text (always this server); `hint` = words to expect (session name, repo). */
+  transcribe: (audio: Blob, hint: string, o: Opts = {}) =>
+    request<TranscribeResponse>(`/api/transcribe?hint=${enc(hint)}`, { ...o, method: 'POST', file: audio }),
 
   /** Store a file on `host`; the response carries its absolute path there. */
   upload: (host: string, file: Blob, name: string, o: Opts = {}) =>

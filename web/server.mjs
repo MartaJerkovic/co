@@ -18,6 +18,7 @@ import { createKiller } from './lib/kill.mjs';
 import { createAutoNamer, createSpawnNamer } from './lib/autoname.mjs';
 import { createGrouper } from './lib/grouping.mjs';
 import { createUploader } from './lib/uploads.mjs';
+import { createKeySource, createTranscriber } from './lib/transcribe.mjs';
 import { createFiles } from './lib/files.mjs';
 import { createNotes } from './lib/notes.mjs';
 import { createSpawnDirsEditor } from './lib/spawn-dirs.mjs';
@@ -133,6 +134,7 @@ const handleApi = createApi({
   autoNamer,
   spawnNamer,
   uploader,
+  transcriber: createTranscriber({ getKey: createKeySource({ run }), log }),
   files: createFiles({ home: os.homedir(), run, touched: createTouchedIndex(), roots: config.files.roots }),
   notes: createNotes({ config: config.notes, home: os.homedir(), run }),
   // Settings → Start directories: writes through `fleet config set`, hot-reloads config.spawnDirs.

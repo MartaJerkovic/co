@@ -22,6 +22,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           quickReplies,
           uploadMaxMB: typeof data?.uploads?.maxMB === 'number' ? data.uploads.maxMB : null,
           models: normalizeModels(data?.models),
+          voice: data?.transcribe?.enabled === true,
           loaded: true,
         })
       })

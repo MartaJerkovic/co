@@ -371,7 +371,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | method | path | purpose |
 | --- | --- | --- |
 | GET | `/api/health` | name, version, apiVersion, self, uptime, autoName (`lastRun`) |
-| GET | `/api/settings` | apiVersion, self, host names, quick replies |
+| GET | `/api/settings` | apiVersion, self, host names, quick replies, `transcribe: { enabled }` (this server has a transcription key) |
 | GET | `/api/fleet[?local=1]` | `{ self, hosts: [{ name, ok, error?, sessions, spawnDirs, notes? }], snapshotAt }` — sessions are `list --json` objects + `host` (a Codex session with no transcript yet gets `session_id: "pid-<pid>"` until it has one) (`title` capped at 300 chars) + `editorUrl` (the "Open in editor" link for its cwd, built by the server that answered — see [Session briefs](#session-briefs)); the merged view is a warm background-refreshed snapshot |
 | GET | `/api/hosts/:host/sessions/:id/peek?lines=N` | plain-text screen |
 | GET | `/api/hosts/:host/sessions/:id/messages?limit=N` | conversation (no tool calls) from the transcript; an AskUserQuestion call is a message of `kind: "question"` with `id` (the tool use id), `questions` (`[{ question, header, multiSelect, options: [{ label, description }] }]`), `text` (a markdown rendering) and, once it has a result, `answers` (per question, the answer string) or `declined: true` |
@@ -395,6 +395,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | POST | `/api/groups/run` | `{}` → run the grouping pass now (on the grouping host) → the same shape; 501 when grouping is off |
 | POST | `/api/groups/edit` | `{ op: "rename", id, label }` or `{ op: "move", host, session, to }` / `{ op: "move", host, session, label }` (a new group) / `{ op: "create", label }` / `{ op: "delete", id }` (empty groups) → `fleet group --rename/--move/--create/--delete` on the grouping host (proxied there) → the same shape; 400 bad body, 409 refused (unknown id, taken label), 501 when grouping is off |
 | POST | `/api/hosts/:host/uploads?name=<file>` | raw file body → stored under that host's `web.uploads.dir` → `{ host, path, name, size }` (absolute `path`; 413 over `web.uploads.maxMB`); streamed through to a peer |
+| POST | `/api/transcribe?hint=<words>` | raw audio body (webm / ogg / mp4 / mp3 / wav, ≤ 25 MB) → `{ text, model }` via OpenAI `gpt-4o-transcribe`; always this server, never proxied. `hint` (≤ 400 chars: session name, repo) steers spelling. Key: `$OPENAI_SPEECH_TO_TEXT_API_KEY`, else the macOS Keychain item of that name (never the config file). 501 without a key, 415 non-audio, 413 too large, 502 upstream errors (including a bad key), 429 rate limit |
 | POST | `/api/hosts/:host/autoname` | `{}` → run the naming pass on that host now → `{ renamed: [{ from, to }], tmux, held, errors }` |
 | POST | `/api/hosts/:host/sessions/:id/files/stat` | `{ paths }` (≤ 200, as written in chat, `:line` allowed) → per path: resolved absolute path, `exists`, `isFile`, size, mtime, `kind` (markdown/text/image/pdf/other); the UI links only existing files |
 | GET | `/api/hosts/:host/sessions/:id/files/raw?path=…[&download=1]` | the file itself, streamed (also through a peer); text/markdown over 5 MB only as a download |

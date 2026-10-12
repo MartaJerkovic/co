@@ -117,6 +117,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   spawnNamer  lib/autoname.mjs#createSpawnNamer — a targeted naming pass after an unnamed
  *               spawn with a first prompt (only when web.autoName is enabled; absent → none)
  *   uploader    lib/uploads.mjs instance (uploads route; absent → 501)
+ *   transcriber lib/transcribe.mjs instance (POST /api/transcribe, settings.transcribe; absent → off)
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
  *   notes       lib/notes.mjs instance (notes/tree|search|file|raw; absent → 501: web.notes.root unset)
@@ -143,6 +144,7 @@ export function createApi({
   autoNamer = null,
   spawnNamer = null,
   uploader = null,
+  transcriber = null,
   files = null,
   briefs = null,
   notes = null,
@@ -512,11 +514,19 @@ export function createApi({
           quickReplies: config.quickReplies ?? DEFAULT_QUICK_REPLIES,
           models: config.models ?? DEFAULT_MODELS,
           uploads: { maxMB: config.uploads?.maxMB ?? null },
+          transcribe: { enabled: Boolean(await transcriber?.enabled()) },
           notes: notes ? { enabled: true, name: notes.name ?? null } : { enabled: false },
           // `generate`: whether creating a stack calls the model (the CLI's `stacks.enabled`).
           stacks: { enabled: Boolean(stacks), model: config.stacks?.model ?? DEFAULT_STACKS_MODEL, generate: config.stacks?.generate !== false },
         },
       };
+    }
+
+    // Voice prompts: always this server (the UI's origin), whichever host the session is on.
+    if (url.pathname === '/api/transcribe') {
+      if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      if (!transcriber) throw new HttpError('voice input is not available on this server', 501);
+      return { status: 200, body: await transcriber.transcribe(req, url.searchParams.get('hint')) };
     }
 
     if (url.pathname === '/api/fleet') {

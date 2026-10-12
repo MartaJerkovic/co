@@ -1,14 +1,17 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type TouchEvent } from 'react'
-import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon, Loader2Icon, PaperclipIcon, SendHorizontalIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon, Loader2Icon, MicIcon, PaperclipIcon, SendHorizontalIcon, SquareIcon } from 'lucide-react'
 
 import type { QuickReply, SessionKey } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { useAttach } from '@/hooks/useAttach'
+import { useSettings } from '@/hooks/useSettings'
+import { useVoice } from '@/hooks/useVoice'
 import { MAX_SEND_CHARS } from '@/lib/chat'
 import { saveDraft, takeDraft } from '@/lib/drafts'
 import { swipeIntent } from '@/lib/gestures'
 import { restoreText } from '@/lib/outbox'
 import { cn } from '@/lib/utils'
+import { appendTranscript, formatElapsed } from '@/lib/voice'
 
 /** Built-in key chips (not configurable). */
 const KEY_CHIPS: { key: SessionKey; label: string; icon?: ReactNode }[] = [
@@ -52,6 +55,8 @@ export interface ComposerProps {
   apiRef?: React.Ref<ComposerApi>
   /** Who the message goes to, for the placeholder ("Claude", "Codex", "pi"). */
   agent?: string
+  /** Words the voice transcriber should expect (session name, repo). */
+  voiceHint?: string
 }
 
 export interface ComposerApi {
@@ -73,6 +78,7 @@ export function Composer({
   draftKey,
   apiRef,
   agent = 'Claude',
+  voiceHint = '',
 }: ComposerProps) {
   const [text, setText] = useState(() => takeDraft(draftKey))
   useEffect(() => saveDraft(draftKey, text), [draftKey, text])
@@ -94,6 +100,23 @@ export function Composer({
     }),
     [],
   )
+  // Voice prompts: the mic records, the server transcribes, the text is appended.
+  const { voice: voiceEnabled } = useSettings()
+  const voice = useVoice({
+    hint: voiceHint,
+    onText: (t) => {
+      caretToEnd.current = true
+      setText((cur) => appendTranscript(cur, t))
+    },
+  })
+  const recording = voice.state === 'recording'
+  const transcribing = voice.state === 'transcribing'
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!recording) return
+    const t = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(t)
+  }, [recording])
   const locked = lockedReason != null
   const empty = text.trim().length === 0
   const tooLong = text.length > MAX_SEND_CHARS
@@ -243,6 +266,11 @@ export function Composer({
             onChange={(e) => setText(e.target.value)}
             onPaste={onPaste}
             onKeyDown={(e) => {
+              if (e.key === 'Escape' && voice.state !== 'idle') {
+                e.preventDefault()
+                voice.cancel()
+                return
+              }
               if (isTouch && !desktop) return
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
@@ -262,6 +290,25 @@ export function Composer({
               tooLong && 'border-destructive',
             )}
           />
+          {voiceEnabled ? (
+            <Button
+              type="button"
+              variant={recording ? 'destructive' : 'ghost'}
+              size="icon"
+              aria-label={recording ? 'Stop recording and transcribe' : transcribing ? 'Transcribing' : 'Record a voice message'}
+              aria-pressed={recording}
+              title={recording ? 'Stop and transcribe (Esc cancels)' : 'Voice input: speak, the text is added to the message'}
+              disabled={locked || transcribing}
+              onClick={() => (recording ? voice.stop() : void voice.start())}
+              className={cn(
+                'size-11 shrink-0 rounded-full [&_svg:not([class*=size-])]:size-5',
+                !recording && 'text-muted-foreground',
+                recording && 'animate-pulse',
+              )}
+            >
+              {transcribing ? <Loader2Icon className="animate-spin" /> : recording ? <SquareIcon className="size-4 fill-current" /> : <MicIcon />}
+            </Button>
+          ) : null}
           <Button
             type="submit"
             size="icon"
@@ -272,7 +319,21 @@ export function Composer({
             <SendHorizontalIcon />
           </Button>
         </div>
-        {progress ? (
+        {voice.state !== 'idle' ? (
+          <div className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 text-xs text-muted-foreground" role="status">
+            {recording ? (
+              <>
+                <span aria-hidden className="size-2 shrink-0 animate-pulse rounded-full bg-destructive" />
+                <span className="tabular-nums">Recording {formatElapsed(voice.startedAt ? now - voice.startedAt : 0)}</span>
+              </>
+            ) : (
+              <span>Transcribing…</span>
+            )}
+            <button type="button" className="ml-1 underline-offset-2 hover:text-foreground hover:underline" onClick={voice.cancel}>
+              Cancel
+            </button>
+          </div>
+        ) : progress ? (
           <div className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 text-xs text-muted-foreground" role="status">
             <span className="truncate">
               Uploading {progress.name}
