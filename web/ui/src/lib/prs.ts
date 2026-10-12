@@ -14,8 +14,21 @@ export interface PrGroup extends PrColumn {
   prs: PullRequest[]
 }
 
-/** The answer's columns, each with its PRs (in the server's order); unknown columns are kept, last. */
-export function groupPrs(r: Pick<PrsResponse, 'columns' | 'prs'> | null, filter = ''): PrGroup[] {
+/**
+ * Someone else's draft — what the Drafts toggle hides. Not when it is in Unseen mentions: a
+ * mention on a draft is still addressed to you.
+ */
+export const isOthersDraft = (p: PullRequest, me: string) => p.draft && p.column !== 'unseenMentions' && p.author.toLowerCase() !== me.toLowerCase()
+
+/**
+ * The answer's columns, each with its PRs (in the server's order); unknown columns are kept, last.
+ * `hideOthersDrafts`: leave out other people's drafts ([isOthersDraft]).
+ */
+export function groupPrs(
+  r: Pick<PrsResponse, 'columns' | 'prs'> & { user?: string } | null,
+  filter = '',
+  { hideOthersDrafts = false }: { hideOthersDrafts?: boolean } = {},
+): PrGroup[] {
   if (!r) return []
   const cols = r.columns?.length ? r.columns : PR_COLUMNS.map((c) => ({ ...c, count: 0 }))
   const q = filter.trim().toLowerCase()
@@ -25,6 +38,7 @@ export function groupPrs(r: Pick<PrsResponse, 'columns' | 'prs'> | null, filter 
   const byId = new Map(groups.map((g) => [g.id as string, g]))
   for (const p of r.prs ?? []) {
     if (!hit(p)) continue
+    if (hideOthersDrafts && isOthersDraft(p, r.user ?? '')) continue
     let g = byId.get(p.column)
     if (!g) {
       g = { id: p.column, title: p.column, count: 0, prs: [] }

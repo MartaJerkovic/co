@@ -24,7 +24,8 @@ import { useNow } from '@/hooks/useNow'
 import { usePrs } from '@/hooks/usePrs'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { relTime } from '@/lib/format'
-import { groupPrs, parsePrLocation, prHref, prRef, reviewLabel, ROT_TONE, waitingSince, type PrGroup } from '@/lib/prs'
+import { usePersistentState } from '@/hooks/usePersistentState'
+import { groupPrs, isOthersDraft, parsePrLocation, prHref, prRef, reviewLabel, ROT_TONE, waitingSince, type PrGroup } from '@/lib/prs'
 import { cn } from '@/lib/utils'
 
 /**
@@ -42,7 +43,10 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
   const setOpen = (p: PullRequest) => navigate(prHref(p))
   const [q, setQ] = useState('')
   const now = useNow(30_000)
-  const groups = groupPrs(data, q)
+  // Other people's drafts are rarely yours to review: hidden unless asked for (remembered).
+  const [showDrafts, setShowDrafts] = usePersistentState<boolean>('fleet.prsShowDrafts', false, (r) => r === 'true')
+  const groups = groupPrs(data, q, { hideOthersDrafts: !showDrafts })
+  const othersDrafts = data ? data.prs.filter((p) => isOthersDraft(p, data.user)).length : 0
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
@@ -100,6 +104,24 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
         className="h-8 pl-8"
       />
     </div>
+  )
+
+  const draftsToggle = (
+    <button
+      type="button"
+      aria-pressed={showDrafts}
+      onClick={() => setShowDrafts(!showDrafts)}
+      title={showDrafts ? "Hide other people's draft PRs" : "Show other people's draft PRs"}
+      className={cn(
+        'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        pane ? 'h-7' : 'h-9',
+        showDrafts ? 'border-primary/40 bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted/60',
+      )}
+    >
+      <GitPullRequestDraftIcon className="size-3.5" />
+      Drafts
+      {othersDrafts ? <span className="text-dimmer tabular-nums">{othersDrafts}</span> : null}
+    </button>
   )
 
   const fetched = data ? relTime(data.fetchedAt, now) : ''
@@ -164,6 +186,7 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
           </h1>
           {hostPicker}
           <div className="mx-2 flex max-w-md min-w-0 flex-1">{filter}</div>
+          {draftsToggle}
           {refreshButton}
         </header>
         <div className="shrink-0 px-4 pt-2">{status}</div>
@@ -196,7 +219,10 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
         </div>
         <div className="mt-2 space-y-2">
           {hostPicker}
-          {filter}
+          <div className="flex items-center gap-2">
+            {filter}
+            {draftsToggle}
+          </div>
         </div>
       </ScreenHeader>
       <div className="mx-auto w-full max-w-lg space-y-5 px-4 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] md:max-w-2xl">

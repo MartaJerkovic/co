@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PullRequest, Session } from '@/api/types'
 
-import { checksTone, groupPrs, linkSessions, parsePrLocation, prHref, promptChips, prRef, reviewLabel, waitingSince } from './prs'
+import { checksTone, groupPrs, isOthersDraft, linkSessions, parsePrLocation, prHref, promptChips, prRef, reviewLabel, waitingSince } from './prs'
 
 const pr = (o: Partial<PullRequest>): PullRequest => ({
   column: 'waitingOnMe',
@@ -74,6 +74,23 @@ describe('labels', () => {
     expect(reviewLabel(pr({ myReview: { state: 'changesRequested', at: null, newCommits: false } }))).toBe('you requested changes')
     expect(reviewLabel(pr({ reviewDecision: 'approved' }))).toBe('approved')
     expect(reviewLabel(pr({}))).toBeNull()
+  })
+})
+
+describe('drafts', () => {
+  it("hides other people's drafts, never yours or a mention", () => {
+    const mention = { at: 1, author: 'bo', url: '', excerpt: '', answered: false, seen: false }
+    const prs = [
+      pr({ number: 1, draft: true }),
+      pr({ number: 2, draft: true, author: 'Me', column: 'draftMine' }),
+      pr({ number: 3 }),
+      pr({ number: 4, draft: true, column: 'unseenMentions', mention }),
+    ]
+    const nums = (hide: boolean) =>
+      groupPrs({ columns: [], prs, user: 'me' }, '', { hideOthersDrafts: hide }).flatMap((g) => g.prs.map((p) => p.number))
+    expect(nums(false).sort()).toEqual([1, 2, 3, 4])
+    expect(nums(true).sort()).toEqual([2, 3, 4])
+    expect(isOthersDraft(prs[0], 'me')).toBe(true)
   })
 })
 
