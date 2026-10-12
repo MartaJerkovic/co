@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PullRequest, Session } from '@/api/types'
 
-import { checksTone, groupPrs, linkSessions, parsePrLocation, prHref, promptChips, prRef, reviewLabel } from './prs'
+import { checksTone, groupPrs, linkSessions, parsePrLocation, prHref, promptChips, prRef, reviewLabel, waitingSince } from './prs'
 
 const pr = (o: Partial<PullRequest>): PullRequest => ({
   column: 'waitingOnMe',
@@ -74,6 +74,15 @@ describe('labels', () => {
     expect(reviewLabel(pr({ myReview: { state: 'changesRequested', at: null, newCommits: false } }))).toBe('you requested changes')
     expect(reviewLabel(pr({ reviewDecision: 'approved' }))).toBe('approved')
     expect(reviewLabel(pr({}))).toBeNull()
+  })
+})
+
+describe('rotting', () => {
+  it('counts from the mention in Unseen mentions, else from opening', () => {
+    const mention = { at: 500, author: 'ana', url: '', excerpt: '', answered: false, seen: false }
+    expect(waitingSince(pr({ createdAt: 100 }))).toBe(100)
+    expect(waitingSince(pr({ createdAt: 100, column: 'unseenMentions', mention }))).toBe(500)
+    expect(waitingSince(pr({ createdAt: 100, column: 'waitingOnMe', mention: { ...mention, seen: true } }))).toBe(100)
   })
 })
 

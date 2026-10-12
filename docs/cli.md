@@ -415,13 +415,17 @@ graphql`, its auth — run `gh auth login` once). Config: `prs` in [the config](
 (times in ms epoch; `columns` in display order; `truncated`: a search had more than 200 hits). A `Pr` is
 `{ column, owner, repo, number, title, url, author, draft, createdAt, updatedAt, additions, deletions,
 changedFiles, size, baseBranch, headBranch, crossRepository, headOid, reviewDecision, checks, comments,
-requestedReviewers, myReview, mention?, local? }`: `size` is `XS`…`XL` by lines changed (≤10, ≤100, ≤500, ≤1000);
+requestedReviewers, myReview, mention?, rotting, local? }`: `size` is `XS`…`XL` by lines changed (≤10, ≤100, ≤500, ≤1000);
 `reviewDecision` `approved` · `changesRequested` · `reviewRequired` · `null`; `checks` (the head
 commit's combined CI) `success` · `failure` · `error` · `pending` · `expected` · `null`;
 `requestedReviewers` logins and `@team` slugs; `myReview` `{ state, at, newCommits }` (your latest
 review, `newCommits`: the head moved since) or `null`; `mention` `{ at, author, url, excerpt, answered, seen }`
 (the latest @mention of you by someone else: where, the line it is on, whether you commented or
-reviewed after it, whether that or `fleet pr seen` makes it seen) when there is one; `local` `{ repoPath, worktree }` when the repo
+reviewed after it, whether that or `fleet pr seen` makes it seen) when there is one; `rotting`
+`fresh` · `warming` · `stale` · `rotting` · `critical` — how long it has waited (since it was
+opened; in **unseenMentions** since the mention), by its column: **waitingOnMe** / **unseenMentions**
+4h · 1d · 2d · 4d, **reviewMine** / **readyToMergeMine** 1d · 3d · 7d · 14d, **waitingOnAuthor**
+2d · 5d · 10d · 14d, **draftMine** 3d · 7d · 14d · 30d (the age cell's colour in the text output); `local` `{ repoPath, worktree }` when the repo
 is checked out here (`worktree`: where the head branch is checked out, or `null`).
 
 ## Repos

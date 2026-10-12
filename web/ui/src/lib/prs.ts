@@ -1,4 +1,4 @@
-import type { PrColumn, PrColumnId, PrsResponse, PullRequest, Session } from '@/api/types'
+import type { PrColumn, PrColumnId, PrRotting, PrsResponse, PullRequest, Session } from '@/api/types'
 
 /** Display order and titles when a server sends no `columns` (and the order it should send). */
 export const PR_COLUMNS: { id: PrColumnId; title: string }[] = [
@@ -34,6 +34,18 @@ export function groupPrs(r: Pick<PrsResponse, 'columns' | 'prs'> | null, filter 
     g.prs.push(p)
   }
   return groups
+}
+
+/** Since when it has waited (ms): opened, or in Unseen mentions the mention — what `rotting` counts from. */
+export const waitingSince = (p: PullRequest) => (p.column === 'unseenMentions' && p.mention ? p.mention.at : p.createdAt)
+
+/** Card accent per rotting stage: `border` (left edge) and `text` (the age). Fresh: none. */
+export const ROT_TONE: Record<PrRotting, { border: string; text: string } | null> = {
+  fresh: null,
+  warming: { border: 'border-l-status-busy', text: 'text-status-busy' },
+  stale: { border: 'border-l-status-waiting', text: 'text-status-waiting' },
+  rotting: { border: 'border-l-status-rotting', text: 'text-status-rotting' },
+  critical: { border: 'border-l-status-error', text: 'font-semibold text-status-error' },
 }
 
 export type ChecksTone = 'ok' | 'bad' | 'running' | 'none'

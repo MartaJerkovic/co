@@ -354,7 +354,7 @@ dormant ones are in `fleet restore --json`.
 ### `fleet prs --json`
 
 See [cli.md](cli.md#pull-requests) for the shape. Column ids and `Pr` fields follow the add-only
-rule; `local` is joined on every call and never cached, and so is the **unseenMentions** column:
+rule; `local` and `rotting` are worked out on every call and never cached, and so is the **unseenMentions** column:
 the cache keeps each PR's own column and its `mention`, and every read moves the PRs whose mention
 is neither answered nor marked seen (`prs-seen.json`) there.
 

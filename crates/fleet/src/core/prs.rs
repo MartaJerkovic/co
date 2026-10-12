@@ -199,6 +199,51 @@ impl Column {
     }
 }
 
+/// How long a PR has waited, for its column ([`rotting`]): from fresh to critical.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Rotting {
+    #[default]
+    Fresh,
+    Warming,
+    Stale,
+    Rotting,
+    Critical,
+}
+
+/// Hours at which a PR in `column` stops being fresh, warming, stale and rotting. Someone
+/// waiting on you (a review, a mention) rots fastest; your own drafts slowest.
+fn rot_hours(column: Column) -> [i64; 4] {
+    match column {
+        Column::UnseenMentions | Column::WaitingOnMe => [4, 24, 2 * 24, 4 * 24],
+        Column::ReviewMine | Column::ReadyToMergeMine => [24, 3 * 24, 7 * 24, 14 * 24],
+        Column::WaitingOnAuthor => [2 * 24, 5 * 24, 10 * 24, 14 * 24],
+        Column::DraftMine => [3 * 24, 7 * 24, 14 * 24, 30 * 24],
+    }
+}
+
+/// Since when `pr` has waited in its column (ms): since it was opened, or in Unseen mentions
+/// since the mention.
+pub fn waiting_since(pr: &Pr) -> i64 {
+    match (&pr.mention, pr.column) {
+        (Some(m), Column::UnseenMentions) => m.at,
+        _ => pr.created_at,
+    }
+}
+
+/// How long `pr` has waited ([`waiting_since`]), by its column's thresholds.
+pub fn rotting(pr: &Pr, now_ms: i64) -> Rotting {
+    let hours = (now_ms - waiting_since(pr)).max(0) / 3_600_000;
+    let t = rot_hours(pr.column);
+    match t.iter().position(|h| hours < *h) {
+        Some(0) => Rotting::Fresh,
+        Some(1) => Rotting::Warming,
+        Some(2) => Rotting::Stale,
+        Some(_) => Rotting::Rotting,
+        None => Rotting::Critical,
+    }
+}
+
 /// Your latest review of someone else's PR.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -248,6 +293,9 @@ pub struct Pr {
     /// The latest time someone else @mentioned you on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mention: Option<Mention>,
+    /// How long it has waited for its column. Set at read time ([`rotting`]).
+    #[serde(default)]
+    pub rotting: Rotting,
     /// Joined at read time, never cached: where the repo and the head branch are checked out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<Local>,
@@ -393,6 +441,7 @@ fn parse_node(n: &Value, column: Column, me: &str) -> Option<Pr> {
         requested_reviewers,
         my_review,
         mention: None,
+        rotting: Rotting::Fresh,
         local: None,
     })
 }
@@ -794,11 +843,15 @@ pub struct View {
     pub error: Option<String>,
 }
 
-/// Cache-or-fetch per `mode`, mentions resolved against what you marked seen. Errors only when
+/// Cache-or-fetch per `mode`, mentions resolved against what you marked seen, rotting as of
+/// `now_ms`. Errors only when
 /// there is nothing to show.
 pub fn get(s: &Settings, mode: Mode, now_ms: i64) -> Result<View> {
     let mut v = get_snapshot(s, mode, now_ms)?;
     resolve_mentions(&mut v.snap.prs, &load_seen(&seen_path()));
+    for p in &mut v.snap.prs {
+        p.rotting = rotting(p, now_ms);
+    }
     Ok(v)
 }
 
@@ -1819,6 +1872,33 @@ mod tests {
             vec![(12, Column::UnseenMentions), (10, Column::WaitingOnMe)]
         );
         assert!(prs[1].mention.as_ref().unwrap().seen);
+    }
+
+    #[test]
+    fn rotting_is_per_column_and_from_the_mention() {
+        let mut p = parse_node(&node("app", 1, json!({})), Column::WaitingOnMe, "me").unwrap();
+        let h = |n: i64| p.created_at + n * 3_600_000;
+        assert_eq!(rotting(&p, h(1)), Rotting::Fresh);
+        assert_eq!(rotting(&p, h(5)), Rotting::Warming);
+        assert_eq!(rotting(&p, h(36)), Rotting::Stale);
+        assert_eq!(rotting(&p, h(60)), Rotting::Rotting);
+        assert_eq!(rotting(&p, h(120)), Rotting::Critical);
+        assert_eq!(rotting(&p, p.created_at - 1), Rotting::Fresh);
+        p.column = Column::DraftMine;
+        assert_eq!(rotting(&p, h(48)), Rotting::Fresh);
+        assert_eq!(rotting(&p, h(29 * 24)), Rotting::Rotting);
+        assert_eq!(rotting(&p, h(40 * 24)), Rotting::Critical);
+        // Unseen mentions: as old as the mention.
+        p.column = Column::UnseenMentions;
+        p.mention = Some(Mention {
+            at: h(100),
+            author: "ana".into(),
+            url: String::new(),
+            excerpt: String::new(),
+            answered: false,
+            seen: false,
+        });
+        assert_eq!(rotting(&p, h(101)), Rotting::Fresh);
     }
 
     #[test]

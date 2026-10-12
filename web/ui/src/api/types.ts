@@ -856,9 +856,13 @@ export interface PullRequest {
   myReview: { state: string; at: number | null; newCommits: boolean } | null
   /** The latest @mention of you by someone else; unseen → the PR is in `unseenMentions`. */
   mention?: PrMention
+  /** How long it has waited, by its column's thresholds (absent from older servers). */
+  rotting?: PrRotting
   /** Where the repo / head branch is checked out on the answering host. */
   local?: { repoPath: string; worktree: string | null }
 }
+
+export type PrRotting = 'fresh' | 'warming' | 'stale' | 'rotting' | 'critical'
 
 export interface PrMention {
   /** ms epoch */

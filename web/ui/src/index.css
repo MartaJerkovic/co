@@ -37,6 +37,8 @@
   --color-status-idle: var(--status-idle);
   --color-status-unknown: var(--status-unknown);
   --color-status-error: var(--status-error);
+  /* PRs rotting between stale (waiting) and critical (error) — lib/prs.ts ROT_TONE */
+  --color-status-rotting: color-mix(in oklab, var(--status-waiting), var(--status-error));
 
   /* fleet: per-host badge colour slots 0..3 (see lib/format.ts hostColorSlot) */
   --color-host-0: var(--host-0);

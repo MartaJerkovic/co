@@ -3,7 +3,7 @@
 use colored::Colorize;
 
 use crate::cli::render::{ago, column, fit, term_width, width_of};
-use crate::core::prs::{self, Column, Mode, Pr, Settings};
+use crate::core::prs::{self, Column, Mode, Pr, Rotting, Settings};
 use crate::core::repos;
 use crate::error::{Error, Result};
 
@@ -19,6 +19,17 @@ fn checks_cell(c: Option<&str>) -> colored::ColoredString {
         Some("failure") | Some("error") => "✗".red(),
         Some("pending") | Some("expected") => "●".yellow(),
         _ => " ".normal(),
+    }
+}
+
+/// The age cell, coloured by how long the PR has waited (`fleet prs` rotting).
+fn age_cell(p: &Pr, text: String) -> colored::ColoredString {
+    match p.rotting {
+        Rotting::Fresh => text.dimmed(),
+        Rotting::Warming => text.green(),
+        Rotting::Stale => text.yellow(),
+        Rotting::Rotting => text.truecolor(255, 165, 0),
+        Rotting::Critical => text.red().bold(),
     }
 }
 
@@ -170,7 +181,7 @@ pub fn run(o: Opts) -> Result<()> {
                 column(&refs[*i], ref_w).cyan(),
                 checks_cell(p.checks.as_deref()),
                 column(&p.size, 2).dimmed(),
-                column(&ago(Some(p.created_at)), 4).dimmed(),
+                age_cell(p, column(&ago(Some(prs::waiting_since(p))), 4)),
                 who_cell.dimmed(),
                 fit(&p.title, title_w),
                 if tail.is_empty() {

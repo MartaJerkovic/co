@@ -24,7 +24,7 @@ import { useNow } from '@/hooks/useNow'
 import { usePrs } from '@/hooks/usePrs'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { relTime } from '@/lib/format'
-import { groupPrs, parsePrLocation, prHref, prRef, reviewLabel, type PrGroup } from '@/lib/prs'
+import { groupPrs, parsePrLocation, prHref, prRef, reviewLabel, ROT_TONE, waitingSince, type PrGroup } from '@/lib/prs'
 import { cn } from '@/lib/utils'
 
 /**
@@ -260,8 +260,10 @@ function PrCard({ pr: p, now, onOpen, sessions }: { pr: PullRequest; now: number
   const review = reviewLabel(p)
   const mine = p.column === 'draftMine' || p.column === 'reviewMine' || p.column === 'readyToMergeMine'
   const worktree = p.local?.worktree
+  const rot = p.rotting ? ROT_TONE[p.rotting] : null
+  const since = waitingSince(p)
   return (
-    <div className="rounded-lg border bg-card text-sm hover:border-primary/40">
+    <div className={cn('rounded-lg border bg-card text-sm hover:border-primary/40', rot && ['border-l-[3px]', rot.border])}>
       <button
         type="button"
         onClick={() => onOpen(p)}
@@ -279,8 +281,11 @@ function PrCard({ pr: p, now, onOpen, sessions }: { pr: PullRequest; now: number
           >
             {p.size}
           </span>
-          <span className="shrink-0 tabular-nums" title={`Opened ${new Date(p.createdAt).toLocaleString()}`}>
-            {relTime(p.createdAt, now)}
+          <span
+            className={cn('shrink-0 tabular-nums', rot?.text)}
+            title={`${since === p.createdAt ? 'Opened' : 'Mentioned'} ${new Date(since).toLocaleString()}${p.rotting && p.rotting !== 'fresh' ? ` — ${p.rotting}` : ''}`}
+          >
+            {relTime(since, now)}
           </span>
         </div>
         <div className="line-clamp-2 font-medium text-foreground">{p.title}</div>
