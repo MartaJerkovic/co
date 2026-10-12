@@ -157,6 +157,25 @@ export function Composer({
     if (onSend(text)) setText('')
   }
 
+  // Attach + mic: inline beside the input on desktop; on mobile they live in the chips drawer
+  // so the input keeps its width (recording state also shows under the input, with Done/Cancel).
+  const attachProps = {
+    'aria-label': 'Attach files',
+    title: desktop ? 'Attach files (or drop / paste them)' : 'Attach files',
+    disabled: locked || progress != null,
+    onClick: () => picker.current?.click(),
+    children: progress ? <Loader2Icon className="animate-spin" /> : <PaperclipIcon />,
+  }
+  const micProps = {
+    'aria-label': recording ? 'Stop recording and transcribe' : transcribing ? 'Transcribing' : 'Record a voice message',
+    'aria-pressed': recording,
+    title: recording ? 'Stop and transcribe (Esc cancels)' : 'Voice input: speak, the text is added to the message',
+    disabled: locked || transcribing,
+    onClick: () => (recording ? voice.stop() : void voice.start()),
+    children: transcribing ? <Loader2Icon className="animate-spin" /> : recording ? <SquareIcon className="size-4 fill-current" /> : <MicIcon />,
+  }
+  const iconChip = cn(chipClass, 'flex items-center px-3 [&_svg]:size-4')
+
   // Hardware keyboards send on Enter; touch keyboards keep Enter as a newline.
   const isTouch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
@@ -199,7 +218,16 @@ export function Composer({
           inert={!showChips}
         >
         <div className="min-h-0 overflow-hidden">
-        <div className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 pt-0.5 pb-2" role="toolbar" aria-label="Quick replies and keys">
+        <div className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 pt-0.5 pb-2" role="toolbar" aria-label="Attach, voice, quick replies and keys">
+          <button type="button" className={iconChip} {...attachProps} />
+          {voiceEnabled ? (
+            <button
+              type="button"
+              {...micProps}
+              className={cn(iconChip, recording && 'animate-pulse border-destructive bg-destructive text-white hover:text-white')}
+            />
+          ) : null}
+          <span aria-hidden className="mx-0.5 my-2 w-px shrink-0 bg-border" />
           {quickReplies.map((q) => (
             <button
               key={`${q.label}\u0000${q.text}`}
@@ -247,18 +275,15 @@ export function Composer({
               void attach(files)
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Attach files"
-            title={desktop ? 'Attach files (or drop / paste them)' : 'Attach files'}
-            disabled={locked || progress != null}
-            onClick={() => picker.current?.click()}
-            className={cn('shrink-0 rounded-full text-muted-foreground [&_svg:not([class*=size-])]:size-5', desktop ? 'size-11' : '-mr-1 size-11')}
-          >
-            {progress ? <Loader2Icon className="animate-spin" /> : <PaperclipIcon />}
-          </Button>
+          {desktop ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              {...attachProps}
+              className="size-11 shrink-0 rounded-full text-muted-foreground [&_svg:not([class*=size-])]:size-5"
+            />
+          ) : null}
           <textarea
             ref={ta}
             rows={1}
@@ -290,24 +315,18 @@ export function Composer({
               tooLong && 'border-destructive',
             )}
           />
-          {voiceEnabled ? (
+          {desktop && voiceEnabled ? (
             <Button
               type="button"
               variant={recording ? 'destructive' : 'ghost'}
               size="icon"
-              aria-label={recording ? 'Stop recording and transcribe' : transcribing ? 'Transcribing' : 'Record a voice message'}
-              aria-pressed={recording}
-              title={recording ? 'Stop and transcribe (Esc cancels)' : 'Voice input: speak, the text is added to the message'}
-              disabled={locked || transcribing}
-              onClick={() => (recording ? voice.stop() : void voice.start())}
+              {...micProps}
               className={cn(
                 'size-11 shrink-0 rounded-full [&_svg:not([class*=size-])]:size-5',
                 !recording && 'text-muted-foreground',
                 recording && 'animate-pulse',
               )}
-            >
-              {transcribing ? <Loader2Icon className="animate-spin" /> : recording ? <SquareIcon className="size-4 fill-current" /> : <MicIcon />}
-            </Button>
+            />
           ) : null}
           <Button
             type="submit"
@@ -329,6 +348,11 @@ export function Composer({
             ) : (
               <span>Transcribing…</span>
             )}
+            {recording ? (
+              <button type="button" className="ml-1 font-medium text-foreground underline-offset-2 hover:underline" onClick={voice.stop}>
+                Done
+              </button>
+            ) : null}
             <button type="button" className="ml-1 underline-offset-2 hover:text-foreground hover:underline" onClick={voice.cancel}>
               Cancel
             </button>

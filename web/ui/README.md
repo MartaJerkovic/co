@@ -321,9 +321,10 @@ src/
   `uploads.maxMB` (`/api/settings`) are refused before uploading. The New session form does the
   same for the first prompt (drop on the form, paste, "Attach files"), uploading to the chosen
   host. A file dropped outside a zone never navigates the app away.
-- **Voice input**: when `/api/settings` says `transcribe.enabled`, a mic button sits next to Send.
-  Tap to record (the button turns red, "Recording m:ss" shows under the input), tap again to
-  stop: the audio goes to `POST /api/transcribe` on this server and the text is appended to the
+- **Voice input**: when `/api/settings` says `transcribe.enabled`, a mic button sits next to Send
+  (desktop) or at the start of the chips drawer, beside the paperclip (mobile — both moved there
+  so the input keeps its width). Tap to record (the button turns red, "Recording m:ss" with
+  Done / Cancel shows under the input, so the drawer can be closed), tap again or Done to stop: the audio goes to `POST /api/transcribe` on this server and the text is appended to the
   message (caret at the end) — never sent by itself. Esc or "Cancel" drops a recording or a
   transcription in flight; recordings stop themselves after 10 minutes. The session's name and
   repo go along as a spelling hint. `getUserMedia` exists only in secure contexts, so the mic
