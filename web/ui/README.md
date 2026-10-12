@@ -329,6 +329,8 @@ src/
   transcription in flight; recordings stop themselves after 10 minutes. The session's name and
   repo go along as a spelling hint. `getUserMedia` exists only in secure contexts, so the mic
   works on `localhost` and HTTPS origins; on plain `http://<tailscale-ip>` it explains that instead.
+  The New session form has the same as a "Voice" button beside "Attach files" (the transcript is
+  appended to the first prompt; Start waits until it is in).
 - **File links + preview**: paths in Claude's messages — code spans, plain text tokens (with a
   `/` or an extension; URLs, flags, Windows paths, versions and fenced code blocks are skipped)
   and relative markdown links `[t](docs/a.md)`, with optional `:line[:col]` / `#L12` — are sent

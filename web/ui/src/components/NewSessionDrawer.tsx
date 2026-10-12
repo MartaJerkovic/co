@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckIcon, FolderIcon, GitForkIcon, LayersIcon, Loader2Icon, PaperclipIcon, PlayIcon } from 'lucide-react'
+import { CheckIcon, FolderIcon, GitForkIcon, LayersIcon, Loader2Icon, MicIcon, PaperclipIcon, PlayIcon, SquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api, ApiError } from '@/api/client'
@@ -18,6 +18,7 @@ import { useAttach, useFileDrop } from '@/hooks/useAttach'
 import { useFleet } from '@/hooks/useFleet'
 import { useHarnesses } from '@/hooks/useHarnesses'
 import { useSettings } from '@/hooks/useSettings'
+import { useVoice } from '@/hooks/useVoice'
 import type { SiblingTarget } from '@/hooks/useStackUi'
 import { copyText } from '@/lib/clipboard'
 import { shortCwd } from '@/lib/format'
@@ -28,6 +29,7 @@ import { sessionHref, spawnTargets } from '@/lib/sessions'
 import { isMacPlatform, isSubmitChord } from '@/lib/shortcuts'
 import { stackErrorMessage, stacksMissing } from '@/lib/stacks'
 import { cn } from '@/lib/utils'
+import { appendTranscript, formatElapsed } from '@/lib/voice'
 
 const HOST_KEY = 'fleet.spawnHost'
 const dirKey = (host: string) => `fleet.spawnDirLabel.${host}`
@@ -165,7 +167,7 @@ function NewSessionForm({
     dirLabels[host] ?? (prefillDir ? dirs.find((d) => samePath(d.path, prefillDir))?.label : null) ?? storage.get(dirKey(host))
   const dir = dirs.find((d) => d.label === rememberedLabel) ?? dirs[0] ?? null
 
-  const { models: claudeModels } = useSettings()
+  const { models: claudeModels, voice: voiceEnabled } = useSettings()
   const offered = offeredHarnesses(useHarnesses(host), claudeModels)
   const [harnessChoice, setHarnessChoice] = useState<string | null>(() => storage.get(HARNESS_KEY))
   const harness = pickHarness(offered, harnessChoice)
@@ -185,6 +187,27 @@ function NewSessionForm({
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const { attach, onPaste, progress } = useAttach({ host, textarea: promptRef, setValue: setPrompt })
+  // Voice: the transcript is appended to the prompt (the repo name helps the spelling).
+  const voice = useVoice({
+    hint: dir?.path.split('/').pop() ?? '',
+    onText: (t) => {
+      setPrompt((cur) => appendTranscript(cur, t))
+      requestAnimationFrame(() => {
+        const el = promptRef.current
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(el.value.length, el.value.length)
+        el.scrollTop = el.scrollHeight
+      })
+    },
+  })
+  const recording = voice.state === 'recording'
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!recording) return
+    const t = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(t)
+  }, [recording])
   const drop = useFileDrop((files) => void attach(files), !busy)
 
   // Prefilled: the caret goes after the prompt, where the user types what comes next.
@@ -216,7 +239,7 @@ function NewSessionForm({
   }
 
   // ⌘/Ctrl+Enter submits from any field (the prompt included; plain Enter there stays a newline).
-  const canStart = !busy && (!!sibling || !!dir) && progress == null
+  const canStart = !busy && (!!sibling || !!dir) && progress == null && voice.state === 'idle'
 
   const startSibling = async (sib: SiblingTarget) => {
     setBusy(true)
@@ -385,8 +408,31 @@ function NewSessionForm({
           {progress ? <Loader2Icon className="animate-spin" /> : <PaperclipIcon />}
           Attach files
         </Button>
+        {voiceEnabled ? (
+          <Button
+            type="button"
+            variant={recording ? 'destructive' : 'ghost'}
+            size="sm"
+            aria-pressed={recording}
+            aria-label={recording ? 'Stop recording and transcribe' : 'Record a voice prompt'}
+            title={recording ? 'Stop and transcribe' : 'Voice input: speak, the text is added to the prompt'}
+            disabled={voice.state === 'transcribing'}
+            onClick={() => (recording ? voice.stop() : void voice.start())}
+            className={cn('h-9 shrink-0 rounded-lg px-2', !recording && 'text-muted-foreground', recording && 'animate-pulse')}
+          >
+            {voice.state === 'transcribing' ? <Loader2Icon className="animate-spin" /> : recording ? <SquareIcon className="fill-current" /> : <MicIcon />}
+            {recording ? formatElapsed(voice.startedAt ? now - voice.startedAt : 0) : 'Voice'}
+          </Button>
+        ) : null}
         <span className="min-w-0 truncate text-xs text-dimmer" role="status">
-          {progress
+          {voice.state !== 'idle' ? (
+            <>
+              {recording ? 'Recording… ' : 'Transcribing… '}
+              <button type="button" className="underline-offset-2 hover:text-foreground hover:underline" onClick={voice.cancel}>
+                Cancel
+              </button>
+            </>
+          ) : progress
             ? `Uploading ${progress.name}${progress.total > 1 ? ` (${progress.index}/${progress.total})` : ''}…`
             : dialog
               ? `or drop / paste them — stored on ${host}`
