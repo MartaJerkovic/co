@@ -447,6 +447,32 @@ of `repos` the rows `{ name, path, every, excluded, due, branch, upstream, ahead
 | `fleet web build [--dir PATH] [--install]` | build the React UI: `npm --prefix <web.dir>/ui ci` (when `node_modules` is missing, or `--install`) then `npm … run build` → `ui/dist`, which the server then serves by default. Needs a checkout (an installed web dir has only `ui/dist`) |
 | `fleet web install-service` | macOS: write and load a launchd agent that keeps `fleet web serve` running (`--uninstall`, `--no-load`, `--print`); logs to `~/Library/Logs/fleet.web.log`, runs as `ProcessType=Interactive` so macOS does not throttle it like a background job (that made `fleet list` take 10s+ under Low Power Mode); elsewhere: print a systemd user unit. The agent pins one node (config `web.node`, else `/opt/homebrew/bin/node` or `/usr/local/bin/node`, else `PATH`) and leaves version-manager dirs (nvm/volta/fnm) out of its `PATH`; if the only node is version-managed it is used with a warning |
 
+## MCP server
+
+`fleet mcp` serves the CLI as a [Model Context Protocol](https://modelcontextprotocol.io) server on
+stdio (newline-delimited JSON-RPC). Register it once:
+
+```sh
+claude mcp add --scope user fleet -- fleet mcp          # this machine (tmux tools: defaultHost)
+claude mcp add --scope user fleet-ws -- fleet -H workstation mcp   # every call defaults to that host
+```
+
+- **One tool per subcommand**, generated from the CLI's own argument definitions, so it never
+  drifts: `fleet tmux list` is `tmux_list`, `fleet pr cleanup-worktrees` is
+  `pr_cleanup_worktrees`. Flags and positionals become typed properties (booleans, integers, enums,
+  string arrays); help texts become descriptions. `tools/list` is the authoritative catalog.
+- **Every tool** also takes `host` (= `-H`, overrides the one given to `fleet mcp`) and `dry_run`
+  (= `-n`). `brief`, `stack_set`, `handoff` and `group` take `stdin` (for `--set`, `--file -`,
+  `--input -`). Read-only commands carry `readOnlyHint`.
+- **A call runs `fleet <argv>`** (positionals after `--`) with no terminal, `NO_COLOR=1` and
+  `FLEET_NO_TTY=1`, and returns stdout, then stderr under `[stderr]`. A non-zero exit is a tool
+  error (`isError`) that names the command and the exit code. Calls run concurrently; each is
+  killed after `FLEET_MCP_TIMEOUT` seconds (default 600).
+- **Left out** — they need a terminal or never return: `watch`, `enter`, `last`, `new`, `ssh`,
+  `tmux enter`, `tmux last`, `web serve`, `stack edit`, `config edit`, `brief --edit`,
+  `exec --tty`. `tmux_new` always detaches. Confirmations (`tmux kill`, `stack rm`) can't be
+  answered: pass `force`.
+
 ## Environment
 
 | variable | meaning |
@@ -475,6 +501,8 @@ of `repos` the rows `{ name, path, every, excluded, due, branch, upstream, ahead
 | `FLEET_GROUPS_STATE` | `fleet group` state file (default `${XDG_STATE_HOME:-~/.local/state}/fleet/groups.json`) |
 | `FLEET_FIXTURE=<sessions.json>` | read a canned fleet from a file instead of the live registry (demo/tests; backends are inert) |
 | `NO_COLOR=1` | no colors |
+| `FLEET_NO_TTY=1` | never prompt on the terminal: confirmations fail as if there were none (set by `fleet mcp`) |
+| `FLEET_MCP_TIMEOUT` | seconds one `fleet mcp` tool call may run (default 600) |
 
 ## Exit codes
 

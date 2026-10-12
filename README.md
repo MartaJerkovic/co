@@ -88,6 +88,7 @@ Building the whole setup from scratch (always-on Mac, Tailscale, ssh, tmux, phon
 | pull requests | `prs` — the GitHub PRs that need you (unseen @mentions, yours, waiting on your review, waiting on their author), through `gh`, with their local worktrees |
 | git repos | `repos` · `repos sync` · `repos install-service` — fetch + fast-forward every repo under `~/Code`, on a timer |
 | web | `web serve` · `web build` · `web install-service` |
+| agents | `mcp` — every command above as an MCP tool, for Claude Code and other agents |
 
 Global flags: `-H, --host <name>`, `--local`, `--json` (where it applies). Full reference:
 [docs/cli.md](docs/cli.md).

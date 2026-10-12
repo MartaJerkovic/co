@@ -1,10 +1,10 @@
 use std::io::IsTerminal;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use colored::Colorize;
 
 use fleet::cli::{
-    brief as brief_cmd, commands, config_cmd, group, hosts as host_cmds, init, prs as prs_cmd,
+    brief as brief_cmd, commands, config_cmd, group, hosts as host_cmds, init, mcp, prs as prs_cmd,
     repos as repos_cmd, restore, skill, stack as stack_cmds, tmux as tmux_cmds, usage as usage_cmd,
     web,
 };
@@ -488,6 +488,9 @@ enum Commands {
         action: skill::SkillAction,
     },
 
+    /// Serve every command as an MCP tool on stdio (`claude mcp add fleet -- fleet mcp`)
+    Mcp,
+
     /// Machine facts as JSON, for `doctor` (internal)
     #[command(name = "_probe", hide = true)]
     Probe,
@@ -879,6 +882,7 @@ fn placement(c: &Commands) -> Placement {
         | Commands::Install { .. }
         | Commands::Exec { .. }
         | Commands::Ssh { .. }
+        | Commands::Mcp
         | Commands::Probe => Placement::Here,
         _ => Placement::Dispatch(Scope::SelfHost),
     }
@@ -1339,6 +1343,11 @@ fn run(cli: Cli) -> Result<i32> {
             })?,
         },
         Commands::Skill { action } => skill::run(&action)?,
+        Commands::Mcp => {
+            // `fleet -H <host> mcp`: that host is every call's default.
+            let host = cli.host.clone().filter(|_| !cli.local);
+            mcp::serve(Cli::command(), host)?
+        }
         Commands::Probe => host_cmds::probe()?,
     }
     Ok(0)
