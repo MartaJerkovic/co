@@ -513,20 +513,13 @@ fn text_result(text: &str, is_error: bool) -> Value {
     json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
 }
 
-fn respond(
-    out: &Mutex<std::io::Stdout>,
-    id: &Value,
-    result: std::result::Result<Value, (i64, String)>,
-) {
-    let msg = match result {
+fn reply(id: &Value, result: std::result::Result<Value, (i64, String)>) -> Value {
+    match result {
         Ok(r) => json!({ "jsonrpc": "2.0", "id": id, "result": r }),
         Err((code, message)) => {
             json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
         }
-    };
-    let mut o = out.lock().unwrap_or_else(|p| p.into_inner());
-    let _ = writeln!(o, "{msg}");
-    let _ = o.flush();
+    }
 }
 
 fn initialize(params: &Value) -> Value {
@@ -542,14 +535,155 @@ fn initialize(params: &Value) -> Value {
     })
 }
 
-/// `fleet mcp`: serve until stdin closes. `default_host` (from `fleet -H <host> mcp`) applies
-/// to calls that name no host.
-pub fn serve(root: clap::Command, default_host: Option<String>) -> Result<()> {
-    let tools = Arc::new(tools(root));
-    let out = Arc::new(Mutex::new(std::io::stdout()));
-    let default_host = Arc::new(default_host);
-    let mut calls = Vec::new();
+/// Tools a remote (`--http`) server leaves out unless `--tools` names them: they change the
+/// machine itself, not the sessions on it (and every `*_install_service`).
+const HTTP_EXCLUDED: &[&str] = &[
+    "exec",
+    "install",
+    "init",
+    "config_set",
+    "web_build",
+    "skill_install",
+];
 
+fn http_excluded(name: &str) -> bool {
+    HTTP_EXCLUDED.contains(&name) || name.ends_with("_install_service")
+}
+
+/// `fleet mcp --http`: where to listen and the bearer token every request must carry.
+pub struct HttpOpts {
+    pub bind: String,
+    pub port: u16,
+    pub token: String,
+}
+
+pub struct ServeOpts {
+    /// From `fleet -H <host> mcp`: the host of calls that name none.
+    pub default_host: Option<String>,
+    /// Only these tools (`stack_*` globs); empty = all (over HTTP: all but [`HTTP_EXCLUDED`]).
+    pub tools: Vec<String>,
+    /// Never these tools.
+    pub exclude: Vec<String>,
+    /// Serve Streamable HTTP instead of stdio.
+    pub http: Option<HttpOpts>,
+}
+
+fn matches(pattern: &str, name: &str) -> bool {
+    match pattern.strip_suffix('*') {
+        Some(prefix) => name.starts_with(prefix),
+        None => pattern == name,
+    }
+}
+
+struct Server {
+    tools: Vec<Tool>,
+    default_host: Option<String>,
+    /// Remote callers can't wait long (an agent runtime gives a call ~30s): `no_wait` defaults on.
+    remote: bool,
+}
+
+impl Server {
+    fn new(root: clap::Command, opts: &ServeOpts) -> Result<Self> {
+        let all = tools(root);
+        for p in opts.tools.iter().chain(&opts.exclude) {
+            if !all.iter().any(|t| matches(p, &t.name)) {
+                return Err(Error::Other(format!(
+                    "--tools/--exclude: no tool matches \"{p}\""
+                )));
+            }
+        }
+        let remote = opts.http.is_some();
+        let tools = all
+            .into_iter()
+            .filter(|t| {
+                if opts.tools.is_empty() {
+                    !(remote && http_excluded(&t.name))
+                } else {
+                    opts.tools.iter().any(|p| matches(p, &t.name))
+                }
+            })
+            .filter(|t| !opts.exclude.iter().any(|p| matches(p, &t.name)))
+            .collect();
+        Ok(Server {
+            tools,
+            default_host: opts.default_host.clone(),
+            remote,
+        })
+    }
+
+    /// One JSON-RPC message in, its reply out (`None` for notifications and responses).
+    fn handle(&self, msg: &Value) -> Option<Value> {
+        let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
+        let id = msg.get("id")?;
+        if method.is_empty() {
+            return None;
+        }
+        let params = msg.get("params").cloned().unwrap_or(Value::Null);
+        Some(match method {
+            "initialize" => reply(id, Ok(initialize(&params))),
+            "ping" => reply(id, Ok(json!({}))),
+            "tools/list" => {
+                let list: Vec<Value> = self.tools.iter().map(Tool::describe).collect();
+                reply(id, Ok(json!({ "tools": list })))
+            }
+            "tools/call" => reply(id, self.call(&params)),
+            _ => reply(id, Err((-32601, format!("method not found: {method}")))),
+        })
+    }
+
+    fn call(&self, params: &Value) -> std::result::Result<Value, (i64, String)> {
+        let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+        let Some(tool) = self.tools.iter().find(|t| t.name == name) else {
+            return Err((-32602, format!("unknown tool: {name}")));
+        };
+        let mut input = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(m)) => m.clone(),
+            Some(_) => return Err((-32602, "arguments must be an object".into())),
+        };
+        if self.remote && tool.args.iter().any(|a| a.id == "no_wait") {
+            input.entry("no_wait").or_insert(Value::Bool(true));
+        }
+        let started = Instant::now();
+        let (result, argv) = match tool.argv(&input, self.default_host.as_deref()) {
+            Ok(argv) => (
+                run(&argv, input.get("stdin").and_then(Value::as_str)),
+                argv.join(" "),
+            ),
+            Err(e) => (text_result(&e.to_string(), true), String::new()),
+        };
+        let failed = result["isError"] == Value::Bool(true);
+        let mut shown: String = argv.chars().take(200).collect();
+        if shown.len() < argv.len() {
+            shown.push('…');
+        }
+        eprintln!(
+            "{} fleet mcp: {name} {} {}ms  fleet {shown}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            if failed { "error" } else { "ok" },
+            started.elapsed().as_millis(),
+        );
+        Ok(result)
+    }
+}
+
+/// `fleet mcp`: serve on stdio until stdin closes, or over HTTP (`--http`) until killed.
+pub fn serve(root: clap::Command, opts: ServeOpts) -> Result<()> {
+    let server = Arc::new(Server::new(root, &opts)?);
+    match &opts.http {
+        Some(http) => serve_http(server, http),
+        None => serve_stdio(server),
+    }
+}
+
+fn serve_stdio(server: Arc<Server>) -> Result<()> {
+    let out = Arc::new(Mutex::new(std::io::stdout()));
+    let write = |out: &Mutex<std::io::Stdout>, msg: &Value| {
+        let mut o = out.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = writeln!(o, "{msg}");
+        let _ = o.flush();
+    };
+    let mut calls = Vec::new();
     for line in std::io::stdin().lock().lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -558,70 +692,216 @@ pub fn serve(root: clap::Command, default_host: Option<String>) -> Result<()> {
         let msg: Value = match serde_json::from_str(&line) {
             Ok(m) => m,
             Err(e) => {
-                respond(
+                write(
                     &out,
-                    &Value::Null,
-                    Err((-32700, format!("parse error: {e}"))),
+                    &reply(&Value::Null, Err((-32700, format!("parse error: {e}")))),
                 );
                 continue;
             }
         };
-        let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
-        // Notifications (no id) and responses need no answer.
-        let Some(id) = msg.get("id").cloned() else {
-            continue;
-        };
-        if method.is_empty() {
-            continue;
-        }
-        let params = msg.get("params").cloned().unwrap_or(Value::Null);
-        match method {
-            "initialize" => respond(&out, &id, Ok(initialize(&params))),
-            "ping" => respond(&out, &id, Ok(json!({}))),
-            "tools/list" => {
-                let list: Vec<Value> = tools.iter().map(Tool::describe).collect();
-                respond(&out, &id, Ok(json!({ "tools": list })));
-            }
-            "tools/call" => {
-                let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-                let Some(tool) = tools.iter().find(|t| t.name == name).cloned() else {
-                    respond(&out, &id, Err((-32602, format!("unknown tool: {name}"))));
-                    continue;
-                };
-                let input = match params.get("arguments") {
-                    None | Some(Value::Null) => Map::new(),
-                    Some(Value::Object(m)) => m.clone(),
-                    Some(_) => {
-                        respond(
-                            &out,
-                            &id,
-                            Err((-32602, "arguments must be an object".into())),
-                        );
-                        continue;
-                    }
-                };
-                let out = Arc::clone(&out);
-                let default_host = Arc::clone(&default_host);
-                calls.push(std::thread::spawn(move || {
-                    let result = match tool.argv(&input, default_host.as_deref()) {
-                        Ok(argv) => run(&argv, input.get("stdin").and_then(Value::as_str)),
-                        Err(e) => text_result(&e.to_string(), true),
-                    };
-                    respond(&out, &id, Ok(result));
-                }));
-                calls.retain(|h| !h.is_finished());
-            }
-            _ => respond(
-                &out,
-                &id,
-                Err((-32601, format!("method not found: {method}"))),
-            ),
+        // Tool calls answer from their own thread, so a slow one doesn't hold up the rest.
+        if msg.get("method").and_then(Value::as_str) == Some("tools/call") {
+            let (server, out) = (Arc::clone(&server), Arc::clone(&out));
+            calls.push(std::thread::spawn(move || {
+                if let Some(r) = server.handle(&msg) {
+                    write(&out, &r);
+                }
+            }));
+            calls.retain(|h| !h.is_finished());
+        } else if let Some(r) = server.handle(&msg) {
+            write(&out, &r);
         }
     }
     for c in calls {
         let _ = c.join();
     }
     Ok(())
+}
+
+/// Streamable HTTP (MCP 2025-03-26+), stateless: `POST /mcp` with one message (or a batch)
+/// answers `application/json`; notifications get 202; no server-sent stream (GET is 405).
+/// One request per connection, every request needs `Authorization: Bearer <token>`.
+fn serve_http(server: Arc<Server>, opts: &HttpOpts) -> Result<()> {
+    if opts.token.trim().len() < 16 {
+        return Err(Error::Other(
+            "fleet mcp --http: the token must be at least 16 characters".into(),
+        ));
+    }
+    let listener = std::net::TcpListener::bind((opts.bind.as_str(), opts.port))?;
+    eprintln!(
+        "fleet mcp: {} tools on http://{}:{}/mcp",
+        server.tools.len(),
+        opts.bind,
+        opts.port
+    );
+    let token = Arc::new(opts.token.trim().to_string());
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        let (server, token) = (Arc::clone(&server), Arc::clone(&token));
+        std::thread::spawn(move || {
+            let _ = http_connection(stream, &server, &token);
+        });
+    }
+    Ok(())
+}
+
+const MAX_BODY: usize = 4 << 20;
+
+struct Response {
+    status: u16,
+    body: Option<Value>,
+    extra: &'static str,
+}
+
+impl Response {
+    fn json(status: u16, body: Value) -> Self {
+        Response {
+            status,
+            body: Some(body),
+            extra: "",
+        }
+    }
+    fn empty(status: u16, extra: &'static str) -> Self {
+        Response {
+            status,
+            body: None,
+            extra,
+        }
+    }
+}
+
+fn http_connection(
+    stream: std::net::TcpStream,
+    server: &Server,
+    token: &str,
+) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    let mut reader = std::io::BufReader::new(stream.try_clone()?);
+    let response = match read_request(&mut reader) {
+        Ok(req) => route(&req, server, token),
+        Err(status) => Response::empty(status, ""),
+    };
+    write_response(stream, response)
+}
+
+struct Request {
+    method: String,
+    path: String,
+    authorization: Option<String>,
+    body: Vec<u8>,
+}
+
+fn read_request(r: &mut impl BufRead) -> std::result::Result<Request, u16> {
+    let mut line = String::new();
+    r.read_line(&mut line).map_err(|_| 400u16)?;
+    let mut parts = line.split_whitespace();
+    let method = parts.next().ok_or(400u16)?.to_string();
+    let target = parts.next().ok_or(400u16)?;
+    let path = target.split('?').next().unwrap_or("").to_string();
+    let mut length = 0usize;
+    let mut authorization = None;
+    loop {
+        let mut h = String::new();
+        if r.read_line(&mut h).map_err(|_| 400u16)? == 0 {
+            return Err(400);
+        }
+        let h = h.trim_end();
+        if h.is_empty() {
+            break;
+        }
+        let Some((k, v)) = h.split_once(':') else {
+            return Err(400);
+        };
+        let v = v.trim();
+        match k.trim().to_ascii_lowercase().as_str() {
+            "content-length" => length = v.parse().map_err(|_| 400u16)?,
+            "authorization" => authorization = Some(v.to_string()),
+            "transfer-encoding" => return Err(411),
+            _ => {}
+        }
+    }
+    if length > MAX_BODY {
+        return Err(413);
+    }
+    let mut body = vec![0; length];
+    r.read_exact(&mut body).map_err(|_| 400u16)?;
+    Ok(Request {
+        method,
+        path,
+        authorization,
+        body,
+    })
+}
+
+/// Compare without leaking how much of the token matched.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
+}
+
+fn route(req: &Request, server: &Server, token: &str) -> Response {
+    if req.path != "/mcp" {
+        return Response::empty(404, "");
+    }
+    let authorized = req
+        .authorization
+        .as_deref()
+        .and_then(|a| a.strip_prefix("Bearer "))
+        .is_some_and(|t| same(t.trim(), token));
+    if !authorized {
+        return Response::empty(401, "WWW-Authenticate: Bearer\r\n");
+    }
+    if req.method != "POST" {
+        return Response::empty(405, "Allow: POST\r\n");
+    }
+    let msg: Value = match serde_json::from_slice(&req.body) {
+        Ok(m) => m,
+        Err(e) => {
+            return Response::json(
+                400,
+                reply(&Value::Null, Err((-32700, format!("parse error: {e}")))),
+            );
+        }
+    };
+    let replies: Vec<Value> = match &msg {
+        Value::Array(batch) => batch.iter().filter_map(|m| server.handle(m)).collect(),
+        m => server.handle(m).into_iter().collect(),
+    };
+    match (msg.is_array(), replies.len()) {
+        (_, 0) => Response::empty(202, ""),
+        (false, _) => Response::json(200, replies.into_iter().next().unwrap_or_default()),
+        (true, _) => Response::json(200, Value::Array(replies)),
+    }
+}
+
+fn write_response(mut stream: std::net::TcpStream, r: Response) -> std::io::Result<()> {
+    let reason = match r.status {
+        200 => "OK",
+        202 => "Accepted",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        411 => "Length Required",
+        _ => "Payload Too Large",
+    };
+    let body = r.body.map(|b| b.to_string()).unwrap_or_default();
+    let content_type = if body.is_empty() {
+        ""
+    } else {
+        "Content-Type: application/json\r\n"
+    };
+    write!(
+        stream,
+        "HTTP/1.1 {} {reason}\r\n{content_type}{}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        r.status,
+        r.extra,
+        body.len()
+    )?;
+    stream.flush()
 }
 
 #[cfg(test)]
@@ -761,6 +1041,80 @@ mod tests {
             find("tmux_list")
                 .argv(&args(json!({ "json": "yes" })), None)
                 .is_err()
+        );
+    }
+
+    fn opts(tools: &[&str], exclude: &[&str], http: bool) -> ServeOpts {
+        ServeOpts {
+            default_host: None,
+            tools: tools.iter().map(|s| s.to_string()).collect(),
+            exclude: exclude.iter().map(|s| s.to_string()).collect(),
+            http: http.then(|| HttpOpts {
+                bind: "127.0.0.1".into(),
+                port: 0,
+                token: "t".repeat(32),
+            }),
+        }
+    }
+
+    fn names(s: &Server) -> Vec<&str> {
+        s.tools.iter().map(|t| t.name.as_str()).collect()
+    }
+
+    #[test]
+    fn tool_filters() {
+        let s = Server::new(root(), &opts(&["tmux_*", "peek"], &["tmux_new"], false)).unwrap();
+        assert_eq!(names(&s), ["tmux_list", "peek"]);
+        assert!(Server::new(root(), &opts(&["nope"], &[], false)).is_err());
+    }
+
+    fn post(body: &str, auth: Option<&str>) -> Request {
+        Request {
+            method: "POST".into(),
+            path: "/mcp".into(),
+            authorization: auth.map(|t| format!("Bearer {t}")),
+            body: body.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn http_route() {
+        let token = "t".repeat(32);
+        let s = Server::new(root(), &opts(&[], &[], true)).unwrap();
+        let init = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#;
+
+        assert_eq!(route(&post(init, None), &s, &token).status, 401);
+        assert_eq!(route(&post(init, Some("wrong")), &s, &token).status, 401);
+        let ok = route(&post(init, Some(&token)), &s, &token);
+        assert_eq!(ok.status, 200);
+        assert_eq!(ok.body.unwrap()["result"]["serverInfo"]["name"], "fleet");
+
+        let note = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+        assert_eq!(route(&post(note, Some(&token)), &s, &token).status, 202);
+
+        let batch = r#"[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","method":"x"}]"#;
+        let r = route(&post(batch, Some(&token)), &s, &token);
+        assert_eq!(r.body.unwrap().as_array().unwrap().len(), 1);
+
+        let mut get = post("", Some(&token));
+        get.method = "GET".into();
+        assert_eq!(route(&get, &s, &token).status, 405);
+        get.path = "/other".into();
+        assert_eq!(route(&get, &s, &token).status, 404);
+        assert_eq!(route(&post("{", Some(&token)), &s, &token).status, 400);
+    }
+
+    #[test]
+    fn read_request_parses_headers_and_body() {
+        let raw = "POST /mcp?x=1 HTTP/1.1\r\nHost: a\r\nAuthorization: Bearer abc\r\nContent-Length: 2\r\n\r\n{}";
+        let req = read_request(&mut std::io::Cursor::new(raw)).unwrap();
+        assert_eq!((req.method.as_str(), req.path.as_str()), ("POST", "/mcp"));
+        assert_eq!(req.authorization.as_deref(), Some("Bearer abc"));
+        assert_eq!(req.body, b"{}");
+        let chunked = "POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n";
+        assert_eq!(
+            read_request(&mut std::io::Cursor::new(chunked)).err(),
+            Some(411)
         );
     }
 }

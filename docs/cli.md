@@ -553,6 +553,29 @@ claude mcp add --scope user fleet-ws -- fleet -H workstation mcp   # every call 
   `tmux enter`, `tmux last`, `web serve`, `stack edit`, `config edit`, `brief --edit`,
   `exec --tty`. `tmux_new` always detaches. Confirmations (`tmux kill`, `stack rm`) can't be
   answered: pass `force`.
+- **`--tools a,b,stack_*` / `--exclude …`** narrow the catalog (`*` suffix globs). Each call is
+  logged to stderr: time, tool, ok/error, duration and the argv (cut at 200 characters).
+
+### Over HTTP (`--http`)
+
+For an agent runtime that speaks MCP over HTTP (e.g. a hosted agent's custom connectors):
+
+```sh
+umask 077; openssl rand -hex 32 > ~/.config/fleet/mcp-token
+fleet mcp --http [--bind 127.0.0.1] [--port 7778] --token-file ~/.config/fleet/mcp-token
+```
+
+- Streamable HTTP, stateless: `POST /mcp` takes one JSON-RPC message (or a batch) and answers
+  `application/json`; notifications get `202`; `GET` is `405` (no server-sent stream). One request
+  per connection, bodies up to 4 MB, no chunked uploads.
+- Every request needs `Authorization: Bearer <token>` (from `--token-file`, else
+  `FLEET_MCP_TOKEN`; at least 16 characters), else `401`.
+- Listens on `127.0.0.1` by default: put a TLS reverse proxy (Caddy, `tailscale serve`/`funnel`)
+  in front for anything that is not on this machine.
+- Without `--tools` it leaves out what changes the machine rather than its sessions: `exec`,
+  `install`, `init`, `config_set`, `web_build`, `skill_install` and every `*_install_service`.
+- Tools with `no_wait` (`handoff`, `stack_spawn`) default it to `true`: remote runtimes give a call
+  ~30 s, and waiting for a new session to register can take longer.
 
 ## Environment
 
@@ -586,6 +609,7 @@ claude mcp add --scope user fleet-ws -- fleet -H workstation mcp   # every call 
 | `NO_COLOR=1` | no colors |
 | `FLEET_NO_TTY=1` | never prompt on the terminal: confirmations fail as if there were none (set by `fleet mcp`) |
 | `FLEET_MCP_TIMEOUT` | seconds one `fleet mcp` tool call may run (default 600) |
+| `FLEET_MCP_TOKEN` | bearer token for `fleet mcp --http` (when no `--token-file`) |
 
 ## Exit codes
 

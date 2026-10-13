@@ -497,8 +497,29 @@ enum Commands {
         action: skill::SkillAction,
     },
 
-    /// Serve every command as an MCP tool on stdio (`claude mcp add fleet -- fleet mcp`)
-    Mcp,
+    /// Serve every command as an MCP tool: on stdio (`claude mcp add fleet -- fleet mcp`), or
+    /// over HTTP for a remote agent runtime (`--http`)
+    Mcp {
+        /// Serve Streamable HTTP at http://<bind>:<port>/mcp instead of stdio
+        #[arg(long)]
+        http: bool,
+        /// With --http: address to listen on
+        #[arg(long, default_value = "127.0.0.1", requires = "http")]
+        bind: String,
+        /// With --http: port to listen on
+        #[arg(long, default_value_t = 7778, requires = "http")]
+        port: u16,
+        /// With --http: file holding the bearer token every request must carry (else env FLEET_MCP_TOKEN)
+        #[arg(long, value_name = "FILE", requires = "http")]
+        token_file: Option<String>,
+        /// Only these tools, comma-separated; `stack_*` globs (default: all; over HTTP all but
+        /// exec, install, init, config_set, web_build, skill_install and *_install_service)
+        #[arg(long, value_delimiter = ',', value_name = "TOOLS")]
+        tools: Vec<String>,
+        /// Leave these tools out, comma-separated; `stack_*` globs
+        #[arg(long, value_delimiter = ',', value_name = "TOOLS")]
+        exclude: Vec<String>,
+    },
 
     /// Machine facts as JSON, for `doctor` (internal)
     #[command(name = "_probe", hide = true)]
@@ -948,7 +969,7 @@ fn placement(c: &Commands) -> Placement {
         | Commands::Install { .. }
         | Commands::Exec { .. }
         | Commands::Ssh { .. }
-        | Commands::Mcp
+        | Commands::Mcp { .. }
         | Commands::Probe => Placement::Here,
         _ => Placement::Dispatch(Scope::SelfHost),
     }
@@ -1477,10 +1498,38 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
             })?,
         },
         Commands::Skill { action } => skill::run(&action)?,
-        Commands::Mcp => {
-            // `fleet -H <host> mcp`: that host is every call's default.
-            let host = cli.host.clone().filter(|_| !cli.local);
-            mcp::serve(Cli::command(), host)?
+        Commands::Mcp {
+            http,
+            bind,
+            port,
+            token_file,
+            tools,
+            exclude,
+        } => {
+            let http = if http {
+                let token = match token_file {
+                    Some(f) => std::fs::read_to_string(&f)
+                        .map_err(|e| Error::Other(format!("--token-file {f}: {e}")))?,
+                    None => std::env::var("FLEET_MCP_TOKEN").map_err(|_| {
+                        Error::Other(
+                            "fleet mcp --http needs --token-file or FLEET_MCP_TOKEN".into(),
+                        )
+                    })?,
+                };
+                Some(mcp::HttpOpts { bind, port, token })
+            } else {
+                None
+            };
+            mcp::serve(
+                Cli::command(),
+                mcp::ServeOpts {
+                    // `fleet -H <host> mcp`: that host is every call's default.
+                    default_host: cli.host.clone().filter(|_| !cli.local),
+                    tools,
+                    exclude,
+                    http,
+                },
+            )?
         }
         Commands::Probe => host_cmds::probe()?,
     }

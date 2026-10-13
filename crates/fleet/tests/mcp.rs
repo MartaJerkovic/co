@@ -125,3 +125,76 @@ fn calls_run_the_cli() {
 
     assert_eq!(r[3]["error"]["code"], -32602);
 }
+
+// `fleet mcp --http` end to end: a real listener on a free port, raw HTTP requests.
+#[test]
+fn http_transport() {
+    use std::io::{Read, Write};
+
+    let env = Env::new();
+    env.write_config(&common::two_hosts());
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let token = "x".repeat(40);
+    let mut server = std::process::Command::new(assert_cmd::cargo::cargo_bin("fleet"))
+        .args([
+            "mcp",
+            "--http",
+            "--port",
+            &port.to_string(),
+            "--tools",
+            "list,peek",
+        ])
+        .env("FLEET_CONFIG", env.config_path())
+        .env("FLEET_SNAPSHOT", env.path("snapshot.json"))
+        .env("FLEET_MCP_TOKEN", &token)
+        .env("FLEET_FIXTURE", common::fixture(env.dir.path(), "[]"))
+        .env("HOME", env.dir.path())
+        .env_remove("FLEET_HOST")
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let request = |auth: &str, body: &str| -> String {
+        for _ in 0..100 {
+            if let Ok(mut s) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+                write!(
+                    s,
+                    "POST /mcp HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {auth}\r\n\
+                     Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+                let mut out = String::new();
+                s.read_to_string(&mut out).unwrap();
+                return out;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("server never listened");
+    };
+
+    let denied = request("nope", "{}");
+    let list = request(&token, r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let called = request(
+        &token,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list","arguments":{"json":true}}}"#,
+    );
+    let _ = server.kill();
+    let _ = server.wait();
+
+    assert!(denied.starts_with("HTTP/1.1 401"), "{denied}");
+    let body =
+        |r: &str| -> Value { serde_json::from_str(r.split("\r\n\r\n").nth(1).unwrap()).unwrap() };
+    let names: Vec<String> = body(&list)["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(names, ["list", "peek"]);
+    assert_eq!(body(&called)["result"]["isError"], false, "{called}");
+}
