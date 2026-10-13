@@ -488,7 +488,7 @@ the same **run**. Config: `jobs` in [the config](architecture.md#config).
 | `prompt` / `promptFile` | the first prompt, inline or read from a file at run time (one of them, or neither); a file's YAML frontmatter (`---` … `---`) is left out, so a note can be the prompt |
 | `command` | launcher for the job's sessions **and everything they spawn** (it travels as `FLEET_CMD`); default config `claude` |
 | `harness`, `model` | as for `fleet spawn` |
-| `enabled` | `false` pauses the job (`fleet jobs disable`) |
+| `enabled` | `false` pauses the job (`fleet jobs disable`). `fleet config set jobs.<name> null` removes it |
 | `keep` | default `24h`, or `"never"`: once a run is older than this, its sessions that are idle and quiet for an hour are closed (their tmux session is killed). A session waiting for input is never closed |
 
 A job never fires on the tick that first sees it (a job added at 08:00 with a 07:00 schedule first

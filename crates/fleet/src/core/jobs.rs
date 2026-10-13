@@ -256,7 +256,8 @@ impl Settings {
                 return s;
             }
         };
-        for (name, raw) in map {
+        // `fleet config set jobs.<name> null` removes a job.
+        for (name, raw) in map.iter().filter(|(_, v)| !v.is_null()) {
             match job_from_value(name, raw) {
                 Ok(j) => s.jobs.push(j),
                 Err(e) => s.problems.push(format!("jobs.{name}: {e}")),
@@ -696,7 +697,8 @@ mod tests {
             "paused": { "schedule": "@hourly", "dir": "/tmp", "prompt": "hi", "enabled": false, "keep": "never" },
             "bad cron": { "schedule": "0 7 * *", "dir": "/tmp" },
             "nodir": { "schedule": "@daily" },
-            "both": { "schedule": "@daily", "dir": "/tmp", "prompt": "a", "promptFile": "b" }
+            "both": { "schedule": "@daily", "dir": "/tmp", "prompt": "a", "promptFile": "b" },
+            "removed": null
         }));
         assert_eq!(s.jobs.len(), 2, "{:?}", s.problems);
         assert_eq!(s.problems.len(), 3);
