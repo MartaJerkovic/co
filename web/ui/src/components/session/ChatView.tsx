@@ -4,7 +4,7 @@ import { ChevronRightIcon, ChevronsUpIcon, ClipboardIcon, ClockIcon, HandIcon, L
 import type { Message } from '@/api/types'
 import { LatestButton } from '@/components/session/LatestButton'
 import { QuestionCard, type QuestionActions } from '@/components/session/QuestionCard'
-import { Markdown } from '@/components/Markdown'
+import { Linkified, Markdown } from '@/components/Markdown'
 import { Button } from '@/components/ui/button'
 import { FileLinksContext, type FileStats } from '@/hooks/useFileLinks'
 import { useFollowScroll } from '@/hooks/useFollowScroll'
@@ -49,11 +49,16 @@ const PASTE_OPEN_LINES = 6
 /** A user prompt: typed text, with `<pasted_content>` blocks shown as collapsible quotes. */
 function UserText({ text }: { text: string }) {
   const parts = splitPasted(text)
-  if (parts.length === 1 && !parts[0].pasted) return <>{text}</>
+  if (parts.length === 1 && !parts[0].pasted) return <Linkified text={text} />
   return (
     <div className="flex flex-col gap-1.5">
       {parts.map((part, i) => {
-        if (!part.pasted) return <div key={i}>{part.text}</div>
+        if (!part.pasted)
+          return (
+            <div key={i}>
+              <Linkified text={part.text} />
+            </div>
+          )
         const lines = part.text.split('\n').length
         return (
           <details key={i} open={lines <= PASTE_OPEN_LINES} className="group rounded-lg border border-primary/20 bg-background/40 text-[0.9em]">
@@ -62,7 +67,9 @@ function UserText({ text }: { text: string }) {
               <ClipboardIcon className="size-3" />
               Pasted · {lines} {lines === 1 ? 'line' : 'lines'}
             </summary>
-            <div className="max-h-80 overflow-y-auto border-t border-primary/15 px-2 py-1.5">{part.text}</div>
+            <div className="max-h-80 overflow-y-auto border-t border-primary/15 px-2 py-1.5">
+              <Linkified text={part.text} />
+            </div>
           </details>
         )
       })}
