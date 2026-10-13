@@ -232,10 +232,10 @@ pub fn remote_fleet_command(r: &Remote, args: &[String]) -> String {
     format!("sh -c {}", shq(&remote_fleet_script(r, args)))
 }
 
-/// Env vars that carry over to the remote `fleet`: the launcher and the
-/// debug/dry-run switches. Not `FLEET_CONFIG` — a local path means nothing on
-/// the other machine, which has its own config.
-pub const FORWARDED_ENV: [&str; 3] = ["FLEET_CMD", "FLEET_DEBUG", "FLEET_DRY_RUN"];
+/// Env vars that carry over to the remote `fleet`: the launcher, the job run a spawn
+/// belongs to, and the debug/dry-run switches. Not `FLEET_CONFIG` — a local path means
+/// nothing on the other machine, which has its own config.
+pub const FORWARDED_ENV: [&str; 4] = ["FLEET_CMD", "FLEET_JOB_RUN", "FLEET_DEBUG", "FLEET_DRY_RUN"];
 
 /// The [`FORWARDED_ENV`] vars set (non-empty) in this process.
 fn forwarded_env() -> Vec<(&'static str, String)> {

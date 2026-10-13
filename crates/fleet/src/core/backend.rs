@@ -342,7 +342,7 @@ pub fn tmux_guard(
 }
 
 /// Every live tmux session name, exactly as tmux stores it.
-fn tmux_session_names() -> Vec<String> {
+pub(crate) fn tmux_session_names() -> Vec<String> {
     crate::core::tools::tmux_cmd()
         .args(["list-sessions", "-F", "#{session_name}"])
         .output()
@@ -597,7 +597,8 @@ end run"#,
     Ok(())
 }
 
-/// Spawn a fresh session and return a human description of where it landed.
+/// Spawn a fresh session and return a human description of where it landed. Spawned from
+/// inside a job run (`FLEET_JOB_RUN` set), the new session joins that run.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
     backend: Backend,
@@ -609,13 +610,48 @@ pub fn spawn(
     launcher: &str,
     harness: Harness,
 ) -> Result<String> {
+    let tag = crate::core::jobs::Tag::from_env();
+    spawn_tagged(
+        backend,
+        dir,
+        prompt,
+        name,
+        tmux_session,
+        window,
+        launcher,
+        harness,
+        tag.as_ref(),
+    )
+    .map(|(desc, _)| desc)
+}
+
+/// [`spawn`] with an explicit job tag (`None` = untagged). Returns the description and the
+/// tmux session it landed in (`None` for iTerm). A tagged session must land in tmux: the tag
+/// lives in the tmux session's environment and the pane's `@fleet_job_run` option, and the
+/// run records the session there.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_tagged(
+    backend: Backend,
+    dir: &str,
+    prompt: Prompt,
+    name: Option<&str>,
+    tmux_session: Option<&str>,
+    window: bool,
+    launcher: &str,
+    harness: Harness,
+    tag: Option<&crate::core::jobs::Tag>,
+) -> Result<(String, Option<String>)> {
+    let backend = match (backend, tag) {
+        (Backend::Iterm, Some(_)) => Backend::Tmux,
+        (b, _) => b,
+    };
     let line = launch_command(dir, prompt, name, launcher, harness);
     match backend {
         Backend::Iterm => {
             iterm_run(&line, window)?;
-            Ok(format!(
-                "spawned iTerm {}",
-                if window { "window" } else { "tab" }
+            Ok((
+                format!("spawned iTerm {}", if window { "window" } else { "tab" }),
+                None,
             ))
         }
         Backend::Tmux => {
@@ -623,9 +659,11 @@ pub fn spawn(
                 plan_tmux_target(tmux_session, name, dir, &tmux_session_names())?;
             // A fresh session's first window is the one we want: opening another
             // next to it would leave an idle shell behind.
-            let out = crate::core::tools::tmux_cmd()
-                .args(tmux_spawn_args(&session, dir, exists))
-                .output()?;
+            let mut args = tmux_spawn_args(&session, dir, exists);
+            if let Some(t) = tag {
+                args.extend(t.env().into_iter().flat_map(|kv| ["-e".to_string(), kv]));
+            }
+            let out = crate::core::tools::tmux_cmd().args(&args).output()?;
             if !out.status.success() {
                 return Err(Error::Other(format!(
                     "tmux: {}",
@@ -633,6 +671,9 @@ pub fn spawn(
                 )));
             }
             let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if let Some(t) = tag {
+                tag_pane(&win, t, &session, exists, name);
+            }
             // Window already opened in `dir`; just run the launcher in it.
             let run = run_command(prompt, name, launcher, harness);
             crate::core::tools::tmux_cmd()
@@ -641,14 +682,56 @@ pub fn spawn(
             crate::core::tools::tmux_cmd()
                 .args(["send-keys", "-t", &win, "Enter"])
                 .status()?;
-            Ok(if exists {
+            let desc = if exists {
                 format!("spawned tmux window {win}  (attach: tmux attach -t {session})")
             } else {
                 format!("spawned tmux session {session}  (attach: tmux attach -t {session})")
-            })
+            };
+            Ok((desc, Some(session)))
         }
         Backend::Unknown => Err(Error::Other("unknown backend".into())),
     }
+}
+
+/// Mark the new pane as part of the job run and note it in the run's record. Best effort:
+/// the environment already carries the tag, so a failure here only costs the `origin` label.
+fn tag_pane(
+    win: &str,
+    tag: &crate::core::jobs::Tag,
+    session: &str,
+    exists: bool,
+    name: Option<&str>,
+) {
+    let _ = crate::core::tools::tmux_cmd()
+        .args([
+            "set-option",
+            "-p",
+            "-t",
+            win,
+            crate::core::jobs::PANE_OPTION,
+            &tag.run,
+        ])
+        .status();
+    // A window in an existing session is not ours to close later: only a session spawned
+    // for the job is recorded.
+    if exists {
+        return;
+    }
+    // The spawner's own tmux session, when it is a job session spawning a child.
+    let parent = std::env::var("TMUX_PANE")
+        .ok()
+        .filter(|_| std::env::var_os(crate::core::jobs::RUN_ENV).is_some())
+        .and_then(|p| tmux_query(&p, "#{session_name}").ok());
+    crate::core::jobs::record_session(
+        tag,
+        crate::core::jobs::RunSession {
+            tmux_session: session.to_string(),
+            name: name.map(String::from),
+            parent,
+            at: chrono::Local::now().timestamp_millis(),
+            closed_at: None,
+        },
+    );
 }
 
 /// Where a tmux spawn lands, and whether that session already exists.

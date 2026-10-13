@@ -63,7 +63,7 @@ fn labels(list: &[Repo]) -> Vec<String> {
 }
 
 /// `30m`, `24h`, `7d`.
-fn span(secs: i64) -> String {
+pub(crate) fn span(secs: i64) -> String {
     if secs % 86_400 == 0 && secs >= 86_400 && secs != 86_400 {
         format!("{}d", secs / 86_400)
     } else if secs % 3600 == 0 {

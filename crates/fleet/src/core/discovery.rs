@@ -85,6 +85,8 @@ pub struct Session {
     /// Absolute path of the session's transcript, when known (Codex / pi only — a
     /// Claude transcript is found from cwd + session id).
     pub transcript: Option<String>,
+    /// The [job](crate::core::jobs) run that started it (`{ job, run }`); `null` when none.
+    pub origin: Option<crate::core::jobs::Origin>,
 }
 
 impl Default for Session {
@@ -112,6 +114,7 @@ impl Default for Session {
             harness: Harness::Claude,
             model: None,
             transcript: None,
+            origin: None,
         }
     }
 }
@@ -223,6 +226,8 @@ pub struct Pane {
     pub pane_id: String,
     pub window_name: String,
     pub session_name: String,
+    /// The pane's `@fleet_job_run` option: the job run it belongs to (empty when none).
+    pub job_run: String,
 }
 
 /// A canned fleet from `FLEET_FIXTURE=<path/to/sessions.json>`. Bypasses the
@@ -296,6 +301,7 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
         let tmux_session = pane
             .map(|p| p.session_name.clone())
             .filter(|w| !w.is_empty());
+        let origin = pane.and_then(|p| crate::core::jobs::Origin::parse(&p.job_run));
         let title = match (reg.session_id.as_deref(), reg.cwd.as_deref()) {
             (Some(sid), Some(cwd)) => title_for(cwd, sid),
             _ => None,
@@ -326,6 +332,7 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
             stack: None,
             harness: Harness::Claude,
             transcript: None,
+            origin,
         });
     }
     crate::core::context::apply_native_1m(out.iter_mut().filter_map(|s| s.context.as_mut()));
@@ -408,6 +415,7 @@ fn harness_session(
         tmux_session: pane
             .map(|p| p.session_name.clone())
             .filter(|w| !w.is_empty()),
+        origin: pane.and_then(|p| crate::core::jobs::Origin::parse(&p.job_run)),
         title: t.and_then(|t| harness::first_prompt(p.harness, &t.path)),
         model: state.model.or_else(|| p.model_arg()),
         context: state.context,
@@ -646,7 +654,7 @@ fn tmux_panes() -> HashMap<String, Pane> {
             "list-panes",
             "-a",
             "-F",
-            "#{pane_tty}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_id}\t#{window_name}\t#{session_name}",
+            "#{pane_tty}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_id}\t#{window_name}\t#{session_name}\t#{@fleet_job_run}",
         ])
         .output()
     else {
@@ -658,7 +666,7 @@ fn tmux_panes() -> HashMap<String, Pane> {
     map
 }
 
-/// `pane_tty \t target \t pane_id \t window_name \t session_name` -> (tty, pane).
+/// `pane_tty \t target \t pane_id \t window_name \t session_name \t job_run` -> (tty, pane).
 fn parse_pane(line: &str) -> Option<(String, Pane)> {
     let mut parts = line.split('\t');
     let ptty = parts.next()?;
@@ -668,6 +676,7 @@ fn parse_pane(line: &str) -> Option<(String, Pane)> {
     // session_name is also the prefix of `target`, but parsing it back out would
     // break on the `:` a session name is allowed to contain — ask tmux instead.
     let session_name = parts.next().unwrap_or("").to_string();
+    let job_run = parts.next().unwrap_or("").to_string();
     Some((
         ptty.to_string(),
         Pane {
@@ -675,6 +684,7 @@ fn parse_pane(line: &str) -> Option<(String, Pane)> {
             pane_id: pane_id.to_string(),
             window_name,
             session_name,
+            job_run,
         },
     ))
 }

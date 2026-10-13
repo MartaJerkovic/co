@@ -177,6 +177,12 @@ A **stack** is a set of sessions — on one host or across hosts — that share 
 - **If your first prompt starts with "You're working on pull request …"** — you were spawned on that PR: work in the worktree it names, and use `gh pr view <n>` / `gh pr diff <n>` for the description, review comments, CI and diff.
 - The web UI's Pull requests screen does the same, and marks sessions running in a PR's worktree with a `#123` chip.
 
+## Scheduled jobs
+
+`fleet jobs` lists the cron jobs configured on a host (config `jobs`): each spawns a session on schedule, and that session's own spawns join the same run. `fleet jobs show <name>` has the latest runs as session trees; `fleet jobs run <name>` starts one now (it starts an agent: **confirm like `spawn`**); `enable` / `disable` pause and resume. A session a job started has `origin: { job, run }` in `fleet list --json`.
+
+- **If `FLEET_JOB_RUN` is set in your environment, you are a job session** — nobody is watching live. Don't stop to ask; finish what the prompt says, and leave your result as your last message (that is the report). Sessions you spawn join your run automatically.
+
 ## Session names
 
 **One title per session.** The Claude session name is the source of truth — Claude's own, from its session registry; fleet reads it, and can *propose* a new one, but only Claude's `/rename` ever sets it. Every view (list, TUI, web) draws one title, `display_title` in `list --json`: the name when someone chose it, else the generated title, else a slug of the first prompt. The tmux session name is derived from it (a slug, kept in sync on every rename) — don't treat it as a second name. By default a session is named after its cwd plus a short hash (`app-f9`), which is why five sessions in the same repo look alike. Five ways to fix that:

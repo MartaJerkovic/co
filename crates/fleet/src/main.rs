@@ -4,9 +4,9 @@ use clap::{CommandFactory, Parser, Subcommand};
 use colored::Colorize;
 
 use fleet::cli::{
-    brief as brief_cmd, commands, config_cmd, group, hosts as host_cmds, init, mcp, prs as prs_cmd,
-    repos as repos_cmd, restore, skill, stack as stack_cmds, tmux as tmux_cmds, usage as usage_cmd,
-    web,
+    brief as brief_cmd, commands, config_cmd, group, hosts as host_cmds, init, jobs as jobs_cmd,
+    mcp, prs as prs_cmd, repos as repos_cmd, restore, skill, stack as stack_cmds,
+    tmux as tmux_cmds, usage as usage_cmd, web,
 };
 use fleet::core::config;
 use fleet::core::discovery::Backend;
@@ -476,6 +476,15 @@ enum Commands {
         all: bool,
     },
 
+    /// Scheduled agent sessions: cron jobs that spawn a session on this host (config `jobs`)
+    Jobs {
+        #[command(subcommand)]
+        cmd: Option<JobsCmd>,
+        /// Machine-readable output
+        #[arg(long)]
+        json: bool,
+    },
+
     /// The web UI: serve it, or install it as a login service
     Web {
         #[command(subcommand)]
@@ -802,6 +811,50 @@ enum ReposCmd {
         json: bool,
     },
     /// Run `repos sync --due` every 10 minutes and at login (launchd)
+    InstallService {
+        /// Remove the service instead
+        #[arg(long)]
+        uninstall: bool,
+        /// Write the file but don't load/unload it
+        #[arg(long)]
+        no_load: bool,
+        /// Only print the service definition
+        #[arg(long)]
+        print: bool,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+enum JobsCmd {
+    /// Every job: schedule, next run, last run, live sessions — the default
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// One job: its settings and latest runs, each with the sessions it spawned
+    Show {
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start a run now, whatever the schedule says
+    Run {
+        name: String,
+        /// Start even while a session of the job is still working
+        #[arg(long)]
+        force: bool,
+    },
+    /// Fire due jobs and close finished sessions (what the service runs every minute)
+    Tick {
+        /// Print only what happened, timestamped
+        #[arg(long, short = 'q')]
+        quiet: bool,
+    },
+    /// Resume a paused job
+    Enable { name: String },
+    /// Pause a job (its schedule stops firing; live sessions are left alone)
+    Disable { name: String },
+    /// Run `jobs tick` every minute and at login (launchd)
     InstallService {
         /// Remove the service instead
         #[arg(long)]
@@ -1388,6 +1441,23 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
                 no_load,
                 print,
             } => repos_cmd::install_service(web::ServiceOpts {
+                uninstall,
+                no_load,
+                print,
+            })?,
+        },
+        Commands::Jobs { cmd, json } => match cmd.unwrap_or(JobsCmd::List { json }) {
+            JobsCmd::List { json: j } => jobs_cmd::list(json || j)?,
+            JobsCmd::Show { name, json: j } => jobs_cmd::show(&name, json || j)?,
+            JobsCmd::Run { name, force } => jobs_cmd::run_now(&name, force)?,
+            JobsCmd::Tick { quiet } => jobs_cmd::tick(quiet)?,
+            JobsCmd::Enable { name } => jobs_cmd::set_enabled(&name, true)?,
+            JobsCmd::Disable { name } => jobs_cmd::set_enabled(&name, false)?,
+            JobsCmd::InstallService {
+                uninstall,
+                no_load,
+                print,
+            } => jobs_cmd::install_service(web::ServiceOpts {
                 uninstall,
                 no_load,
                 print,
