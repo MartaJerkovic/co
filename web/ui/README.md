@@ -190,7 +190,7 @@ src/
   filter (the clock-icon chip after Idle, shown when there are job sessions): it lists only job
   sessions. Every other filter leaves them out, except ones waiting on you (they always show, and
   every "needs you" counter counts them); the header counters count every session.
-- **Jobs** (`#/jobs`; the clock icon next to PRs / Usage / Settings, ⌘K → Scheduled jobs…): every
+- **Jobs** (`#/jobs`; the ⋯ More menu in the mobile list header, the clock icon on desktop, ⌘K → Scheduled jobs…): every
   host's jobs — name, host, schedule, next run, an enabled switch (`POST …/jobs/:name/enabled`,
   optimistic), Run now (a confirm dialog; a 409 because a job session still works offers Run
   anyway = `force`) and the last run's outcome + live sessions. Expanding a job shows its settings
@@ -389,7 +389,7 @@ src/
   preview, URLs a new tab; **Continue in new session** (the New session form prefilled with the
   host, the session's cwd and `continuePrompt`, caret at the end). GET while Details is open,
   every 30s, every 2.5s while generating.
-- **Settings** (`#/settings`: the gear in the list header on mobile, the sidebar footer / rail and
+- **Settings** (`#/settings`: the ⋯ More menu in the list header on mobile, the sidebar footer / rail and
   the board header on desktop, ⌘K → Settings…): Text size (Small / Default /
   Large = chat at 13 / 15 / 17px, `fleet.chatFont`) scales the **whole** UI via the `<html>`
   font-size (index.html applies it before first paint); Terminal text (`fleet.termFont`, in rem so
@@ -413,7 +413,7 @@ src/
   at once. Mobile: one card per entry; from `md` up a compact grid.
 - **Notes** (`#/notes[/<host>[/<path>]]`; ../ARCHITECTURE.md → notes): browse, search and read the
   markdown notes of any host with `web.notes.root` (hosts come from `/api/fleet` entries carrying
-  `notes`; the last one used is `fleet.notesHost`). Reached from the notes button in the mobile
+  `notes`; the last one used is `fleet.notesHost`). Reached from the ⋯ More menu in the mobile
   list header, the sidebar footer / rail and the board header, ⌘K → Notes… (the palette also
   lists the first notes host's 300 most recent notes) and ⌘⇧E. Folder tree (expanded folders
   per host in `fleet.notesOpen.<host>`, the open note's folders expand), search (180 ms debounce,
