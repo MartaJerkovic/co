@@ -65,13 +65,13 @@ export function anchorKey(m: Message): string {
 }
 
 /**
- * The anchor for a message sent now: the transcript's last USER message (assistant messages are
+ * The anchor for a message sent now: the transcript's last USER message (not a queued one: it moves) (assistant messages are
  * merged and re-stamped as they grow, user ones are stable); '' when the window has none, null
  * when the transcript is not loaded.
  */
 export function tailAnchor(messages: Message[] | null | undefined): string | null {
   if (!Array.isArray(messages)) return null
-  for (let i = messages.length - 1; i >= 0; i--) if (msgKind(messages[i]) === 'user') return anchorKey(messages[i])
+  for (let i = messages.length - 1; i >= 0; i--) if (msgKind(messages[i]) === 'user' && !messages[i].queued) return anchorKey(messages[i])
   return ''
 }
 

@@ -147,3 +147,37 @@ test('the reader reads a Codex / pi session from the transcript path discovery g
   assert.equal(got.messages[0].text, 'yo');
   assert.equal(await r.messages({ session_id: 'p2', cwd: '/w', harness: 'pi', transcript: null }), null);
 });
+
+test('parseTranscript shows queued prompts: absorbed mid-turn in place, still waiting last', () => {
+  const q = (operation, content, extra = {}) => line({ type: 'queue-operation', operation, timestamp: '2026-01-01T00:00:00Z', ...(content == null ? {} : { content }), ...extra });
+  const absorbed = (prompt, origin = { kind: 'human' }) =>
+    line({ type: 'attachment', timestamp: '2026-01-01T00:00:01Z', attachment: { type: 'queued_command', prompt, commandMode: 'prompt', origin } });
+  const jsonl = [
+    user('Start'),
+    q('enqueue', 'first'),
+    q('enqueue', '<task-notification><summary>done</summary></task-notification>'),
+    q('remove', 'first', { reason: 'absorbed_mid_turn' }),
+    absorbed('first'),
+    absorbed('from a peer', { kind: 'peer' }),
+    line({ type: 'attachment', attachment: { type: 'queued_command', prompt: 'note', commandMode: 'task-notification' } }),
+    q('dequeue'),
+    q('enqueue', 'second'),
+    q('enqueue', '<agent-message from="x">hand-back</agent-message>'),
+    q('enqueue', 'third'),
+    q('dequeue'),
+    user('second'),
+    asst([{ type: 'text', text: 'Working.' }], { stop: 'tool_use' }),
+  ].join('\n');
+  const out = parseTranscript(jsonl);
+  assert.deepEqual(
+    out.map((m) => [m.role, m.text, m.queued ?? false]),
+    [
+      ['user', 'Start', false],
+      ['user', 'first', false],
+      ['user', 'second', false],
+      ['assistant', 'Working.', false],
+      ['user', 'third', true],
+    ],
+  );
+  assert.equal(typeof out.at(-1).ts, 'number');
+});

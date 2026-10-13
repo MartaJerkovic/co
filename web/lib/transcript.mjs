@@ -121,11 +121,17 @@ export function classifyUserText(raw) {
  * interim narration between tool calls is `final: false`.
  * An AskUserQuestion call is `{ role: 'assistant', kind: 'question', id, questions, text }`
  * (`text`: a markdown fallback), plus `answers` or `declined: true` once it has a result.
+ *
+ * A prompt typed while Claude works is queued: `queue-operation` entries (enqueue / dequeue /
+ * remove), then either a normal user entry (dequeued at the turn's end) or a `queued_command`
+ * attachment (absorbed mid-turn). The attachment is a user message; prompts still in the queue
+ * come last, `queued: true`.
  */
 export function parseTranscript(text) {
   const out = [];
   let lastAssistantId = null;
   const asked = new Map(); // tool_use id -> its question message, until answered
+  const queue = []; // { content, ts }, oldest first — task notifications too, for the FIFO dequeue
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let entry;
@@ -135,9 +141,30 @@ export function parseTranscript(text) {
       continue;
     }
     if (!entry || typeof entry !== 'object' || entry.isSidechain) continue;
+    const ts = entry.timestamp ? Date.parse(entry.timestamp) || null : null;
+
+    if (entry.type === 'queue-operation') {
+      if (entry.operation === 'enqueue') queue.push({ content: entry.content, ts });
+      else if (entry.operation === 'dequeue') queue.shift();
+      else if (entry.operation === 'remove') {
+        const i = queue.findIndex((q) => q.content === entry.content);
+        if (i >= 0) queue.splice(i, 1);
+      }
+      continue;
+    }
+    if (entry.type === 'attachment') {
+      const a = entry.attachment;
+      if (a?.type !== 'queued_command' || a.commandMode !== 'prompt' || (a.origin && a.origin.kind !== 'human')) continue;
+      const classified = classifyUserText(textOfContent(a.prompt));
+      if (!classified?.text?.trim()) continue;
+      const { kind, ...rest } = classified;
+      out.push({ role: kind === 'user' ? 'user' : 'system', kind, ...rest, ts });
+      lastAssistantId = null;
+      continue;
+    }
+
     const msg = entry.message;
     if (!msg || typeof msg !== 'object') continue;
-    const ts = entry.timestamp ? Date.parse(entry.timestamp) || null : null;
 
     if (entry.type === 'user') {
       if (entry.isMeta) continue;
@@ -185,6 +212,12 @@ export function parseTranscript(text) {
         lastAssistantId = null;
       }
     }
+  }
+  for (const q of queue) {
+    const raw = textOfContent(q.content);
+    if (raw.startsWith('<agent-message')) continue; // a subagent's hand-back, not something typed
+    const classified = classifyUserText(raw);
+    if (classified?.kind === 'user' && classified.text.trim()) out.push({ role: 'user', kind: 'user', text: classified.text, ts: q.ts, queued: true });
   }
   return out;
 }

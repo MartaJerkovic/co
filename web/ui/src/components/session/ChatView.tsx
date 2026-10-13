@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef } from 'react'
-import { ChevronRightIcon, ChevronsUpIcon, ClipboardIcon, HandIcon, Loader2Icon, MessageSquareDashedIcon, SquareSlashIcon, TerminalIcon } from 'lucide-react'
+import { ChevronRightIcon, ChevronsUpIcon, ClipboardIcon, ClockIcon, HandIcon, Loader2Icon, MessageSquareDashedIcon, SquareSlashIcon, TerminalIcon } from 'lucide-react'
 
 import type { Message } from '@/api/types'
 import { LatestButton } from '@/components/session/LatestButton'
@@ -121,12 +121,26 @@ const Bubble = memo(function Bubble({ m, caption, actions }: { m: Message; capti
   }
   const cap = caption ? <div className="px-1 pt-0.5 text-[0.625rem] text-dimmer tabular-nums">{caption}</div> : null
   if (kind === 'user') {
+    // Queued: typed while Claude works; Claude Code hands it over between steps or at the turn's end.
+    const queued = m.queued === true
     return (
-      <div className="flex w-full flex-col items-end">
-        <div className="w-full rounded-2xl rounded-br-md border border-primary/25 bg-accent px-3 py-2 whitespace-pre-wrap text-accent-foreground [overflow-wrap:anywhere]">
+      <div className="flex w-full flex-col items-end" data-queued={queued || undefined}>
+        <div
+          className={cn(
+            'w-full rounded-2xl rounded-br-md border px-3 py-2 whitespace-pre-wrap text-accent-foreground [overflow-wrap:anywhere]',
+            queued ? 'border-dashed border-primary/40 bg-accent/60 opacity-80' : 'border-primary/25 bg-accent',
+          )}
+        >
           <UserText text={text} />
         </div>
-        {cap}
+        {queued ? (
+          <div className="flex items-center gap-1 px-1 pt-0.5 text-[0.6875rem] text-dimmer">
+            <ClockIcon className="size-3" aria-hidden />
+            Queued · Claude reads it when it finishes the current step
+          </div>
+        ) : (
+          cap
+        )}
       </div>
     )
   }

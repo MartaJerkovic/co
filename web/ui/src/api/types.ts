@@ -346,6 +346,8 @@ export interface Message {
   answers?: (string | null)[]
   /** kind 'question': dismissed (Esc, "Chat about this", interrupted). */
   declined?: boolean
+  /** kind 'user': typed while Claude works, still in its queue (always last). */
+  queued?: boolean
 }
 
 /** GET /api/hosts/:host/sessions/:id/messages */
