@@ -1,5 +1,5 @@
 import { useRef, useState, type TouchEvent } from 'react'
-import { CalendarClockIcon, GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
+import { CalendarClockIcon, EllipsisIcon, GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { GroupedList } from '@/components/board/GroupedList'
@@ -16,6 +16,7 @@ import { SessionRow } from '@/components/SessionRow'
 import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
@@ -105,33 +106,53 @@ export function ListScreen() {
             </Button>
           ) : null}
           <ScratchpadButton className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5" />
-          {notesHosts.length ? (
-            <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
-              <a href="#/notes" aria-label="Notes" title="Notes">
-                <NotebookTextIcon />
-              </a>
-            </Button>
-          ) : null}
           <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
             <a href="#/prs" aria-label="Pull requests" title="Pull requests">
               <GitPullRequestIcon />
             </a>
           </Button>
-          <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
-            <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
-              <CalendarClockIcon />
-            </a>
-          </Button>
-          <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
-            <a href="#/usage" aria-label="Usage limits" title="Usage limits">
-              <GaugeIcon />
-            </a>
-          </Button>
-          <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
-            <a href="#/settings" aria-label="Settings" title="Settings">
-              <Settings2Icon />
-            </a>
-          </Button>
+          {/* The rest of the screens sit behind one button: the header row is narrow on a phone. */}
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="More"
+                title="More"
+                className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5"
+              >
+                <EllipsisIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {notesHosts.length ? (
+                <DropdownMenuItem asChild>
+                  <a href="#/notes">
+                    <NotebookTextIcon />
+                    Notes
+                  </a>
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem asChild>
+                <a href="#/jobs">
+                  <CalendarClockIcon />
+                  Scheduled jobs
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a href="#/usage">
+                  <GaugeIcon />
+                  Usage limits
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a href="#/settings">
+                  <Settings2Icon />
+                  Settings
+                </a>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             size="icon"
             aria-label="New session"
