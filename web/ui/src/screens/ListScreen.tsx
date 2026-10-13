@@ -1,5 +1,5 @@
 import { useRef, useState, type TouchEvent } from 'react'
-import { GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
+import { CalendarClockIcon, GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { GroupedList } from '@/components/board/GroupedList'
@@ -7,6 +7,7 @@ import { GroupsStatus } from '@/components/board/GroupsStatus'
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
 import { HostDot } from '@/components/HostBadge'
+import { ScheduledToggle } from '@/components/JobChip'
 import { NewSessionDrawer } from '@/components/NewSessionDrawer'
 import { ScratchpadButton } from '@/components/Scratchpad'
 import { ScreenHeader } from '@/components/ScreenHeader'
@@ -33,7 +34,7 @@ const chipClass = cn(
 
 export function ListScreen() {
   const now = useNow(1000)
-  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } =
+  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, showScheduled, setShowScheduled, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } =
     useSessionList(now)
   const [newOpen, setNewOpen] = useState(false)
   const [, navigate] = useLocation()
@@ -69,7 +70,7 @@ export function ListScreen() {
     <div className="flex min-h-app flex-col">
       <ScreenHeader>
         <div onTouchStart={onTouchStart} onTouchEnd={(e) => onTouchEnd(e, false)}>
-        <div className="flex min-h-8 items-center gap-1 sm:gap-2.5">
+        <div className="flex min-h-8 items-center gap-0.5 min-[400px]:gap-1 sm:gap-2.5">
           <h1 className="mr-1 shrink-0 text-xl font-bold tracking-tight sm:mr-0">Fleet</h1>
           {fleet ? (
             <div className="flex min-w-0 items-center gap-2 overflow-hidden text-xs text-muted-foreground tabular-nums" aria-label="Status summary">
@@ -92,7 +93,7 @@ export function ListScreen() {
           {/* Freshness lives in Settings → Status; the header only flags trouble. */}
           <span className="ml-auto" />
           {note.error || unreachable.length ? (
-            <Button asChild variant="ghost" size="icon" className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-destructive [&_svg:not([class*='size-'])]:size-5">
+            <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-destructive [&_svg:not([class*='size-'])]:size-5">
               <a
                 href="#/settings"
                 role="status"
@@ -103,25 +104,30 @@ export function ListScreen() {
               </a>
             </Button>
           ) : null}
-          <ScratchpadButton className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5" />
+          <ScratchpadButton className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5" />
           {notesHosts.length ? (
-            <Button asChild variant="ghost" size="icon" className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
+            <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
               <a href="#/notes" aria-label="Notes" title="Notes">
                 <NotebookTextIcon />
               </a>
             </Button>
           ) : null}
-          <Button asChild variant="ghost" size="icon" className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
+          <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
             <a href="#/prs" aria-label="Pull requests" title="Pull requests">
               <GitPullRequestIcon />
             </a>
           </Button>
-          <Button asChild variant="ghost" size="icon" className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
+          <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
+            <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
+              <CalendarClockIcon />
+            </a>
+          </Button>
+          <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
             <a href="#/usage" aria-label="Usage limits" title="Usage limits">
               <GaugeIcon />
             </a>
           </Button>
-          <Button asChild variant="ghost" size="icon" className="-my-1 size-9 shrink-0 rounded-full sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
+          <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
             <a href="#/settings" aria-label="Settings" title="Settings">
               <Settings2Icon />
             </a>
@@ -131,7 +137,7 @@ export function ListScreen() {
             aria-label="New session"
             title="New session"
             onClick={() => setNewOpen(true)}
-            className="-my-1 size-9 shrink-0 rounded-full sm:size-10 [&_svg:not([class*='size-'])]:size-5"
+            className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 [&_svg:not([class*='size-'])]:size-5"
           >
             <PlusIcon />
           </Button>
@@ -270,6 +276,12 @@ export function ListScreen() {
               </AlertDescription>
             </Alert>
           ))}
+
+          {fleet && (view.scheduled > 0 || showScheduled) ? (
+            <div className="mb-2 flex justify-end">
+              <ScheduledToggle show={showScheduled} onChange={setShowScheduled} count={view.scheduled} />
+            </div>
+          ) : null}
 
           {!fleet ? (
             <SessionListSkeleton />

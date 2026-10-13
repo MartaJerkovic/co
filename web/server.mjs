@@ -23,6 +23,7 @@ import { createFiles } from './lib/files.mjs';
 import { createNotes } from './lib/notes.mjs';
 import { createSpawnDirsEditor } from './lib/spawn-dirs.mjs';
 import { createRepos } from './lib/repos.mjs';
+import { createJobs } from './lib/jobs.mjs';
 import { createTouchedIndex } from './lib/touched.mjs';
 import { createBriefExtractor } from './lib/brief-extract.mjs';
 import { createBriefStore, createBriefs, createClaudeAsk, gitInfo } from './lib/briefs.mjs';
@@ -143,6 +144,8 @@ const handleApi = createApi({
   spawnDirs: createSpawnDirsEditor({ config, configFile: config.configFile ?? configPath(process.env), cli }),
   // Settings → Git repos: `fleet --local repos …` + `fleet config set repos`.
   repos: createRepos({ cli, configFile: config.configFile ?? configPath(process.env), self: config.self }),
+  // Jobs screen: `fleet --local jobs …` (list / show / run now / enable|disable).
+  jobs: createJobs({ cli, self: config.self }),
   briefs,
   stacks,
   dormant,

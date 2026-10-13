@@ -5,6 +5,8 @@ import {
   clusterByStack,
   findSession,
   findSpawned,
+  hiddenAsScheduled,
+  isJobSession,
   listView,
   matchesSearch,
   sessionHref,
@@ -152,4 +154,40 @@ test('listView keeps stacks adjacent after sorting by activity', () => {
     ],
   }
   expect(listView(f, {}).sessions.map((x) => x.session_id)).toEqual(['a', 'c', 'b'])
+})
+
+test('listView: job sessions hidden unless asked for, except waiting ones', () => {
+  const origin = { job: 'triage', run: '20260101-0700' }
+  const f: FleetResponse = {
+    self: 'laptop',
+    hosts: [
+      {
+        name: 'laptop',
+        ok: true,
+        sessions: [
+          s({ session_id: 'mine', status: 'busy', updated_at: 100 }),
+          s({ session_id: 'job-busy', status: 'busy', updated_at: 200, origin }),
+          s({ session_id: 'job-idle', status: 'idle', updated_at: 300, origin }),
+          s({ session_id: 'job-wait', status: 'waiting', updated_at: 400, origin }),
+        ],
+      },
+    ],
+  }
+  expect(isJobSession(s({ origin }))).toBe(true)
+  expect(isJobSession(s({ origin: null }))).toBe(false)
+  expect(hiddenAsScheduled(s({ origin, status: 'waiting' }))).toBe(false)
+
+  const hidden = listView(f, { scheduled: false })
+  expect(hidden.sessions.map((x) => x.session_id)).toEqual(['job-wait', 'mine'])
+  expect(hidden.scheduled).toBe(2)
+  expect(hidden.counts).toEqual({ all: 2, waiting: 1, busy: 1, idle: 0 })
+
+  const shown = listView(f, { scheduled: true })
+  expect(shown.sessions).toHaveLength(4)
+  expect(shown.scheduled).toBe(2)
+  expect(shown.counts.busy).toBe(2)
+  // The default (summary counters, older callers) shows everything.
+  expect(listView(f, {}).counts.all).toBe(4)
+  // The count follows search / host scoping.
+  expect(listView(f, { scheduled: false, query: 'nothing-matches' }).scheduled).toBe(0)
 })

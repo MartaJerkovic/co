@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { GaugeIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon } from 'lucide-react'
+import { CalendarClockIcon, GaugeIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon } from 'lucide-react'
 
 import type { Session } from '@/api/types'
 import { BoardColumns } from '@/components/board/BoardColumns'
@@ -8,6 +8,7 @@ import { GroupsStatus } from '@/components/board/GroupsStatus'
 import { NotesLink } from '@/components/desktop/Sidebar'
 import { ScratchpadButton } from '@/components/Scratchpad'
 import { HostDot } from '@/components/HostBadge'
+import { ScheduledToggle } from '@/components/JobChip'
 import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -58,7 +59,7 @@ export interface BoardProps {
  * reordered and cards dragged between them (BoardColumns).
  */
 export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, selectedKey, overlayInset, searchRef, onSearchNav, onOpen, onNew, view, onView }: BoardProps) {
-  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, hosts, hostNames, host, view: lv, hostCounts, summary, unreachable, note } = list
+  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, showScheduled, setShowScheduled, hosts, hostNames, host, view: lv, hostCounts, summary, unreachable, note } = list
   const boardRef = useRef<HTMLDivElement>(null)
 
   // The cursor card scrolls into view, clear of the flyout (↑/↓, ⌘K). A click moves the cursor
@@ -182,11 +183,18 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
           </ToggleGroup>
         ) : null}
 
+        <ScheduledToggle show={showScheduled} onChange={setShowScheduled} count={lv.scheduled} />
+
         <div className="ml-auto flex min-w-0 items-center gap-2">
           <GroupsStatus state={groups} now={now} />
           <span className={cn('hidden truncate text-[0.6875rem] tabular-nums xl:inline', note.error ? 'text-destructive' : 'text-dimmer')}>{note.text}</span>
           <ScratchpadButton className="shrink-0 text-muted-foreground" />
           <NotesLink className="shrink-0 text-muted-foreground" />
+          <Button asChild variant="ghost" size="icon" className="shrink-0 text-muted-foreground">
+            <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
+              <CalendarClockIcon />
+            </a>
+          </Button>
           <Button asChild variant="ghost" size="icon" className="shrink-0 text-muted-foreground">
             <a href="#/usage" aria-label="Usage limits" title="Usage limits">
               <GaugeIcon />

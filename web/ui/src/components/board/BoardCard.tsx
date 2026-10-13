@@ -5,6 +5,7 @@ import type { Session } from '@/api/types'
 import { ContextMeter } from '@/components/ContextMeter'
 import { EditableTitle } from '@/components/EditableTitle'
 import { HostBadge } from '@/components/HostBadge'
+import { JobChip } from '@/components/JobChip'
 import { PrChip } from '@/components/PrChip'
 import { StatusDot } from '@/components/StatusDot'
 import { useLongPress } from '@/hooks/useLongPress'
@@ -69,6 +70,7 @@ export function BoardCard({ session: s, now, selected, cursor, onOpen, drag }: B
       {subtitle ? <p className="mt-1 line-clamp-2 text-xs break-words text-muted-foreground">{subtitle}</p> : null}
       <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[0.6875rem] text-dimmer">
         <PrChip session={s} />
+        <JobChip session={s} />
         <span className={cn('min-w-0 truncate', STATUS_TEXT[meta.key])}>{statusLabel(s)}</span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <ContextMeter context={s.context} />

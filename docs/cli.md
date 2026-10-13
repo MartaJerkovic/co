@@ -516,6 +516,10 @@ tmuxSession, status, title }`; times in ms epoch, `keep` in seconds). State:
 `${XDG_STATE_HOME:-~/.local/state}/fleet/jobs/<job>.json` plus each run's prompt in `<job>/<run>.md`
 (`FLEET_JOBS_DIR`); the last 50 runs are kept.
 
+In the web UI, the **Jobs** screen (`#/jobs`) lists every host's jobs with Run now and the
+enabled switch, and each run's sessions as a tree; job sessions wear a job chip and stay out of the
+session list unless they need you or the **Scheduled** chip shows them ([Web API](architecture.md#web-api)).
+
 ## Web
 
 | command | does |

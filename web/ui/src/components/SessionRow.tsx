@@ -4,6 +4,7 @@ import type { Session } from '@/api/types'
 import { ContextMeter } from '@/components/ContextMeter'
 import { EditableTitle } from '@/components/EditableTitle'
 import { HostBadge } from '@/components/HostBadge'
+import { JobChip } from '@/components/JobChip'
 import { PrChip } from '@/components/PrChip'
 import { StackChip } from '@/components/stack/StackChip'
 import { StatusDot } from '@/components/StatusDot'
@@ -30,7 +31,7 @@ export interface SessionRowProps {
 
 /**
  * One session in the list: status, title, host, status label / waiting_for, first prompt,
- * stack chip (opens the Stack sheet), cwd, backend, context, age. The title is editable in place: the pencil on hover
+ * stack chip (opens the Stack sheet), job chip (started by a scheduled job), cwd, backend, context, age. The title is editable in place: the pencil on hover
  * (desktop), ⌘E / F2 on the cursor row, or a long press (touch). Clicking the row opens it.
  */
 export function SessionRow({ session: s, now, selected, cursor }: SessionRowProps) {
@@ -68,6 +69,7 @@ export function SessionRow({ session: s, now, selected, cursor }: SessionRowProp
       {subtitle ? <p className="mt-1 line-clamp-2 text-[0.8125rem] break-words text-muted-foreground">{subtitle}</p> : null}
       <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-dimmer">
         <StackChip session={s} />
+        <JobChip session={s} />
         <PrChip session={s} />
         {cwd ? <span className="min-w-0 truncate font-mono">{cwd}</span> : null}
         {harness !== 'claude' ? (

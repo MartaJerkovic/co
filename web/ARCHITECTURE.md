@@ -32,6 +32,7 @@ lib/backends.mjs      peek/send/keys straight to tmux / iTerm2 (osascript)
 lib/transcript.mjs    transcript JSONL → chat messages (Claude Code; Codex rollouts and pi sessions via the row's `transcript` path)
 lib/spawn-dirs.mjs    Settings → Start directories: validate a `spawnDirs` list, write it via `fleet config set`, hot-reload
 lib/repos.mjs         Settings → Git repos: `fleet repos` list/sync/timer, validate + write the `repos` config key
+lib/jobs.mjs          Jobs screen: `fleet jobs` list / show / run now / enable|disable, job-name validation
 lib/spawn.mjs         new tmux session + `claude [--model <id>] [-n <name>] '<prompt>'`, auto-accept folder trust
 lib/kill.mjs          close a session: SIGTERM/SIGKILL Claude, then its tmux session/window or iTerm tab
 lib/autoname.mjs      periodic `fleet name --all --apply` + generic-tmux-name sync
@@ -181,6 +182,10 @@ JSON everywhere, same origin, no auth. Errors are `{ "error": "message" }`.
 | GET | `/api/hosts/:host/repos` | | `{ host, settings: { roots, every, overrides, exclude }, repos: [fleet repos --json --all rows], error, service: { installed, supported, tickMinutes }, limits }` — see **repos**; 501 when that host's CLI has no `repos` |
 | PUT | `/api/hosts/:host/repos` | `{ roots, every, overrides, exclude }` | the GET shape + `saved`. 400 `{ error, errors: [{ field, error }] }`; 502 when `fleet config set` failed |
 | POST | `/api/hosts/:host/repos/sync` | `{ names? }` | `{ host, results }` — `fleet --local repos sync --json [-- names]`; 409 while a sync runs there; peers get 16 min |
+| GET | `/api/hosts/:host/jobs` | | `{ host, jobs: [fleet jobs --json rows] }` — see **jobs**; 501 when that host's CLI has no `jobs` |
+| GET | `/api/hosts/:host/jobs/:name` | | `fleet jobs show <name> --json` + `host` (every kept run, newest first); 404 no such job, 400 a name outside `[A-Za-z0-9_-]{1,40}` |
+| POST | `/api/hosts/:host/jobs/:name/run` | `{ force? }` | `{ host, name, output }` — `fleet --local jobs run [--force] <name>` (starts an agent); 409 `{ error, busy: true }` while a job session works; peers get 90 s |
+| POST | `/api/hosts/:host/jobs/:name/enabled` | `{ enabled: boolean }` | `{ host, name, enabled, output, job }` — `fleet --local jobs enable\|disable <name>`, then `show` |
 | POST | `/api/hosts/:host/repos/service` | `{ install: boolean }` | the GET shape after `fleet --local repos install-service [--uninstall]`; 501 off macOS |
 | GET | `/api/groups` | | `{ enabled, host, intervalMinutes, running, updatedAt, lastRun: { at, ms, ok, reason, mode, modelCalls, classified, note?, error? } \| null, groups: [{ id, label, description, source, members: [{ host, id, dormant? }] }], error? }` (`dormant: true` only when that member is dormant on its host) — `enabled: false` (and `groups: []`) when no host runs grouping or the grouping host is unreachable |
 | POST | `/api/groups/edit` | `{ op: "rename", id, label }` \| `{ op: "move", host, session, to }` \| `{ op: "move", host, session, label }` \| `{ op: "create", label }` \| `{ op: "delete", id }` | the same shape after `fleet group --rename/--move/--create/--delete` (400 bad body, 409 refused by the CLI, 501 when grouping is off). Waits for a running pass; edits run one at a time |
@@ -264,6 +269,12 @@ and whether `~/Library/LaunchAgents/fleet.repos.plist` exists. PUT validates (1�
 or `~/`; intervals `30m`/`12h`/`7d` ≥ 1m; override/exclude keys a dir name or a `~/` path) and
 writes the whole `repos` object with `fleet --local config set`, keeping keys it doesn't know. Each
 host has its own settings; the UI's "Save to all hosts" PUTs the same object to each.
+
+**jobs** (the Jobs screen) is a thin layer over `fleet jobs` (docs/cli.md → Jobs): the list, one
+job's runs, run now and pause / resume all shell out to `fleet --local jobs …`; the server keeps no
+state. Each host lists its own jobs (its config's `jobs`), so the UI asks every host. A successful
+run refreshes the merged fleet so the new session shows at once; its row carries `origin: { job,
+run }` (from `fleet list --json`), which the UI uses to badge job sessions and hide them by default.
 
 **spawn-dirs** edits this host's `spawnDirs` (Settings → Start directories). GET reads the config
 file (a `{ label, path }` / bare-string entry is spelled out as a path for every configured host)

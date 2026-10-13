@@ -14,6 +14,7 @@ import { usePreventFileNavigation } from '@/hooks/useAttach'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { DesktopShell } from '@/screens/DesktopShell'
+import { JobsScreen } from '@/screens/JobsScreen'
 import { ListScreen } from '@/screens/ListScreen'
 import { NotesScreen } from '@/screens/NotesScreen'
 import { PrsScreen } from '@/screens/PrsScreen'
@@ -23,7 +24,7 @@ import { UsageScreen } from '@/screens/UsageScreen'
 
 /**
  * Hash routing: `#/` (list), `#/s/<host>/<session_id>` (detail),
- * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/prs` (the GitHub PRs that need you) and `#/notes[/<host>[/<path>]]` (the notes explorer).
+ * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/prs` (the GitHub PRs that need you) and `#/notes[/<host>[/<path>]]` (the notes explorer).
  * No server-side SPA fallback needed; the PWA start_url is `/#/`. Desktop and mobile use the
  * same routes, so links work across both.
  */
@@ -54,6 +55,9 @@ export default function App() {
                   </Route>
                   <Route path="/usage">
                     <UsageScreen />
+                  </Route>
+                  <Route path="/jobs">
+                    <JobsScreen />
                   </Route>
                   <Route path={/^\/prs(?:\/.*)?$/}>
                     <PrsScreen />

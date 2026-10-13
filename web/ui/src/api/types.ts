@@ -48,6 +48,17 @@ export interface Session {
   model?: string | null
   /** Absolute transcript path (Codex / pi only). */
   transcript?: string | null
+  /**
+   * The scheduled job run that started it (`fleet list --json` → `origin`, docs/cli.md → Jobs);
+   * null = started by hand. Older CLIs omit it.
+   */
+  origin?: SessionOrigin | null
+}
+
+/** `origin` on a session row: the job and the run id (`<job>/<run>` in its tmux environment). */
+export interface SessionOrigin {
+  job: string
+  run: string
 }
 
 /** The coding agents fleet drives — see docs/cli.md → Harnesses. */
@@ -933,4 +944,80 @@ export interface PrSpawnResponse {
   host: string
   worktree: PrWorktree
   spawn: SpawnResponse
+}
+
+/** A job run's outcome (docs/cli.md → Jobs). Unknown strings are possible from newer CLIs. */
+export type JobOutcome = 'spawned' | 'skipped' | 'missed' | 'failed'
+
+/** A session a run started (`parent`: the tmux session of the job session that spawned it; null = the run's first). */
+export interface JobRunSession {
+  tmuxSession: string
+  name?: string | null
+  parent: string | null
+  /** Epoch ms. */
+  at: number
+  closedAt: number | null
+}
+
+export interface JobRun {
+  id: string
+  trigger: 'schedule' | 'manual' | string
+  startedAt: number
+  slot: number | null
+  outcome: JobOutcome | string
+  reason: string | null
+  promptFile: string | null
+  sessions: JobRunSession[]
+}
+
+/** A live session of a job (`fleet jobs --json` → `live[]`). */
+export interface JobLive {
+  run: string | null
+  sessionId: string
+  tmuxSession: string | null
+  status: string
+  title: string | null
+}
+
+/** One job (`fleet jobs --json` / `fleet jobs show <name> --json`) plus the host it lives on. */
+export interface Job {
+  host?: string
+  name: string
+  schedule: string
+  enabled: boolean
+  dir: string
+  harness: string
+  model: string | null
+  command: string | null
+  /** Seconds; null = never. */
+  keep: number | null
+  prompt: { inline: string } | { file: string } | null
+  /** Epoch ms; null when paused (or the schedule never fires). */
+  nextRun: number | null
+  lastSlot: number | null
+  /** Newest first: the latest one from the list, every kept run from `show`. */
+  runs: JobRun[]
+  live: JobLive[]
+}
+
+/** GET /api/hosts/:host/jobs */
+export interface JobsResponse {
+  host: string
+  jobs: Job[]
+}
+
+/** POST /api/hosts/:host/jobs/:name/run */
+export interface JobRunResponse {
+  host: string
+  name: string
+  output: string
+}
+
+/** POST /api/hosts/:host/jobs/:name/enabled */
+export interface JobEnabledResponse {
+  host: string
+  name: string
+  enabled: boolean
+  output: string
+  job: Job | null
 }

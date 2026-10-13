@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import {
+  CalendarClockIcon,
   CodeXmlIcon,
   CopyIcon,
   FileTextIcon,
@@ -83,6 +84,7 @@ import { isPrsLocation } from '@/lib/prs'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
+import { JobsScreen } from '@/screens/JobsScreen'
 
 const parseBool01 = (raw: string) => (raw === '1' ? true : raw === '0' ? false : undefined)
 
@@ -101,6 +103,7 @@ export function DesktopShell() {
   const [match, params] = useRoute('/s/:host/:id')
   const [settingsOpen] = useRoute('/settings')
   const [usageOpen] = useRoute('/usage')
+  const [jobsOpen] = useRoute('/jobs')
   // `#/prs`: the pull requests board takes the whole window too.
   const prsOpen = isPrsLocation(location)
   // `#/notes…`: the notes explorer takes the whole window (no sidebar / board).
@@ -268,7 +271,7 @@ export function DesktopShell() {
         setNewOpen(true)
         return true
       case 'back':
-        if (selectedKey || settingsOpen || usageOpen || notesOpen || prsOpen) {
+        if (selectedKey || settingsOpen || usageOpen || jobsOpen || notesOpen || prsOpen) {
           navigate('/')
           return true
         }
@@ -477,6 +480,13 @@ export function DesktopShell() {
           run: () => navigate('/prs'),
         },
         {
+          id: 'jobs',
+          label: 'Scheduled jobs…',
+          icon: <CalendarClockIcon />,
+          keywords: ['jobs', 'scheduled', 'cron', 'schedule', 'routines', 'run now'],
+          run: () => navigate('/jobs'),
+        },
+        {
           id: 'usage',
           label: 'Usage limits…',
           icon: <GaugeIcon />,
@@ -522,8 +532,8 @@ export function DesktopShell() {
     },
   ]
 
-  // Anything but `/`, `/settings`, `/usage`, `/prs`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
+  // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/prs`, notes and `/s/:host/:id` → the list (same as mobile).
+  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -549,6 +559,8 @@ export function DesktopShell() {
     <SettingsScreen layout="pane" />
   ) : usageOpen ? (
     <UsageScreen layout="pane" />
+  ) : jobsOpen ? (
+    <JobsScreen layout="pane" />
   ) : null
 
   return (

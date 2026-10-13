@@ -29,6 +29,7 @@ import {
 } from './stacks.mjs';
 import { DEFAULT_STACKS_MODEL } from './config.mjs';
 import { validateDormantRequest } from './dormant.mjs';
+import { validJobName } from './jobs.mjs';
 
 export const API_VERSION = 1;
 
@@ -80,6 +81,9 @@ const SESSION_STACK_SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/st
 /** A sibling spawn may create a stack first (`stack ensure` → one model call, ≤ 150 s). */
 const STACK_SPAWN_PROXY_MS = 180 * 1000;
 const REPOS_ROUTE = /^\/api\/hosts\/([^/]+)\/repos(?:\/(sync|service))?$/;
+const JOBS_ROUTE = /^\/api\/hosts\/([^/]+)\/jobs(?:\/([^/]+)(?:\/(run|enabled))?)?$/;
+/** `fleet jobs run` starts a session (tmux + the agent): give a peer longer than the CLI's 60 s. */
+const JOB_RUN_PROXY_MS = 90 * 1000;
 const USAGE_ROUTE = /^\/api\/hosts\/([^/]+)\/usage$/;
 const PRS_ROUTE = /^\/api\/hosts\/([^/]+)\/prs(?:\/(checkout|spawn|seen))?$/;
 /** `owner/repo#123` — what the PR screen sends; the CLI parses it again. */
@@ -124,6 +128,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   notes       lib/notes.mjs instance (notes/tree|search|file|raw; absent → 501: web.notes.root unset)
  *   spawnDirs   lib/spawn-dirs.mjs#createSpawnDirsEditor (GET/PUT spawn-dirs; absent → 501)
  *   repos       lib/repos.mjs#createRepos (GET/PUT repos, POST repos/sync|service; absent → 501)
+ *   jobs        lib/jobs.mjs#createJobs (GET jobs[/:name], POST jobs/:name/run|enabled; absent → 501)
  *   stacks      lib/stacks.mjs#createStacks (…/stacks routes, sibling spawn, sync after kill; absent → 501)
  *   dormant     lib/dormant.mjs#createDormant (…/dormant routes: list / restore / forget; absent → 501)
  *   grouper     lib/grouping.mjs instance when THIS host runs grouping (absent → proxy to the
@@ -151,6 +156,7 @@ export function createApi({
   notes = null,
   spawnDirs = null,
   repos = null,
+  jobs = null,
   stacks = null,
   dormant = null,
   grouper = null,
@@ -611,6 +617,30 @@ export function createApi({
       return forHost({ req, url, host: decodeURIComponent(rp[1]), timeoutMs, local: () => localRepos(req, action) });
     }
 
+    const jb = JOBS_ROUTE.exec(url.pathname);
+    if (jb) {
+      let jobName = null;
+      try {
+        jobName = jb[2] == null ? null : decodeURIComponent(jb[2]);
+      } catch {
+        throw new HttpError('bad job name', 400);
+      }
+      const action = jb[3] ?? null;
+      if (req.method !== (action ? 'POST' : 'GET')) throw new HttpError('method not allowed', 405);
+      if (jobName != null && !validJobName(jobName)) throw new HttpError('bad job name', 400);
+      const host = decodeURIComponent(jb[1]);
+      const r = await forHost({
+        req,
+        url,
+        host,
+        timeoutMs: action === 'run' ? JOB_RUN_PROXY_MS : peerProxyTimeoutMs,
+        local: () => localJobs(req, jobName, action),
+      });
+      // A run started a session: show it in the next /api/fleet without waiting a poll.
+      if (action === 'run' && r.status === 200) refreshFleet();
+      return r;
+    }
+
     const hr = HARNESSES_ROUTE.exec(url.pathname);
     if (hr) {
       if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
@@ -937,6 +967,13 @@ export function createApi({
       if (err instanceof HttpError) throw err;
       throw new HttpError(err?.message ?? String(err), err?.status ?? 502);
     }
+  }
+
+  async function localJobs(req, name, action) {
+    if (!jobs) throw new HttpError('jobs are not available on this server', 501);
+    if (action === 'run') return jobs.runNow(name, await readJsonBody(req));
+    if (action === 'enabled') return jobs.setEnabled(name, await readJsonBody(req));
+    return name == null ? jobs.list() : jobs.show(name);
   }
 
   /** A live session, or — for GET/PUT — a gone one whose brief file is still there (exact id). */

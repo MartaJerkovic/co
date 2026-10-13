@@ -1,9 +1,10 @@
 import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { CommandIcon, GaugeIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon, GitPullRequestIcon } from 'lucide-react'
+import { CalendarClockIcon, CommandIcon, GaugeIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon, GitPullRequestIcon } from 'lucide-react'
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
 import { HostDot } from '@/components/HostBadge'
+import { ScheduledToggle } from '@/components/JobChip'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
 import { SessionRow } from '@/components/SessionRow'
 import { StatusDot } from '@/components/StatusDot'
@@ -45,7 +46,7 @@ export interface SidebarProps {
 
 /** Desktop left column: header + summary, search, status/host filters, the session list. */
 export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearchNav, onNew, onCollapse, onPalette, onHelp, viewMode, onViewMode }: SidebarProps) {
-  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } = list
+  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, showScheduled, setShowScheduled, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } = list
   const listRef = useRef<HTMLDivElement>(null)
 
   // Keep the cursor row visible (j/k past the edge).
@@ -180,6 +181,7 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
             ))}
           </ToggleGroup>
         ) : null}
+        <ScheduledToggle show={showScheduled} onChange={setShowScheduled} count={view.scheduled} className="w-fit" />
       </div>
 
       <div ref={listRef} data-session-list className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
@@ -220,14 +222,19 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
           <CommandIcon /> Jump
           <Kbd className="ml-1">{shortcutHint('palette')}</Kbd>
         </Button>
-        <Button variant="ghost" size="sm" onClick={onHelp} className="ml-auto text-dimmer hover:text-foreground">
-          <KeyboardIcon /> Shortcuts
+        <Button variant="ghost" size="sm" onClick={onHelp} aria-label="Keyboard shortcuts" title="Keyboard shortcuts" className="ml-auto text-dimmer hover:text-foreground">
+          <KeyboardIcon />
           <Kbd className="ml-1">{shortcutHint('help')}</Kbd>
         </Button>
         <NotesLink size="icon-sm" />
         <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
           <a href="#/prs" aria-label="Pull requests" title="Pull requests">
             <GitPullRequestIcon />
+          </a>
+        </Button>
+        <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
+          <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
+            <CalendarClockIcon />
           </a>
         </Button>
         <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
@@ -288,6 +295,11 @@ export function SidebarRail({
       <Button asChild variant="ghost" size="icon">
         <a href="#/prs" aria-label="Pull requests" title="Pull requests">
           <GitPullRequestIcon />
+        </a>
+      </Button>
+      <Button asChild variant="ghost" size="icon">
+        <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
+          <CalendarClockIcon />
         </a>
       </Button>
       <Button asChild variant="ghost" size="icon">

@@ -64,6 +64,9 @@ src/
                       swipeAxis() / swipeBackIntent() / swipeBackBlocked() (session swipe-back)
   lib/prefs.ts        Settings screen prefs: TEXT_SIZES (Small / Default / Large), rootFontSize() (the <html>
                       font-size that scales every rem), CHAT_FONT_REM, termFontRem(), storage keys
+  lib/jobs.ts         Jobs screen (`#/jobs`): flattenJobs() (every host's jobs), runTree() (a run's sessions under their
+                      `parent`), liveSession() (host + tmux session → the /api/fleet row), whenLabel(), outcomeTone(),
+                      liveSummary(), keepLabel(), promptLabel(), isJobsLocation()
   lib/repos.ts        Settings → Git repos: per-repo interval in a draft (rowInterval()/setRowInterval(), repoKey():
                       the name, or the ~/path for duplicate names), sameSettings(), repoPosition(), syncSummary()
   lib/spawnDirs.ts    Settings → Start directories: the editable draft (DraftRow), fromDraft()/toDraft(), sameList(),
@@ -111,6 +114,8 @@ src/
                       useNotesSearch() (debounced, aborts the previous), useNoteFile()
   hooks/useOutbox.ts  the session screen's Outbox: keepalive POSTs, flush on unmount / background, pagehide hand-off
   hooks/useSettings.ts, useTheme.ts, usePrefs.ts, useNow.ts, usePersistentState.ts
+  hooks/useJobs.ts    useJobs() (every reachable host's GET …/jobs, 30s poll, patch() for the enabled switch),
+                      useJobShow(host, name, enabled) (one job's runs, 15s poll while expanded)
   hooks/useDormant.ts DormantContext / useDormant(): hosts with dormant / recently closed sessions, index, resume / resumeAll / forget, resumeClosed / forgetClosed
   providers/          DormantProvider (polls every reachable host's /dormant every 30s; restore / forget + toasts),
                       FleetProvider (polls /api/fleet every 5s), SettingsProvider (/api/settings once), ThemeProvider,
@@ -119,7 +124,8 @@ src/
   components/         app components: StatusDot, HostBadge/HostDot, SessionRow, EditableTitle, SessionListSkeleton, ScreenHeader,
                       Markdown/Linkified, NewSessionDrawer, ViewToggle (List | Board), DropOverlay,
                       DormantSection (under the list / sidebar, last board column: Resume, Forget, Resume all; ArmButton),
-                      ClosedSection (under DormantSection in the list / sidebar, collapsed: recently closed, Resume / Forget)
+                      ClosedSection (under DormantSection in the list / sidebar, collapsed: recently closed, Resume / Forget),
+                      JobChip (a job session's badge on rows / cards: job name, run id in a tooltip), ScheduledToggle
   components/board/   Board (desktop Kanban + header), BoardColumns (columns, drag'n'drop, rename), BoardCard,
                       DormantCard (a dormant group member: dimmed, Resume),
                       GroupedList (mobile collapsible sections),
@@ -134,6 +140,7 @@ src/
   screens/            ListScreen (`#/`), SessionScreen (`#/s/:host/:id`; `layout="pane"` on desktop),
                       SettingsScreen (`#/settings`; `layout="pane"` on desktop),
                       NotesScreen (`#/notes[/<host>[/<path>]]`; `layout="pane"` on desktop),
+                      JobsScreen (`#/jobs`; `layout="pane"` on desktop),
                       DesktopShell (≥ lg master–detail + the keyboard handler)
   App.tsx             providers + wouter hash router; picks DesktopShell or the mobile screens
 ```
@@ -178,6 +185,20 @@ src/
   field) or tap the handle to open, swipe up / tap to close; the list itself scrolls as usual.
   While closed, active filters show on the handle ("Needs you · workstation") with ✕ to clear.
   The List | Board toggle stays next to the search field.
+- **Scheduled sessions**: a session a scheduled job started (`origin` on its row) wears a job chip
+  (clock + job name; the run id in a tooltip) on list rows and board cards. Job sessions are hidden
+  from the list / sidebar / board by default, except ones waiting on you (they always show, and
+  every "needs you" counter counts them); the **Scheduled (n)** chip (above the mobile list, under
+  the sidebar filters, in the board header) shows / hides them, remembered in `fleet.showScheduled`.
+  `n` counts the job sessions the toggle applies to (after search and host filters).
+- **Jobs** (`#/jobs`; the clock icon next to PRs / Usage / Settings, ⌘K → Scheduled jobs…): every
+  host's jobs — name, host, schedule, next run, an enabled switch (`POST …/jobs/:name/enabled`,
+  optimistic), Run now (a confirm dialog; a 409 because a job session still works offers Run
+  anyway = `force`) and the last run's outcome + live sessions. Expanding a job shows its settings
+  and its runs (newest first: outcome, when, trigger, reason) with each run's sessions as a tree
+  under their `parent`; a session still in /api/fleet (same host + tmux session) shows its live
+  status and opens like a list row, else closed / gone. Hosts whose server or CLI predates jobs
+  show a one-line note.
 - **Inline edits** (`InlineEdit`, the one inline editor — session titles and group names): click
   the text to edit it in place; Enter or clicking away saves, Esc cancels; no edit buttons. The
   field is laid over the text in exactly its box, so nothing moves when it opens.

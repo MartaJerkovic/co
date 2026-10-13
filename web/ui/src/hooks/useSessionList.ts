@@ -9,7 +9,7 @@ export const ALL_HOSTS = '*'
 
 /**
  * The session list's state, shared by the mobile list screen and the desktop sidebar:
- * search, status + host filters (persisted in `fleet.filter`),
+ * search, status + host filters (persisted in `fleet.filter`), the Scheduled toggle (`fleet.showScheduled`),
  * the filtered view, per-host counts, the header summary and the "updated Xs ago" note.
  */
 export function useSessionList(now: number) {
@@ -17,13 +17,15 @@ export function useSessionList(now: number) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = usePersistentState<StatusFilterId>('fleet.filter', 'all', (raw) => findStatusFilter(raw).id)
   const [hostFilter, setHostFilter] = usePersistentState<string>('fleet.hostFilter', ALL_HOSTS)
+  // Sessions started by scheduled jobs: hidden unless asked for (remembered); waiting ones always show.
+  const [showScheduled, setShowScheduled] = usePersistentState<boolean>('fleet.showScheduled', false, (r) => r === 'true')
 
   const hosts = fleet?.hosts ?? []
   const hostNames = hosts.map((h) => h.name)
   // A remembered host that is no longer configured means "all".
   const host = hostFilter !== ALL_HOSTS && hostNames.includes(hostFilter) ? hostFilter : null
 
-  const view = useMemo(() => listView(fleet, { query, host, status }), [fleet, query, host, status])
+  const view = useMemo(() => listView(fleet, { query, host, status, scheduled: showScheduled }), [fleet, query, host, status, showScheduled])
   const hostCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const s of allSessions(fleet)) counts.set(s.host, (counts.get(s.host) ?? 0) + 1)
@@ -47,6 +49,8 @@ export function useSessionList(now: number) {
     status,
     setStatus,
     setHostFilter,
+    showScheduled,
+    setShowScheduled,
     hosts,
     hostNames,
     host,

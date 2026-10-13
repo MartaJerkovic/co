@@ -11,6 +11,10 @@ import type {
   FleetResponse,
   GroupsResponse,
   HarnessesResponse,
+  Job,
+  JobEnabledResponse,
+  JobRunResponse,
+  JobsResponse,
   Health,
   KillResponse,
   MessagesResponse,
@@ -136,6 +140,16 @@ export const api = {
   /** Replace the host's list (400 `SpawnDirsError` when invalid); `dryRun` validates only. */
   saveSpawnDirs: (host: string, spawnDirs: SpawnDirEntry[], { dryRun = false, ...o }: Opts & { dryRun?: boolean } = {}) =>
     request<SpawnDirsResponse>(`${hostPath(host)}/spawn-dirs`, { ...o, method: 'PUT', body: { spawnDirs, ...(dryRun ? { dryRun } : {}) } }),
+  /** The host's scheduled jobs (`fleet jobs --json`; each with its latest run). 501: an older CLI. */
+  jobs: (host: string, o: Opts = {}) => request<JobsResponse>(`${hostPath(host)}/jobs`, o),
+  /** One job with all its kept runs, newest first (`fleet jobs show <name> --json`). */
+  job: (host: string, name: string, o: Opts = {}) => request<Job>(`${hostPath(host)}/jobs/${enc(name)}`, o),
+  /** Start a run now (starts an agent). 409 `{ busy: true }` while a session of the job works, unless `force`. */
+  runJob: (host: string, name: string, force = false, o: Opts = {}) =>
+    request<JobRunResponse>(`${hostPath(host)}/jobs/${enc(name)}/run`, { ...o, method: 'POST', body: force ? { force } : {} }),
+  /** Pause / resume a job (`jobs.<name>.enabled`). */
+  setJobEnabled: (host: string, name: string, enabled: boolean, o: Opts = {}) =>
+    request<JobEnabledResponse>(`${hostPath(host)}/jobs/${enc(name)}/enabled`, { ...o, method: 'POST', body: { enabled } }),
   /** The host's git repos (`fleet repos --json --all`), its `repos` settings and its sync timer. */
   repos: (host: string, o: Opts = {}) => request<ReposResponse>(`${hostPath(host)}/repos`, o),
   /** Replace the host's `repos` settings (400 `{ error, errors }` when invalid). */

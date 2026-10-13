@@ -1,7 +1,7 @@
 // The one place the web server talks to the `fleet` CLI. Everything the server needs
 // from the CLI goes through here, so an alternative UI/TUI server can reuse it and the
 // contracts (`fleet list --json`, `fleet rename --json`, `fleet name --all --apply`, `fleet name <id> --apply`, `fleet group` (+ `--rename` / `--move`),
-// `fleet usage --json`, `fleet --local prs --json`, `fleet --local pr checkout --json`, `fleet config set`, `fleet --local repos …`, `fleet --local stack … --json`, `fleet --local restore … --json`) are documented in one
+// `fleet usage --json`, `fleet --local prs --json`, `fleet --local pr checkout --json`, `fleet config set`, `fleet --local repos …`, `fleet --local jobs …`, `fleet --local stack … --json`, `fleet --local restore … --json`) are documented in one
 // spot (see ARCHITECTURE.md).
 //
 // Peek/send/keys are NOT done through the CLI: `fleet peek` truncates to terminal width
@@ -389,6 +389,61 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
     return reposRun(['install-service', ...(uninstall ? ['--uninstall'] : [])], t);
   }
 
+  /**
+   * `fleet --local jobs …` (docs/cli.md → Jobs). Errors carry the CLI's reason, `missing` (no
+   * `jobs` command: an older CLI), `notFound` (no such job), `busy` (`run` refused: a session of
+   * the job is still working), `timedOut`.
+   */
+  async function jobsRun(args, t) {
+    let stdout;
+    try {
+      ({ stdout } = await run(bin, ['--local', 'jobs', ...args], { timeout: t, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, NO_COLOR: '1' } }));
+    } catch (err) {
+      const e = wrap(err, `fleet jobs ${args[0] ?? ''}`.trim(), t);
+      const why = String(err?.stderr ?? '').replace(/^Error:\s*/, '').trim();
+      if (why && !e.timedOut) e.message = why.split('\n').filter((l) => !l.startsWith('warning:')).pop()?.replace(/^Error:\s*/, '') || why;
+      e.missing = !e.timedOut && /unrecognized subcommand 'jobs'|invalid subcommand 'jobs'/i.test(why);
+      e.notFound = !e.timedOut && /no job `/.test(why);
+      e.busy = !e.timedOut && /pass --force/.test(why);
+      throw e;
+    }
+    return stdout ?? '';
+  }
+
+  function parseJson(out, what, check) {
+    try {
+      const v = JSON.parse(String(out).trim());
+      if (check(v)) return v;
+    } catch {
+      /* below */
+    }
+    throw new FleetCliError(`${what} returned non-JSON output`);
+  }
+
+  /** Every job with its latest run and live sessions: `fleet --local jobs --json`. */
+  async function jobs({ timeoutMs: t = 30 * 1000 } = {}) {
+    const out = await jobsRun(['--json'], t);
+    return parseJson(out.trim() || '[]', 'fleet jobs', Array.isArray);
+  }
+
+  /** One job with all its kept runs (newest first): `fleet --local jobs show <name> --json`. */
+  async function jobShow(name, { timeoutMs: t = 30 * 1000 } = {}) {
+    const out = await jobsRun(['show', '--json', '--', String(name)], t);
+    return parseJson(out, 'fleet jobs show', (v) => v && typeof v === 'object' && !Array.isArray(v));
+  }
+
+  /** Start a run now: `fleet --local jobs run [--force] <name>` → its one-line human report. */
+  async function jobRunNow(name, { force = false, timeoutMs: t = 60 * 1000 } = {}) {
+    const out = await jobsRun(['run', ...(force ? ['--force'] : []), '--', String(name)], t);
+    return out.trim();
+  }
+
+  /** Pause / resume: `fleet --local jobs enable|disable <name>` → its one-line report. */
+  async function jobSetEnabled(name, enabled, { timeoutMs: t = 15 * 1000 } = {}) {
+    const out = await jobsRun([enabled ? 'enable' : 'disable', '--', String(name)], t);
+    return out.trim();
+  }
+
   // `--flag=value` everywhere: a value starting with "-" must not read as a flag.
   const stackList = () => stack(['list']);
   const stackShow = (id) => stack(['show', id]);
@@ -431,6 +486,10 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
     repos,
     reposSync,
     reposService,
+    jobs,
+    jobShow,
+    jobRunNow,
+    jobSetEnabled,
     stackList,
     stackShow,
     stackSet,
