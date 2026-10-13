@@ -206,6 +206,38 @@ export interface UploadResponse {
 
 export type FileKind = 'markdown' | 'text' | 'image' | 'pdf' | 'other'
 
+/** Composer autocomplete (GET …/sessions/:id/complete?kind=), listed on the session's host. */
+export type CompleteKind = 'skills' | 'files' | 'brain'
+
+export interface CompleteSkill {
+  /** Without the slash: `deploy`, `p-dev:review`. */
+  name: string
+  description: string
+  source: 'builtin' | 'user' | 'project' | 'plugin'
+  argumentHint?: string
+}
+
+export interface CompleteBrainNote {
+  /** What goes after `brain:` — the file name, or the path when two notes share it. */
+  ref: string
+  /** Relative to the brain root. */
+  path: string
+  title?: string
+}
+
+export interface CompleteResponse {
+  host: string
+  id: string
+  kind: CompleteKind
+  skills?: CompleteSkill[]
+  /** .md / .plain files, relative to the session cwd. */
+  files?: string[]
+  /** kind=brain: false when the host has no ~/.brainrc. */
+  available?: boolean
+  notes?: CompleteBrainNote[]
+  truncated?: boolean
+}
+
 /** One entry of POST …/sessions/:id/files/stat — a path mentioned in chat, resolved on the session's host. */
 export interface FileStat {
   /** What was asked (`docs/a.md:12`). */

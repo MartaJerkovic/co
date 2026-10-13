@@ -1,12 +1,15 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type TouchEvent } from 'react'
+import { useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from 'react'
 import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon, Loader2Icon, MicIcon, PaperclipIcon, SendHorizontalIcon, SquareIcon } from 'lucide-react'
 
 import type { QuickReply, SessionKey } from '@/api/types'
+import { CompletionPopup } from '@/components/session/CompletionPopup'
 import { Button } from '@/components/ui/button'
 import { useAttach } from '@/hooks/useAttach'
+import { useCompletions } from '@/hooks/useCompletions'
 import { useSettings } from '@/hooks/useSettings'
 import { useVoice } from '@/hooks/useVoice'
 import { MAX_SEND_CHARS } from '@/lib/chat'
+import { applySuggestion, findTrigger, rankSuggestions, toSuggestions, type Suggestion } from '@/lib/complete'
 import { saveDraft, takeDraft } from '@/lib/drafts'
 import { swipeIntent } from '@/lib/gestures'
 import { restoreText } from '@/lib/outbox'
@@ -57,6 +60,10 @@ export interface ComposerProps {
   agent?: string
   /** Words the voice transcriber should expect (session name, repo). */
   voiceHint?: string
+  /** The session's id: `@file` / `brain:note` autocomplete (lib/complete.ts) lists on its host. */
+  sessionId?: string
+  /** `/skill` autocomplete too (Claude sessions). */
+  slashCommands?: boolean
 }
 
 export interface ComposerApi {
@@ -79,6 +86,8 @@ export function Composer({
   apiRef,
   agent = 'Claude',
   voiceHint = '',
+  sessionId,
+  slashCommands = false,
 }: ComposerProps) {
   const [text, setText] = useState(() => takeDraft(draftKey))
   useEffect(() => saveDraft(draftKey, text), [draftKey, text])
@@ -120,6 +129,37 @@ export function Composer({
   const locked = lockedReason != null
   const empty = text.trim().length === 0
   const tooLong = text.length > MAX_SEND_CHARS
+
+  // Autocomplete: `/skill`, `@file`, `brain:note` at the caret → a popup above the input.
+  const [caret, setCaret] = useState(0)
+  const pendingCaret = useRef<number | null>(null)
+  // Esc closes the popup for this word only (until the text leaves it).
+  const [dismissed, setDismissed] = useState<string | null>(null)
+  const trigger = sessionId && !locked ? findTrigger(text, caret, { skills: slashCommands }) : null
+  const triggerKey = trigger ? `${trigger.kind}:${trigger.start}` : null
+  const completing = trigger != null && triggerKey !== dismissed ? trigger : null
+  const completeKind = completing?.kind ?? null
+  const completions = useCompletions(host, sessionId, completeKind)
+  const allSuggestions = useMemo(() => (completeKind ? toSuggestions(completeKind, completions.data) : []), [completeKind, completions.data])
+  const suggestions = useMemo(() => rankSuggestions(allSuggestions, completing?.query ?? ''), [allSuggestions, completing?.query])
+  const [activeState, setActiveState] = useState<{ key: string; index: number } | null>(null)
+  const activeKey = completing ? `${triggerKey}:${completing.query}` : ''
+  const active = activeState?.key === activeKey ? Math.min(activeState.index, Math.max(0, suggestions.length - 1)) : 0
+  const setActive = (index: number) => setActiveState({ key: activeKey, index })
+  const completionStatus = completions.loading
+    ? 'Loading…'
+    : completions.error
+      ? `Couldn't list: ${completions.error}`
+      : completing?.kind === 'brain' && completions.data?.available === false
+        ? `No brain on ${host} (no brain_root in ~/.brainrc)`
+        : null
+  const popupId = useId()
+  const pick = (s: Suggestion) => {
+    if (!completing) return
+    const r = applySuggestion(text, completing, s.insert)
+    pendingCaret.current = r.caret
+    setText(r.text)
+  }
   // Mobile: quick replies + keys live in a mini drawer above the input, hidden until swiped up.
   const [chipsOpen, setChipsOpen] = useState(false)
   // Desktop has no quick-reply / key chips at all.
@@ -149,6 +189,14 @@ export function Composer({
       el.focus()
       el.setSelectionRange(el.value.length, el.value.length)
       el.scrollTop = el.scrollHeight
+      setCaret(el.value.length)
+    }
+    if (pendingCaret.current != null) {
+      const at = pendingCaret.current
+      pendingCaret.current = null
+      el.focus()
+      el.setSelectionRange(at, at)
+      setCaret(at)
     }
   }, [text])
 
@@ -262,7 +310,19 @@ export function Composer({
         </div>
         )}
 
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2">
+          {completing ? (
+            <CompletionPopup
+              id={popupId}
+              kind={completing.kind}
+              items={suggestions}
+              active={active}
+              status={completionStatus}
+              desktop={desktop}
+              onHover={setActive}
+              onPick={pick}
+            />
+          ) : null}
           <input
             ref={picker}
             type="file"
@@ -288,13 +348,41 @@ export function Composer({
             ref={ta}
             rows={1}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value)
+              setCaret(e.target.selectionStart)
+              if (dismissed) {
+                const t = findTrigger(e.target.value, e.target.selectionStart, { skills: slashCommands })
+                if (!t || `${t.kind}:${t.start}` !== dismissed) setDismissed(null)
+              }
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
             onPaste={onPaste}
             onKeyDown={(e) => {
               if (e.key === 'Escape' && voice.state !== 'idle') {
                 e.preventDefault()
                 voice.cancel()
                 return
+              }
+              if (completing && !e.nativeEvent.isComposing) {
+                const n = suggestions.length
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setDismissed(triggerKey)
+                  return
+                }
+                if (n > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || (e.ctrlKey && (e.key === 'n' || e.key === 'p')))) {
+                  e.preventDefault()
+                  setActive((active + (e.key === 'ArrowDown' || e.key === 'n' ? 1 : n - 1)) % n)
+                  return
+                }
+                // Enter on a word that is already the pick (`/compact`) sends, as without the popup.
+                const done = suggestions[active]?.insert === text.slice(completing.start, completing.end)
+                if (n > 0 && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !done))) {
+                  e.preventDefault()
+                  pick(suggestions[active])
+                  return
+                }
               }
               if (isTouch && !desktop) return
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -305,6 +393,11 @@ export function Composer({
             disabled={locked}
             placeholder={locked ? 'Read-only' : desktop ? `Message ${agent}…  (Enter to send, Shift+Enter for a new line)` : `Message ${agent}…`}
             aria-label="Message"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={completing != null && suggestions.length > 0}
+            aria-controls={completing ? popupId : undefined}
+            aria-activedescendant={completing && suggestions.length > 0 ? `${popupId}-${active}` : undefined}
             autoCapitalize="sentences"
             autoComplete="off"
             spellCheck={false}

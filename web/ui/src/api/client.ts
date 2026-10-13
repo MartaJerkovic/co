@@ -4,6 +4,8 @@ import type {
   AutoNameRun,
   Brief,
   BriefRegenerateResponse,
+  CompleteKind,
+  CompleteResponse,
   DormantResponse,
   FileOpenResponse,
   ForgetResponse,
@@ -172,6 +174,9 @@ export const api = {
   upload: (host: string, file: Blob, name: string, o: Opts = {}) =>
     request<UploadResponse>(`${hostPath(host)}/uploads?name=${enc(name)}`, { ...o, method: 'POST', file }),
 
+  /** What a message to this session can reference: skills, the cwd's .md / .plain files, brain notes. */
+  complete: (host: string, id: string, kind: CompleteKind, o: Opts = {}) =>
+    request<CompleteResponse>(`${sessionPath(host, id, 'complete')}?kind=${kind}`, o),
   /** Which of these paths (as written in chat, relative to the session cwd) exist on the session's host. */
   fileStat: (host: string, id: string, paths: string[], o: Opts = {}) =>
     request<FileStatResponse>(sessionPath(host, id, 'files/stat'), { ...o, method: 'POST', body: { paths } }),

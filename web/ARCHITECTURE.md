@@ -40,6 +40,7 @@ lib/grouping.mjs      periodic `fleet group` over the merged fleet (the grouping
 lib/snapshot.mjs      warm stale-while-revalidate snapshot of the merged /api/fleet
 lib/uploads.mjs       dropped/pasted files → <uploads dir>/YYYY-MM-DD/<rand>-<name> (streamed, size-capped, daily cleanup)
 lib/files.mjs         files mentioned in chat: resolve against the session cwd (+ touched/roots fallback), $HOME/cwd sandbox, stat/kind, raw stream, open
+lib/complete.mjs      composer autocomplete: skills/commands (built-in, user, project, enabled plugins), the cwd's .md/.plain files, brain notes (~/.brainrc)
 lib/touched.mjs       absolute paths a session's tool calls touched, parsed incrementally from its transcript (for lib/files.mjs)
 lib/brief-format.mjs  session brief file format: parse/serialise, resource + Git-line merge, model-output check, continue prompt (pure)
 lib/brief-extract.mjs brief resources + todos from a transcript (incremental, no model); the conversation delta for the model
@@ -193,6 +194,7 @@ JSON everywhere, same origin, no auth. Errors are `{ "error": "message" }`.
 | POST | `/api/hosts/:host/uploads` | `?name=<file name>`, the raw file as the body (any `content-type`) | `{ host, path, name, size }` — `path` is absolute on `:host`. 413 over `web.uploads.maxMB` (no partial file is left) |
 | POST | `/api/hosts/:host/autoname` | `{}` | `{ host, ok, at, ms, reason, dryRun, renamed: [{ from, to }], tmux: ["a → b"], held: [..], errors: [..], error? }` (502 when the pass failed) |
 | POST | `/api/hosts/:host/sessions/:id/files/stat` | `{ paths: [string] }` (≤ 200) | `{ host, id, cwd, home, files: [FileStat] }` — 400 not an array / too many |
+| GET | `/api/hosts/:host/sessions/:id/complete` | `?kind=skills\|files\|brain` | `{ host, id, kind, skills? \| files?, truncated? \| available?, notes? }` — what the composer autocompletes (lib/complete.mjs). 400 bad kind, 501 no completer |
 | GET | `/api/hosts/:host/sessions/:id/files/raw` | `?path=<as in chat or absolute>`, `&download=1` | the file's bytes (streamed; see Files). 400 no path / a directory, 403 outside the sandbox, 404 missing, 413 text over 5 MB inline |
 | POST | `/api/hosts/:host/sessions/:id/files/open` | `{ path }` | `{ ok, host, path, revealed, command }` — 403/404 as raw, 501 no `open`/`xdg-open` on the host, 502 the opener failed |
 | GET | `/api/hosts/:host/sessions/:id/brief` | | `Brief` (below). No brief yet → the empty skeleton with `exists: false` (not an error). A session that is gone: served from its file by full id, else 404 |
@@ -478,7 +480,7 @@ Session stacks) and the server only shells out to `fleet --local stack … --jso
 
 ## UI (`ui/`, React)
 
-The list and session detail (Chat | Term, composer with quick replies and key chips), plus a host filter, the notes explorer (`#/notes`), a Settings screen (`#/settings`: text
+The list and session detail (Chat | Term, composer with quick replies, key chips and autocomplete — `/skill` as the first word in Claude sessions, `@file` for the cwd's `.md` / `.plain` files, `brain:note`; ↑↓, Tab/Enter, Esc), plus a host filter, the notes explorer (`#/notes`), a Settings screen (`#/settings`: text
 size for the whole UI, theme (colour palette: Default / Earth / Dusk, `fleet.palette`), light/dark mode, terminal text,
 progress notes, and the fleet's Start directories — `spawnDirs`, saved to every host) and a Details panel (the session brief,
 then session details): same routes (hash routing `#/`, `#/s/<host>/<id>`), same polling (fleet 5s, messages 3s, peek 2s,

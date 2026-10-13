@@ -72,6 +72,8 @@ const SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/spawn$/;
 const AUTONAME_ROUTE = /^\/api\/hosts\/([^/]+)\/autoname$/;
 const UPLOAD_ROUTE = /^\/api\/hosts\/([^/]+)\/uploads$/;
 const FILES_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/files\/(stat|raw|open)$/;
+const COMPLETE_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/complete$/;
+const COMPLETE_KINDS = new Set(['skills', 'files', 'brain']);
 const BRIEF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/brief(\/regenerate)?$/;
 const NOTES_ROUTE = /^\/api\/hosts\/([^/]+)\/notes\/(tree|search|file|raw)$/;
 const SPAWN_DIRS_ROUTE = /^\/api\/hosts\/([^/]+)\/spawn-dirs$/;
@@ -124,6 +126,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   uploader    lib/uploads.mjs instance (uploads route; absent → 501)
  *   transcriber lib/transcribe.mjs instance (POST /api/transcribe, settings.transcribe; absent → off)
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
+ *   completer   lib/complete.mjs instance (…/complete: composer autocomplete; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
  *   notes       lib/notes.mjs instance (notes/tree|search|file|raw; absent → 501: web.notes.root unset)
  *   spawnDirs   lib/spawn-dirs.mjs#createSpawnDirsEditor (GET/PUT spawn-dirs; absent → 501)
@@ -152,6 +155,7 @@ export function createApi({
   uploader = null,
   transcriber = null,
   files = null,
+  completer = null,
   briefs = null,
   notes = null,
   spawnDirs = null,
@@ -691,6 +695,26 @@ export function createApi({
         host: decodeURIComponent(rawHost),
         streamResponse: action === 'raw',
         local: () => localFiles({ action, id, url, req }),
+      });
+    }
+
+    const c = COMPLETE_ROUTE.exec(url.pathname);
+    if (c) {
+      const [, rawHost, rawId] = c;
+      if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
+      const kind = url.searchParams.get('kind') ?? '';
+      if (!COMPLETE_KINDS.has(kind)) throw new HttpError('kind must be "skills", "files" or "brain"', 400);
+      const id = decodeURIComponent(rawId);
+      return forHost({
+        req,
+        url,
+        host: decodeURIComponent(rawHost),
+        local: async () => {
+          if (!completer) throw new HttpError('autocomplete is not available on this server', 501);
+          const session = await resolveLocalSession(id);
+          const cwd = typeof session.cwd === 'string' && session.cwd ? session.cwd : null;
+          return { status: 200, body: { host: config.self, id: session.session_id, kind, ...(await completer.list(kind, cwd)) } };
+        },
       });
     }
 
