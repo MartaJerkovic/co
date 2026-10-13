@@ -1,6 +1,6 @@
 // Composer autocomplete: which completion the text before the caret asks for, the ranked
 // suggestions for it, and the text after picking one.
-//   `/name`     a skill or command — the message's first word only (Claude reads it there)
+//   `/name`     a skill or command — at the start or after whitespace (mid-sentence too)
 //   `@path`     a .md / .plain file under the session cwd — at the start or after whitespace
 //   `brain:ref` a brain note — likewise
 import type { CompleteBrainNote, CompleteKind, CompleteResponse, CompleteSkill } from '@/api/types'
@@ -13,6 +13,8 @@ export interface Trigger {
   start: number
   /** The end of the word being completed (the caret, or past the rest of the word under it). */
   end: number
+  /** A `/` after other text: could be a path (`/etc`), so the popup hides when nothing matches. */
+  inline?: boolean
 }
 
 export interface Suggestion {
@@ -34,8 +36,11 @@ export function findTrigger(text: string, caret: number, { skills = true } = {})
   const rest = /^\S*/.exec(text.slice(caret))?.[0] ?? ''
   const end = caret + rest.length
   if (skills) {
-    const m = /^(\s*)\/([\w:.-]*)$/.exec(before)
-    if (m) return { kind: 'skills', query: m[2], start: m[1].length, end }
+    const m = /(^|\s)\/([\w:.-]*)$/.exec(before)
+    if (m) {
+      const start = m.index + m[1].length
+      return { kind: 'skills', query: m[2], start, end, ...(before.slice(0, start).trim() ? { inline: true } : {}) }
+    }
   }
   const brain = /(^|\s)brain:(\S*)$/.exec(before)
   if (brain) return { kind: 'brain', query: brain[2], start: brain.index + brain[1].length, end }

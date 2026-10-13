@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { applySuggestion, findTrigger, rankSuggestions, score, toSuggestions, type Suggestion } from './complete'
 
 describe('findTrigger', () => {
-  it('/ completes only as the first word', () => {
+  it('/ completes at the start or mid-sentence (marked inline), not inside a word or past a slash', () => {
     expect(findTrigger('/p-dev:re', 9)).toEqual({ kind: 'skills', query: 'p-dev:re', start: 0, end: 9 })
     expect(findTrigger('  /', 3)).toEqual({ kind: 'skills', query: '', start: 2, end: 3 })
-    expect(findTrigger('see /etc', 8)).toBeNull()
+    expect(findTrigger('then run /rev', 13)).toEqual({ kind: 'skills', query: 'rev', start: 9, end: 13, inline: true })
+    expect(findTrigger('a/b', 3)).toBeNull()
+    expect(findTrigger('see /etc/hosts', 14)).toBeNull()
     expect(findTrigger('/review now', 11)).toBeNull()
     expect(findTrigger('/rev', 4, { skills: false })).toBeNull()
   })

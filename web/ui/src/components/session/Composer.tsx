@@ -137,11 +137,13 @@ export function Composer({
   const [dismissed, setDismissed] = useState<string | null>(null)
   const trigger = sessionId && !locked ? findTrigger(text, caret, { skills: slashCommands }) : null
   const triggerKey = trigger ? `${trigger.kind}:${trigger.start}` : null
-  const completing = trigger != null && triggerKey !== dismissed ? trigger : null
-  const completeKind = completing?.kind ?? null
+  const candidate = trigger != null && triggerKey !== dismissed ? trigger : null
+  const completeKind = candidate?.kind ?? null
   const completions = useCompletions(host, sessionId, completeKind)
   const allSuggestions = useMemo(() => (completeKind ? toSuggestions(completeKind, completions.data) : []), [completeKind, completions.data])
-  const suggestions = useMemo(() => rankSuggestions(allSuggestions, completing?.query ?? ''), [allSuggestions, completing?.query])
+  const suggestions = useMemo(() => rankSuggestions(allSuggestions, candidate?.query ?? ''), [allSuggestions, candidate?.query])
+  // A mid-sentence `/` that matches nothing is probably a path: no popup.
+  const completing = candidate?.inline && !completions.loading && suggestions.length === 0 ? null : candidate
   const [activeState, setActiveState] = useState<{ key: string; index: number } | null>(null)
   const activeKey = completing ? `${triggerKey}:${completing.query}` : ''
   const active = activeState?.key === activeKey ? Math.min(activeState.index, Math.max(0, suggestions.length - 1)) : 0

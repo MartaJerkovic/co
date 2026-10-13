@@ -480,7 +480,7 @@ Session stacks) and the server only shells out to `fleet --local stack … --jso
 
 ## UI (`ui/`, React)
 
-The list and session detail (Chat | Term, composer with quick replies, key chips and autocomplete — `/skill` as the first word in Claude sessions, `@file` for the cwd's `.md` / `.plain` files, `brain:note`; ↑↓, Tab/Enter, Esc), plus a host filter, the notes explorer (`#/notes`), a Settings screen (`#/settings`: text
+The list and session detail (Chat | Term, composer with quick replies, key chips and autocomplete — `/skill` at the start or mid-sentence in Claude sessions, `@file` for the cwd's `.md` / `.plain` files, `brain:note`; ↑↓, Tab/Enter, Esc), plus a host filter, the notes explorer (`#/notes`), a Settings screen (`#/settings`: text
 size for the whole UI, theme (colour palette: Default / Earth / Dusk, `fleet.palette`), light/dark mode, terminal text,
 progress notes, and the fleet's Start directories — `spawnDirs`, saved to every host) and a Details panel (the session brief,
 then session details): same routes (hash routing `#/`, `#/s/<host>/<id>`), same polling (fleet 5s, messages 3s, peek 2s,
