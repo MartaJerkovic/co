@@ -508,7 +508,7 @@ A run's first session is the tmux session `<job>-<MMDD>-<HHMM>` (Claude `-n` the
 session has `FLEET_JOB_RUN=<job>/<run>` in its tmux environment and the pane option
 `@fleet_job_run`; `fleet list` reports it as `origin: { job, run }`.
 
-`--json` of `jobs` / `jobs show` is `{ name, schedule, enabled, dir, harness, model, command, keep,
+`--json` of `jobs` / `jobs show` is `{ name, schedule, scheduleText (the schedule in plain English), enabled, dir, harness, model, command, keep,
 prompt: { inline } | { file } | null, nextRun, lastSlot, runs, live }` per job (`runs`: the latest one
 for `jobs`, all kept for `show`, newest first: `{ id, trigger, startedAt, slot, outcome, reason,
 promptFile, sessions: [{ tmuxSession, name, parent, at, closedAt }] }`; `live`: `{ run, sessionId,

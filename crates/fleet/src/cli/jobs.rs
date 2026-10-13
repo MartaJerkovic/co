@@ -87,6 +87,7 @@ fn job_json(j: &Job, st: &jobs::JobState, rows: &[Session], runs: usize) -> Valu
     json!({
         "name": j.name,
         "schedule": j.schedule,
+        "scheduleText": j.cron.describe(),
         "enabled": j.enabled,
         "dir": j.dir,
         "harness": j.harness.id(),
@@ -152,9 +153,9 @@ pub fn list(json_out: bool) -> Result<()> {
             j.name.dimmed()
         };
         println!(
-            "{:<24} {:<16} next {:<18} last {:<20} {}",
+            "{:<24} {:<28} next {:<18} last {:<20} {}",
             name,
-            j.schedule,
+            j.cron.describe(),
             next,
             last,
             live_s.dimmed()
@@ -185,7 +186,8 @@ pub fn show(name: &str, json_out: bool) -> Result<()> {
         }
     );
     println!(
-        "  schedule  {}  (next: {})",
+        "  schedule  {}  ({})  next: {}",
+        j.cron.describe(),
         j.schedule,
         j.cron
             .next(Local::now())

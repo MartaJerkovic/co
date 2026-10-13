@@ -151,6 +151,168 @@ impl Cron {
     }
 }
 
+impl Cron {
+    /// The schedule in plain English: "Every day at 07:00", "Weekdays at 07:00 and 13:00",
+    /// "Every 15 minutes, 09:00–17:59, on Mon and Fri".
+    pub fn describe(&self) -> String {
+        let minutes = members(&self.minute, 0);
+        let hours = members(&self.hour, 0);
+        let all_hours = hours.len() == 24;
+        let time = if minutes.len() == 60 {
+            if all_hours {
+                "every minute".to_string()
+            } else {
+                format!("every minute, {}", hour_span(&hours))
+            }
+        } else if all_hours {
+            match (minutes.as_slice(), step_of(&minutes, 60)) {
+                ([0], _) => "every hour".into(),
+                ([m], _) => format!("every hour at :{m:02}"),
+                (_, Some((0, st))) => format!("every {st} minutes"),
+                _ => format!(
+                    "every hour at {}",
+                    list(
+                        &minutes
+                            .iter()
+                            .map(|m| format!(":{m:02}"))
+                            .collect::<Vec<_>>()
+                    )
+                ),
+            }
+        } else if minutes.len() * hours.len() <= 4 {
+            let times: Vec<String> = hours
+                .iter()
+                .flat_map(|h| minutes.iter().map(move |m| format!("{h:02}:{m:02}")))
+                .collect();
+            format!("at {}", list(&times))
+        } else {
+            let at = match (minutes.as_slice(), step_of(&minutes, 60)) {
+                ([m], _) => format!("every hour at :{m:02}"),
+                (_, Some((0, st))) => format!("every {st} minutes"),
+                _ => format!(
+                    "at {} past the hour",
+                    list(
+                        &minutes
+                            .iter()
+                            .map(|m| format!(":{m:02}"))
+                            .collect::<Vec<_>>()
+                    )
+                ),
+            };
+            format!("{at}, {}", hour_span(&hours))
+        };
+        let dows = members(&self.dow, 0);
+        let doms = members(&self.dom, 1);
+        let weekdays = || match dows.as_slice() {
+            [1, 2, 3, 4, 5] => "weekdays".to_string(),
+            [0, 6] => "weekends".to_string(),
+            d => list(
+                &d.iter()
+                    .map(|&i| DAY_NAMES[i as usize].to_string())
+                    .collect::<Vec<_>>(),
+            ),
+        };
+        let month_days = || {
+            format!(
+                "the {} of the month",
+                list(&doms.iter().map(|d| ordinal(*d)).collect::<Vec<_>>())
+            )
+        };
+        let day = match (self.dom_any, self.dow_any) {
+            (true, true) => None,
+            (true, false) => Some(weekdays()),
+            (false, true) => Some(month_days()),
+            (false, false) => Some(format!("{} or on {}", month_days(), weekdays())),
+        };
+        let months = members(&self.month, 1);
+        let month = (months.len() < 12).then(|| {
+            format!(
+                "in {}",
+                list(
+                    &months
+                        .iter()
+                        .map(|&m| MONTH_NAMES[m as usize - 1].to_string())
+                        .collect::<Vec<_>>()
+                )
+            )
+        });
+        let mut out = match day {
+            None => {
+                let every_day = !time.starts_with("every");
+                if every_day {
+                    format!("Every day {time}")
+                } else {
+                    capitalize(&time)
+                }
+            }
+            Some(d) if d == "weekdays" || d == "weekends" => format!("{} {time}", capitalize(&d)),
+            Some(d) => format!("{}, on {d}", capitalize(&time)),
+        };
+        if let Some(m) = month {
+            out.push_str(", ");
+            out.push_str(&m);
+        }
+        out
+    }
+}
+
+const DAY_NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+fn members(set: &[bool], min: u32) -> Vec<u32> {
+    (min..set.len() as u32)
+        .filter(|&i| set[i as usize])
+        .collect()
+}
+
+/// `(start, step)` when `v` is `start, start+step, …` up to the field's end (`size` values).
+fn step_of(v: &[u32], size: u32) -> Option<(u32, u32)> {
+    let (&a, &b) = (v.first()?, v.get(1)?);
+    let st = b - a;
+    let ok = v.windows(2).all(|w| w[1] - w[0] == st) && v.last()? + st >= size;
+    ok.then_some((a, st))
+}
+
+/// "09:00–17:59" for a run of hours, else "at hours 9, 13 and 17".
+fn hour_span(hours: &[u32]) -> String {
+    let contiguous = hours.windows(2).all(|w| w[1] == w[0] + 1);
+    match (hours.first(), hours.last()) {
+        (Some(a), Some(b)) if contiguous => format!("{a:02}:00–{b:02}:59"),
+        _ => format!(
+            "during hours {}",
+            list(&hours.iter().map(|h| format!("{h:02}")).collect::<Vec<_>>())
+        ),
+    }
+}
+
+fn list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [a] => a.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+fn ordinal(n: u32) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+        .unwrap_or_default()
+}
+
 fn floor_minute(t: DateTime<Local>) -> DateTime<Local> {
     let ts = t.timestamp() - t.timestamp().rem_euclid(60);
     Local.timestamp_opt(ts, 0).single().unwrap_or(t)
@@ -592,6 +754,33 @@ mod tests {
         let c = Cron::parse("5/20 * * * *").unwrap();
         assert!(c.matches(&at(2026, 10, 13, 1, 45)));
         assert!(!c.matches(&at(2026, 10, 13, 1, 50)));
+    }
+
+    #[test]
+    fn cron_in_plain_english() {
+        let d = |e: &str| Cron::parse(e).unwrap().describe();
+        assert_eq!(d("0 7 * * *"), "Every day at 07:00");
+        assert_eq!(d("0 7 * * 1-5"), "Weekdays at 07:00");
+        assert_eq!(d("30 6 * * sat,sun"), "Weekends at 06:30");
+        assert_eq!(d("0 7,13 * * *"), "Every day at 07:00 and 13:00");
+        assert_eq!(d("0 9 * * mon,fri"), "At 09:00, on Mon and Fri");
+        assert_eq!(d("* * * * *"), "Every minute");
+        assert_eq!(d("@hourly"), "Every hour");
+        assert_eq!(d("15 * * * *"), "Every hour at :15");
+        assert_eq!(d("*/15 * * * *"), "Every 15 minutes");
+        assert_eq!(
+            d("*/15 9-17 * * 1-5"),
+            "Weekdays every 15 minutes, 09:00–17:59"
+        );
+        assert_eq!(d("0 0 1 * *"), "At 00:00, on the 1st of the month");
+        assert_eq!(
+            d("0 8 1,15 jan,jul *"),
+            "At 08:00, on the 1st and 15th of the month, in Jan and Jul"
+        );
+        assert_eq!(
+            d("0 0 13 * fri"),
+            "At 00:00, on the 13th of the month or on Fri"
+        );
     }
 
     #[test]

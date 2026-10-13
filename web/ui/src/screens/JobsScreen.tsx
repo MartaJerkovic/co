@@ -212,7 +212,9 @@ function JobCard({
             <HostBadge host={j.host} />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-6 text-xs text-muted-foreground">
-            <span className="font-mono">{j.schedule}</span>
+            <span title={j.schedule}>
+              {j.scheduleText ?? <span className="font-mono">{j.schedule}</span>}
+            </span>
             <span>·</span>
             <span>{j.enabled ? (j.nextRun ? `next ${whenLabel(j.nextRun, now)}` : 'no next run') : 'paused'}</span>
           </div>

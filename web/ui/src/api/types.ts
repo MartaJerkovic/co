@@ -984,6 +984,8 @@ export interface Job {
   host?: string
   name: string
   schedule: string
+  /** The schedule in plain English ("Every day at 07:00"); absent from an older CLI. */
+  scheduleText?: string
   enabled: boolean
   dir: string
   harness: string
