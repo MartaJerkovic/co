@@ -186,11 +186,10 @@ src/
   While closed, active filters show on the handle ("Needs you · workstation") with ✕ to clear.
   The List | Board toggle stays next to the search field.
 - **Scheduled sessions**: a session a scheduled job started (`origin` on its row) wears a job chip
-  (clock + job name; the run id in a tooltip) on list rows and board cards. Job sessions are hidden
-  from the list / sidebar / board by default, except ones waiting on you (they always show, and
-  every "needs you" counter counts them); the **Scheduled (n)** chip (above the mobile list, under
-  the sidebar filters, in the board header) shows / hides them, remembered in `fleet.showScheduled`.
-  `n` counts the job sessions the toggle applies to (after search and host filters).
+  (clock + job name; the run id in a tooltip) on list rows and board cards. **Scheduled** is a status
+  filter (the clock-icon chip after Idle, shown when there are job sessions): it lists only job
+  sessions. Every other filter leaves them out, except ones waiting on you (they always show, and
+  every "needs you" counter counts them); the header counters count every session.
 - **Jobs** (`#/jobs`; the clock icon next to PRs / Usage / Settings, ⌘K → Scheduled jobs…): every
   host's jobs — name, host, schedule, next run, an enabled switch (`POST …/jobs/:name/enabled`,
   optimistic), Run now (a confirm dialog; a 409 because a job session still works offers Run

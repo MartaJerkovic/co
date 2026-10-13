@@ -13,6 +13,8 @@ import {
   spawnTargets,
   statusLabel,
   statusMeta,
+  statusSummary,
+  visibleStatusFilters,
   withoutSession,
 } from './sessions'
 
@@ -50,7 +52,7 @@ test('statusMeta / statusLabel', () => {
 test('listView: flat, sorted by last activity, counts per status', () => {
   const v = listView(fleet, {})
   expect(v.sessions.map((x) => x.session_id)).toEqual(['b', 'c', 'a'])
-  expect(v.counts).toEqual({ all: 3, waiting: 1, busy: 1, idle: 1 })
+  expect(v.counts).toEqual({ all: 3, waiting: 1, busy: 1, idle: 1, scheduled: 0 })
 })
 
 test('listView: host + status + search filters', () => {
@@ -156,7 +158,7 @@ test('listView keeps stacks adjacent after sorting by activity', () => {
   expect(listView(f, {}).sessions.map((x) => x.session_id)).toEqual(['a', 'c', 'b'])
 })
 
-test('listView: job sessions hidden unless asked for, except waiting ones', () => {
+test('listView: job sessions only under Scheduled, except waiting ones', () => {
   const origin = { job: 'triage', run: '20260101-0700' }
   const f: FleetResponse = {
     self: 'laptop',
@@ -177,17 +179,21 @@ test('listView: job sessions hidden unless asked for, except waiting ones', () =
   expect(isJobSession(s({ origin: null }))).toBe(false)
   expect(hiddenAsScheduled(s({ origin, status: 'waiting' }))).toBe(false)
 
-  const hidden = listView(f, { scheduled: false })
-  expect(hidden.sessions.map((x) => x.session_id)).toEqual(['job-wait', 'mine'])
-  expect(hidden.scheduled).toBe(2)
-  expect(hidden.counts).toEqual({ all: 2, waiting: 1, busy: 1, idle: 0 })
+  const all = listView(f, {})
+  expect(all.sessions.map((x) => x.session_id)).toEqual(['job-wait', 'mine'])
+  expect(all.counts).toEqual({ all: 2, waiting: 1, busy: 1, idle: 0, scheduled: 3 })
 
-  const shown = listView(f, { scheduled: true })
-  expect(shown.sessions).toHaveLength(4)
-  expect(shown.scheduled).toBe(2)
-  expect(shown.counts.busy).toBe(2)
-  // The default (summary counters, older callers) shows everything.
-  expect(listView(f, {}).counts.all).toBe(4)
+  // "Scheduled" shows only job sessions, waiting ones included.
+  const sched = listView(f, { status: 'scheduled' })
+  expect(sched.sessions.map((x) => x.session_id).sort()).toEqual(['job-busy', 'job-idle', 'job-wait'])
   // The count follows search / host scoping.
-  expect(listView(f, { scheduled: false, query: 'nothing-matches' }).scheduled).toBe(0)
+  expect(listView(f, { query: 'nothing-matches' }).counts.scheduled).toBe(0)
+
+  // The header counts every session.
+  expect(statusSummary(f)).toEqual({ waiting: 1, busy: 2, idle: 1 })
+
+  // The chip shows only when there is something to show, or it is picked.
+  expect(visibleStatusFilters(all.counts, 'all').map((x) => x.id)).toContain('scheduled')
+  expect(visibleStatusFilters({ ...all.counts, scheduled: 0 }, 'all').map((x) => x.id)).not.toContain('scheduled')
+  expect(visibleStatusFilters({ ...all.counts, scheduled: 0 }, 'scheduled').map((x) => x.id)).toContain('scheduled')
 })

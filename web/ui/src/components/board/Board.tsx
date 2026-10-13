@@ -8,7 +8,7 @@ import { GroupsStatus } from '@/components/board/GroupsStatus'
 import { NotesLink } from '@/components/desktop/Sidebar'
 import { ScratchpadButton } from '@/components/Scratchpad'
 import { HostDot } from '@/components/HostBadge'
-import { ScheduledToggle } from '@/components/JobChip'
+import { StatusFilterLabel } from '@/components/JobChip'
 import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,7 @@ import { ViewToggle } from '@/components/ViewToggle'
 import type { GroupsState } from '@/hooks/useGroups'
 import { ALL_HOSTS, type SessionListState } from '@/hooks/useSessionList'
 import type { BoardColumn, ViewMode } from '@/lib/groups'
-import { STATUS_FILTERS, allSessions, type StatusFilterId } from '@/lib/sessions'
+import { allSessions, visibleStatusFilters, type StatusFilterId } from '@/lib/sessions'
 import { ariaShortcut, sessionKey, shortcutHint, withHint } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 
@@ -59,7 +59,7 @@ export interface BoardProps {
  * reordered and cards dragged between them (BoardColumns).
  */
 export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, selectedKey, overlayInset, searchRef, onSearchNav, onOpen, onNew, view, onView }: BoardProps) {
-  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, showScheduled, setShowScheduled, hosts, hostNames, host, view: lv, hostCounts, summary, unreachable, note } = list
+  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, hosts, hostNames, host, view: lv, hostCounts, summary, unreachable, note } = list
   const boardRef = useRef<HTMLDivElement>(null)
 
   // The cursor card scrolls into view, clear of the flyout (↑/↓, ⌘K). A click moves the cursor
@@ -158,9 +158,9 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
         </div>
 
         <ToggleGroup type="single" value={status} onValueChange={(v) => v && setStatus(v as StatusFilterId)} aria-label="Filter by status">
-          {STATUS_FILTERS.map((f) => (
-            <ToggleGroupItem key={f.id} value={f.id} className={chip}>
-              {f.label}
+          {visibleStatusFilters(fleet ? lv.counts : null, status).map((f) => (
+            <ToggleGroupItem key={f.id} value={f.id} className={chip} title={f.id === 'scheduled' ? 'Sessions started by scheduled jobs' : undefined}>
+              <StatusFilterLabel filter={f} />
               <span className="text-[0.6875rem] text-dimmer tabular-nums group-data-[state=on]/toggle:text-accent-foreground/70">
                 {fleet ? lv.counts[f.id] : ''}
               </span>
@@ -171,7 +171,7 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
         {hostNames.length > 1 ? (
           <ToggleGroup type="single" value={host ?? ALL_HOSTS} onValueChange={(v) => v && setHostFilter(v)} aria-label="Filter by host">
             <ToggleGroupItem value={ALL_HOSTS} className={chip}>
-              All hosts
+              All
             </ToggleGroupItem>
             {hosts.map((h) => (
               <ToggleGroupItem key={h.name} value={h.name} className={chip}>
@@ -182,8 +182,6 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
             ))}
           </ToggleGroup>
         ) : null}
-
-        <ScheduledToggle show={showScheduled} onChange={setShowScheduled} count={lv.scheduled} />
 
         <div className="ml-auto flex min-w-0 items-center gap-2">
           <GroupsStatus state={groups} now={now} />

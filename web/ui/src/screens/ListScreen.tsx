@@ -7,7 +7,7 @@ import { GroupsStatus } from '@/components/board/GroupsStatus'
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
 import { HostDot } from '@/components/HostBadge'
-import { ScheduledToggle } from '@/components/JobChip'
+import { StatusFilterLabel } from '@/components/JobChip'
 import { NewSessionDrawer } from '@/components/NewSessionDrawer'
 import { ScratchpadButton } from '@/components/Scratchpad'
 import { ScreenHeader } from '@/components/ScreenHeader'
@@ -24,7 +24,7 @@ import { useNotesHosts } from '@/hooks/useNotes'
 import { useNow } from '@/hooks/useNow'
 import { ALL_HOSTS, useSessionList } from '@/hooks/useSessionList'
 import { pullIntent } from '@/lib/gestures'
-import { STATUS_FILTERS, allSessions, findStatusFilter, type StatusFilterId } from '@/lib/sessions'
+import { allSessions, visibleStatusFilters, findStatusFilter, type StatusFilterId } from '@/lib/sessions'
 import { cn } from '@/lib/utils'
 
 const chipClass = cn(
@@ -34,7 +34,7 @@ const chipClass = cn(
 
 export function ListScreen() {
   const now = useNow(1000)
-  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, showScheduled, setShowScheduled, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } =
+  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } =
     useSessionList(now)
   const [newOpen, setNewOpen] = useState(false)
   const [, navigate] = useLocation()
@@ -185,9 +185,9 @@ export function ListScreen() {
           aria-label="Filter by status"
           className="no-scrollbar mt-2 w-full overflow-x-auto"
         >
-          {STATUS_FILTERS.map((f) => (
-            <ToggleGroupItem key={f.id} value={f.id} className={chipClass}>
-              {f.label}
+          {visibleStatusFilters(fleet ? view.counts : null, status).map((f) => (
+            <ToggleGroupItem key={f.id} value={f.id} className={chipClass} title={f.id === 'scheduled' ? 'Sessions started by scheduled jobs' : undefined}>
+              <StatusFilterLabel filter={f} />
               <span className="text-xs text-dimmer tabular-nums group-data-[state=on]/toggle:text-accent-foreground/70">
                 {fleet ? view.counts[f.id] : ''}
               </span>
@@ -204,7 +204,7 @@ export function ListScreen() {
             className="no-scrollbar mt-2 w-full overflow-x-auto"
           >
             <ToggleGroupItem value={ALL_HOSTS} className={cn(chipClass, 'h-8 text-[0.8125rem]')}>
-              All hosts
+              All
             </ToggleGroupItem>
             {hosts.map((h) => (
               <ToggleGroupItem key={h.name} value={h.name} className={cn(chipClass, 'h-8 text-[0.8125rem]')}>
@@ -276,12 +276,6 @@ export function ListScreen() {
               </AlertDescription>
             </Alert>
           ))}
-
-          {fleet && (view.scheduled > 0 || showScheduled) ? (
-            <div className="mb-2 flex justify-end">
-              <ScheduledToggle show={showScheduled} onChange={setShowScheduled} count={view.scheduled} />
-            </div>
-          ) : null}
 
           {!fleet ? (
             <SessionListSkeleton />

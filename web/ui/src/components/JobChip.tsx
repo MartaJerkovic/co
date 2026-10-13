@@ -2,6 +2,7 @@ import { CalendarClockIcon } from 'lucide-react'
 
 import type { Session } from '@/api/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { StatusFilter } from '@/lib/sessions'
 import { cn } from '@/lib/utils'
 
 /**
@@ -33,39 +34,15 @@ export function JobChip({ session: s, className }: { session: Pick<Session, 'ori
 }
 
 /**
- * "Scheduled (n)": shows / hides the sessions scheduled jobs started (waiting ones always show).
- * `count` = the job sessions the toggle applies to. Nothing when there are none and they are hidden.
+ * A status filter chip's label: the "Scheduled" filter is just the job icon (the chip row is
+ * crowded), every other filter its name.
  */
-export function ScheduledToggle({
-  show,
-  onChange,
-  count,
-  size = 'sm',
-  className,
-}: {
-  show: boolean
-  onChange: (v: boolean) => void
-  count: number
-  size?: 'sm' | 'lg'
-  className?: string
-}) {
-  if (!count && !show) return null
+export function StatusFilterLabel({ filter }: { filter: StatusFilter }) {
+  if (filter.id !== 'scheduled') return <>{filter.label}</>
   return (
-    <button
-      type="button"
-      aria-pressed={show}
-      onClick={() => onChange(!show)}
-      title={show ? 'Hide sessions started by scheduled jobs' : 'Show sessions started by scheduled jobs (ones that need you always show)'}
-      className={cn(
-        'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-        size === 'lg' ? 'h-9' : 'h-7',
-        show ? 'border-primary/40 bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted/60',
-        className,
-      )}
-    >
-      <CalendarClockIcon className="size-3.5" />
-      Scheduled
-      <span className="text-dimmer tabular-nums">{count}</span>
-    </button>
+    <>
+      <CalendarClockIcon className="size-3.5" aria-hidden />
+      <span className="sr-only">{filter.label}</span>
+    </>
   )
 }

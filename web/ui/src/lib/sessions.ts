@@ -27,7 +27,7 @@ export function statusLabel(s: Pick<Session, 'status' | 'waiting_for'>): string 
   return meta.key === 'waiting' && why ? `${meta.label} · ${why}` : meta.label
 }
 
-export type StatusFilterId = 'all' | 'waiting' | 'busy' | 'idle'
+export type StatusFilterId = 'all' | 'waiting' | 'busy' | 'idle' | 'scheduled'
 export interface StatusFilter {
   id: StatusFilterId
   label: string
@@ -39,7 +39,14 @@ export const STATUS_FILTERS: StatusFilter[] = [
   { id: 'waiting', label: 'Needs you', match: (s) => statusMeta(s.status).key === 'waiting' },
   { id: 'busy', label: 'Busy', match: (s) => statusMeta(s.status).key === 'busy' },
   { id: 'idle', label: 'Idle', match: (s) => statusMeta(s.status).key === 'idle' },
+  // Only the sessions scheduled jobs started (every other filter leaves them out unless waiting).
+  { id: 'scheduled', label: 'Scheduled', match: (s) => isJobSession(s) },
 ]
+
+/** The filters worth a chip: "Scheduled" only when there are job sessions, or it is the one picked. */
+export function visibleStatusFilters(counts: Record<StatusFilterId, number> | null, current: StatusFilterId): StatusFilter[] {
+  return STATUS_FILTERS.filter((f) => f.id !== 'scheduled' || current === 'scheduled' || (counts?.scheduled ?? 0) > 0)
+}
 
 export function findStatusFilter(id: string | null | undefined): StatusFilter {
   return STATUS_FILTERS.find((f) => f.id === id) ?? STATUS_FILTERS[0]
@@ -68,15 +75,10 @@ export function byLastActivity(a: Session, b: Session): number {
 }
 
 export interface ListView {
-  /** Sessions to show: search + host + scheduled + status filter applied, sorted by last activity. */
+  /** Sessions to show: search + host + status filter applied, sorted by last activity. */
   sessions: Session[]
-  /** Per status-filter counts, after search + host + scheduled filtering (what the chips show). */
+  /** Per status-filter counts, after search + host scoping (what the chips show). */
   counts: Record<StatusFilterId, number>
-  /**
-   * Job sessions the scheduled filter applies to (after search + host): ones not waiting on you.
-   * Hidden while `scheduled` is false — what the "Scheduled (n)" chip counts.
-   */
-  scheduled: number
 }
 
 /** A session a scheduled job started (`origin`, docs/cli.md → Jobs). */
@@ -85,32 +87,36 @@ export function isJobSession(s: Pick<Session, 'origin'>): boolean {
 }
 
 /**
- * Job sessions stay out of the list unless asked for — except one waiting on you, which always
- * shows (and always counts).
+ * Job sessions stay out of every filter but "Scheduled" — except one waiting on you, which
+ * always shows (and always counts).
  */
 export function hiddenAsScheduled(s: Session): boolean {
   return isJobSession(s) && statusMeta(s.status).key !== 'waiting'
 }
 
-/** `host` null = every host. `scheduled` false hides job sessions that are not waiting (default: shown). */
+/**
+ * `host` null = every host. The "Scheduled" filter shows only job sessions; the others show the
+ * rest, plus job sessions waiting on you.
+ */
 export function listView(
   fleet: FleetResponse | null | undefined,
-  {
-    query = '',
-    host = null,
-    status = 'all',
-    scheduled = true,
-  }: { query?: string; host?: string | null; status?: StatusFilterId; scheduled?: boolean },
+  { query = '', host = null, status = 'all' }: { query?: string; host?: string | null; status?: StatusFilterId },
 ): ListView {
   const matched = allSessions(fleet).filter((s) => (host == null || s.host === host) && matchesSearch(s, query))
-  const jobRows = matched.filter(hiddenAsScheduled).length
-  const scoped = scheduled ? matched : matched.filter((s) => !hiddenAsScheduled(s))
-  const counts = Object.fromEntries(STATUS_FILTERS.map((f) => [f.id, scoped.filter(f.match).length])) as Record<
-    StatusFilterId,
-    number
-  >
-  const filter = findStatusFilter(status)
-  return { sessions: clusterByStack(scoped.filter(filter.match).sort(byLastActivity)), counts, scheduled: jobRows }
+  const visible = matched.filter((s) => !hiddenAsScheduled(s))
+  const scope = (f: StatusFilter) => (f.id === 'scheduled' ? matched : visible).filter(f.match)
+  const counts = Object.fromEntries(STATUS_FILTERS.map((f) => [f.id, scope(f).length])) as Record<StatusFilterId, number>
+  return { sessions: clusterByStack(scope(findStatusFilter(status)).sort(byLastActivity)), counts }
+}
+
+/** Every session by status, job sessions included — the header's counters. */
+export function statusSummary(fleet: FleetResponse | null | undefined): Record<'waiting' | 'busy' | 'idle', number> {
+  const out = { waiting: 0, busy: 0, idle: 0 }
+  for (const s of allSessions(fleet)) {
+    const k = statusMeta(s.status).key
+    if (k === 'waiting' || k === 'busy' || k === 'idle') out[k] += 1
+  }
+  return out
 }
 
 /**
