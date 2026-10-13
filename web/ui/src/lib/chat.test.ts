@@ -47,6 +47,12 @@ test('nearBottom', () => {
   expect(nearBottom({ scrollHeight: 1000, scrollTop: 500, clientHeight: 400 }, 60)).toBe(false)
 })
 
+test('splitPasted takes a closing tag that repeats the id', () => {
+  expect(splitPasted('\n\n<pasted_content id="7eaf">\nline 1\nline 2\n</pasted_content id="7eaf">')).toEqual([
+    { pasted: true, text: 'line 1\nline 2' },
+  ])
+})
+
 test('splitPasted pulls <pasted_content> blocks out of a prompt', () => {
   expect(splitPasted('plain text')).toEqual([{ pasted: false, text: 'plain text' }])
   expect(splitPasted('Look at this:\n<pasted_content id="ab12">\nline 1\nline 2\n</pasted_content>\nthoughts?')).toEqual([

@@ -65,7 +65,8 @@ export function nearBottom(el: { scrollHeight: number; scrollTop: number; client
 
 export type TextPart = { pasted: false; text: string } | { pasted: true; text: string }
 
-const PASTED_RE = /<pasted_content(?:\s[^>]*)?>([\s\S]*?)<\/pasted_content>/g
+// Claude Code repeats the id on the closing tag: `<pasted_content id="ab12">…</pasted_content id="ab12">`.
+const PASTED_RE = /<pasted_content(?:\s[^>]*)?>([\s\S]*?)<\/pasted_content(?:\s[^>]*)?>/g
 
 /** Split a user prompt into typed text and `<pasted_content>` blocks (tags dropped, blank edges trimmed). */
 export function splitPasted(text: string): TextPart[] {

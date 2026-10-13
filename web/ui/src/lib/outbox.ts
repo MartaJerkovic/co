@@ -42,9 +42,13 @@ export const SENT_TTL_MS = 3 * 60 * 1000
 /** Without an anchor in the transcript: only messages this close to (or after) the send count. */
 const TS_SLACK_MS = 60 * 1000
 
-/** How the backend may reshape text: CRLF, trailing / repeated whitespace. */
+/** How the backend may reshape text: CRLF, trailing / repeated whitespace, a long paste wrapped in `<pasted_content>`. */
 export function normalizeText(text: string): string {
-  return String(text ?? '').replace(/\r\n?/g, '\n').replace(/\s+/g, ' ').trim()
+  return String(text ?? '')
+    .replace(/<\/?pasted_content(?:\s[^>]*)?>/g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /** Same message? Normalized equality, or the same first 32 chars (Claude Code may rewrite attached paths). */

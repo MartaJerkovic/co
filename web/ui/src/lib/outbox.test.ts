@@ -81,6 +81,7 @@ describe('pure transitions', () => {
     expect(normalizeText('  a\r\n\n b\t ')).toBe('a b')
     expect(sameText('fix it', ' fix   it\n')).toBe(true)
     expect(sameText('fix it', 'fix it now')).toBe(false)
+    expect(sameText('line 1\nline 2', '\n\n<pasted_content id="7eaf">\nline 1\nline 2\n</pasted_content id="7eaf">')).toBe(true)
     const long = 'please look at the attached screenshot and fix the layout'
     expect(sameText(`${long} /tmp/a.png`, `${long} [Image #1]`)).toBe(true)
   })
