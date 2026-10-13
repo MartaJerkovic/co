@@ -1147,6 +1147,285 @@ pub fn spawn(a: SpawnArgs) -> Result<()> {
     Ok(())
 }
 
+// ------------------------------------------------------------------ over the web (no ssh)
+
+/// What `fleet -H <host> stack …` can do through that host's web server (`hosts.<host>.web`)
+/// when there is no ssh destination for it — the sheds reach each other over HTTP only, and a
+/// sibling's remote context line says `fleet -H <home> stack show` / `set`.
+pub enum WebOp {
+    List {
+        json: bool,
+    },
+    Show {
+        stack: String,
+        json: bool,
+        path: bool,
+    },
+    Set {
+        stack: String,
+        expect_updated: Option<String>,
+        json: bool,
+    },
+    Rename {
+        stack: String,
+        label: String,
+        json: bool,
+    },
+    Rm {
+        stack: String,
+        force: bool,
+        json: bool,
+    },
+}
+
+/// The `curl` for one stack request to `base` (no HTTP client in the crate, like `brief
+/// --regenerate`): `-w` appends the status code on its own line; a body goes in on stdin.
+fn curl(base: &str, host: &str, method: &str, path: &str, body: bool) -> std::process::Command {
+    let url = format!(
+        "{}/api/hosts/{}/{path}",
+        base.trim_end_matches('/'),
+        crate::cli::brief::path_segment(host)
+    );
+    let mut c = std::process::Command::new("curl");
+    c.args(["-sS", "--max-time", "30", "-X", method]);
+    if body {
+        c.args([
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@-",
+        ]);
+    }
+    c.args(["-w", "\n%{http_code}", &url]);
+    c
+}
+
+/// Run the curl, split off the status; a transport failure or `000` is "cannot reach".
+fn fetch(
+    c: std::process::Command,
+    input: Option<&[u8]>,
+    base: &str,
+    host: &str,
+) -> Result<(String, Value)> {
+    let got = hosts::capture_input(c, input, Duration::from_secs(35))
+        .map_err(|e| Error::Other(format!("{e} — curl is needed to reach {host} over the web")))?;
+    let unreachable = || {
+        Error::exit(
+            hosts::EXIT_UNREACHABLE,
+            format!(
+                "cannot reach {host}'s web server at {base} (hosts.{host}.web) — is fleet web running there?"
+            ),
+        )
+    };
+    if got.code != Some(0) {
+        return Err(unreachable());
+    }
+    let (body, status) = got
+        .stdout
+        .trim_end()
+        .rsplit_once('\n')
+        .map(|(b, s)| (b.to_string(), s.trim().to_string()))
+        .unwrap_or_else(|| (String::new(), got.stdout.trim().to_string()));
+    if status == "000" {
+        return Err(unreachable());
+    }
+    let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    Ok((status, v))
+}
+
+/// The CLI's exit codes for the web API's statuses (ARCHITECTURE.md → Session stacks).
+fn web_error(host: &str, status: &str, v: &Value) -> Error {
+    let msg = v["error"].as_str().unwrap_or("request failed").to_string();
+    let code = match status {
+        "404" | "409"
+            if v.get("updated").is_some()
+                || msg.contains("no stack")
+                || msg.contains("not found") =>
+        {
+            EXIT_NOTHING
+        }
+        "409" => EXIT_AMBIGUOUS,
+        "404" => EXIT_NOTHING,
+        _ => 1,
+    };
+    Error::exit(code, format!("{host}: {msg} (HTTP {status})"))
+}
+
+/// `fleet -H <host> stack …` for a host with `web` but no `ssh`: the same answers, fetched from
+/// its web server. `<stack>` must be a stack id here (the routes take ids). Dry run: the curl.
+pub fn via_web(host: &str, base: &str, op: WebOp) -> Result<()> {
+    let id_of = |q: &str| -> Result<String> {
+        let q = q.trim();
+        let id = if stack::is_stack_id(q) {
+            q.to_string()
+        } else {
+            format!("st-{q}")
+        };
+        if !stack::is_stack_id(&id) {
+            return Err(Error::Other(format!(
+                "over the web a stack is addressed by its id (st-xxxxxxxx), not \"{q}\" — `fleet -H {host} stack list` shows them"
+            )));
+        }
+        Ok(id)
+    };
+    let dry = |c: &std::process::Command| {
+        if hosts::dry_run() {
+            println!("{}", hosts::display_command(c));
+            true
+        } else {
+            false
+        }
+    };
+    match op {
+        WebOp::List { json } => {
+            let c = curl(base, host, "GET", "stacks", false);
+            if dry(&c) {
+                return Ok(());
+            }
+            let (status, v) = fetch(c, None, base, host)?;
+            if status != "200" {
+                return Err(web_error(host, &status, &v));
+            }
+            if json {
+                return print_json(&v);
+            }
+            let stacks = v["stacks"].as_array().cloned().unwrap_or_default();
+            if stacks.is_empty() {
+                println!("no stacks on {host}");
+                return Ok(());
+            }
+            for s in &stacks {
+                let members = s["members"].as_array().cloned().unwrap_or_default();
+                let live = members
+                    .iter()
+                    .filter(|m| m["live"].as_bool() != Some(false) && m["closed"].is_null())
+                    .count();
+                let closed = members.len() - live;
+                println!(
+                    "{}  {}  {}  {}  {}",
+                    s["label"].as_str().unwrap_or("-").bold(),
+                    s["id"].as_str().unwrap_or("-").dimmed(),
+                    if closed == 0 {
+                        format!("{live} live")
+                    } else {
+                        format!("{live} live · {closed} closed")
+                    },
+                    s["cwd"].as_str().unwrap_or("-").dimmed(),
+                    s["updated"]
+                        .as_str()
+                        .map(|u| u.chars().take(16).collect::<String>().replace('T', " "))
+                        .unwrap_or_default()
+                        .dimmed()
+                );
+            }
+            Ok(())
+        }
+        WebOp::Show { stack, json, path } => {
+            let id = id_of(&stack)?;
+            let c = curl(base, host, "GET", &format!("stacks/{id}"), false);
+            if dry(&c) {
+                return Ok(());
+            }
+            let (status, v) = fetch(c, None, base, host)?;
+            if status != "200" {
+                return Err(web_error(host, &status, &v));
+            }
+            if path {
+                println!("{}", v["path"].as_str().unwrap_or_default());
+            } else if json {
+                print_json(&v)?;
+            } else {
+                print!("{}", v["body"].as_str().unwrap_or_default());
+            }
+            Ok(())
+        }
+        WebOp::Set {
+            stack,
+            expect_updated,
+            json,
+        } => {
+            let id = id_of(&stack)?;
+            let mut text = String::new();
+            std::io::stdin().read_to_string(&mut text)?;
+            if text.trim().is_empty() {
+                return Err(Error::Other(
+                    "empty StackBrief on stdin — nothing saved (pipe the markdown in)".into(),
+                ));
+            }
+            if text.len() > stack::MAX_EDIT_BYTES {
+                return Err(Error::Other(format!(
+                    "StackBrief too long (max {} kB)",
+                    stack::MAX_EDIT_BYTES / 1024
+                )));
+            }
+            let body = json!({ "markdown": text, "expectUpdated": expect_updated }).to_string();
+            let c = curl(base, host, "PUT", &format!("stacks/{id}"), true);
+            if dry(&c) {
+                return Ok(());
+            }
+            let (status, v) = fetch(c, Some(body.as_bytes()), base, host)?;
+            if status != "200" {
+                if status == "409" && json {
+                    print_json(&json!({ "error": v["error"], "id": id, "updated": v["updated"] }))?;
+                }
+                return Err(web_error(host, &status, &v));
+            }
+            if json {
+                return print_json(&v);
+            }
+            println!(
+                "saved stack {} ({id}) on {host}",
+                v["label"].as_str().unwrap_or(&id).bold()
+            );
+            Ok(())
+        }
+        WebOp::Rename { stack, label, json } => {
+            let id = id_of(&stack)?;
+            let label = stack::clean_label(&label).ok_or_else(|| {
+                Error::Other("the label must be one non-empty line (up to 80 characters)".into())
+            })?;
+            let body = json!({ "label": label }).to_string();
+            let c = curl(base, host, "POST", &format!("stacks/{id}/rename"), true);
+            if dry(&c) {
+                return Ok(());
+            }
+            let (status, v) = fetch(c, Some(body.as_bytes()), base, host)?;
+            if status != "200" {
+                return Err(web_error(host, &status, &v));
+            }
+            if json {
+                return print_json(&v);
+            }
+            println!(
+                "renamed stack {} → {} ({id}) on {host}",
+                stack.dimmed(),
+                label.bold()
+            );
+            Ok(())
+        }
+        WebOp::Rm { stack, force, json } => {
+            let id = id_of(&stack)?;
+            if !force && !hosts::dry_run() && !confirm(&format!("delete stack {id} on {host}?"))? {
+                println!("kept");
+                return Ok(());
+            }
+            let c = curl(base, host, "DELETE", &format!("stacks/{id}"), false);
+            if dry(&c) {
+                return Ok(());
+            }
+            let (status, v) = fetch(c, None, base, host)?;
+            if status != "200" {
+                return Err(web_error(host, &status, &v));
+            }
+            if json {
+                return print_json(&v);
+            }
+            println!("deleted stack {id} on {host}");
+            Ok(())
+        }
+    }
+}
+
 /// `cwd` on another host is `dir` (`~/…` or absolute, as passed to `spawn --dir` there).
 fn same_remote_dir(cwd: &str, dir: &str) -> bool {
     let cwd = cwd.trim_end_matches('/');

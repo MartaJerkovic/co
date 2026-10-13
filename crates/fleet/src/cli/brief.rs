@@ -462,7 +462,7 @@ pub fn local_web_base() -> String {
         .unwrap_or_else(|| format!("http://127.0.0.1:{}", cfg.web_port()))
 }
 
-fn path_segment(s: &str) -> String {
+pub fn path_segment(s: &str) -> String {
     s.bytes()
         .map(|b| {
             if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {

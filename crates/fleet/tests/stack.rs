@@ -777,6 +777,73 @@ fn spawn_on_another_host_under_dry_run_shows_the_ssh_line_and_the_remote_context
 }
 
 #[test]
+fn a_host_with_a_web_url_and_no_ssh_is_reached_over_its_web_server() {
+    let t = T::new();
+    // The sheds know each other by web url only: `-H` goes to that server's stack routes.
+    let mut cfg = common::two_hosts();
+    cfg["hosts"]["workstation"] = json!({ "ssh": null, "web": "http://100.x.y.z:7777" });
+    t.env.write_config(&cfg);
+    let run = |args: &[&str]| {
+        let out = t
+            .cmd()
+            .env("FLEET_DRY_RUN", "1")
+            .args(args)
+            .output()
+            .unwrap();
+        (out.status.success(), stdout(&out), stderr(&out))
+    };
+    let (ok, text, err) = run(&["-H", "workstation", "stack", "show", "st-1a2b3c4d"]);
+    assert!(ok, "{err}");
+    assert!(
+        text.contains("curl ")
+            && text.contains("http://100.x.y.z:7777/api/hosts/workstation/stacks/st-1a2b3c4d"),
+        "{text}"
+    );
+    assert!(text.contains("-X GET"), "{text}");
+    let (ok, text, _) = run(&["-H", "workstation", "stack", "show", "1a2b3c4d", "--json"]);
+    assert!(ok && text.contains("/stacks/st-1a2b3c4d"), "{text}");
+    let out = t
+        .cmd()
+        .env("FLEET_DRY_RUN", "1")
+        .args([
+            "-H",
+            "workstation",
+            "stack",
+            "set",
+            "st-1a2b3c4d",
+            "--expect-updated",
+            "2026-01-01T00:00:00.000Z",
+        ])
+        .write_stdin("## Summary\nnew\n")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("-X PUT") && stdout(&out).contains("--data-binary @-"),
+        "{}",
+        stdout(&out)
+    );
+    let (ok, text, _) = run(&["-H", "workstation", "stack", "list"]);
+    assert!(
+        ok && text.contains("/api/hosts/workstation/stacks"),
+        "{text}"
+    );
+    let (ok, text, _) = run(&["-H", "workstation", "stack", "rm", "st-1a2b3c4d", "-f"]);
+    assert!(ok && text.contains("-X DELETE"), "{text}");
+    // Only an id addresses a stack over the web; other forms still need ssh.
+    let (ok, _, err) = run(&["-H", "workstation", "stack", "show", "Login fix"]);
+    assert!(!ok && err.contains("addressed by its id"), "{err}");
+    let (ok, _, err) = run(&["-H", "workstation", "stack", "spawn", "login-redirect"]);
+    assert!(
+        !ok && err.contains("no ssh destination") && err.contains("stack list / show / set"),
+        "{err}"
+    );
+    // Naming this machine is the local form, as before.
+    let (ok, text, _) = run(&["-H", "laptop", "stack", "list"]);
+    assert!(ok && !text.contains("curl"), "{text}");
+}
+
+#[test]
 fn rename_changes_the_label_everywhere_and_refuses_an_empty_one() {
     let t = T::new();
     let v = t.json(&["stack", "ensure", A, "--no-llm", "--json"]);

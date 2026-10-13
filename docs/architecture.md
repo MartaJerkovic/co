@@ -631,9 +631,12 @@ StackView):
 You're running in the session stack with shared context: stack <id> on host <home>. Read it with `fleet -H <home> stack show <id>` and update it with `fleet -H <home> stack set <id>` (the whole markdown on stdin; `fleet -H <home> stack show <id> --json` has it under `markdown`). <prompt>
 ```
 
-The StackBrief is generated once, at creation; after that it is maintained by scripts
-(membership) and by hand. Logic: `core::stack`; CLI: `fleet stack` ([cli.md](cli.md#stacks));
-the web server only shells out to `fleet --local stack … --json` and never parses the markdown.
+`fleet -H <home> stack show` / `set` reach the home over ssh when there is a destination for it,
+else over its web server (`hosts.<home>.web`, the stack routes below — the sheds have web urls
+for each other and no ssh). The StackBrief is generated once, at creation; after that it is
+maintained by scripts (membership) and by hand. Logic: `core::stack`; CLI: `fleet stack`
+([cli.md](cli.md#stacks)); the web server only shells out to `fleet --local stack … --json` and
+never parses the markdown.
 
 **Storage.** `$FLEET_STACKS_DIR`, else `${XDG_STATE_HOME:-~/.local/state}/fleet/stacks/`, one
 `<stack_id>.md` per stack (dir `0700`, files `0600`, atomic temp + rename writes). The file is

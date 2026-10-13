@@ -130,8 +130,12 @@ prefix, then substring) → a member's session id (whole, or a prefix of ≥ 8) 
 that is a member. Two hits on the same rung is an error listing the candidates (exit 2); no hit is
 exit 3. `<target>` is a live session target as everywhere else (an ambiguous one is exit 2).
 With `-H <host>` every form runs on that host, where the files are — a stack is always addressed
-on its home, whichever hosts its members run on. `--on <host>` (`add`, `spawn`) is different: the
-stack stays here, the session is (started) there.
+on its home, whichever hosts its members run on. A host this machine has no ssh destination for
+but a web url (`hosts.<host>.web` — how the always-on machines know each other) is reached
+through its web server instead (`curl` to its stack routes): `list`, `show`, `set`, `rename` and
+`rm`, with the stack given by id (`st-…` or the 8 hex). That is what a sibling started on
+another host needs for its context line. The other forms need ssh. `--on <host>` (`add`,
+`spawn`) is different: the stack stays here, the session is (started) there.
 
 | form | does |
 | --- | --- |

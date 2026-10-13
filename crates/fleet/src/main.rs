@@ -932,6 +932,53 @@ fn run(cli: Cli) -> Result<i32> {
         return tmux_cmds::enter_anywhere(query);
     }
 
+    // `fleet -H <host> stack …` for a host this machine has no ssh to, only its web server
+    // (the sheds): the stack routes of that server answer instead.
+    if let Commands::Stack { cmd } = &command
+        && let Some(h) = cli.host.as_deref().map(str::trim).filter(|h| !h.is_empty())
+        && !cli.local
+        && let Some(hc) = config::get().host(h)
+        && h != config::get().self_name()
+        && hc.ssh.as_deref().map(str::trim).is_none_or(str::is_empty)
+        && let Some(web) = hc.web.as_deref().map(str::trim).filter(|w| !w.is_empty())
+    {
+        let op = match cmd {
+            StackCmd::List { json } => stack_cmds::WebOp::List { json: *json },
+            StackCmd::Show { stack, json, path } => stack_cmds::WebOp::Show {
+                stack: stack.clone(),
+                json: *json,
+                path: *path,
+            },
+            StackCmd::Set {
+                stack,
+                expect_updated,
+                json,
+            } => stack_cmds::WebOp::Set {
+                stack: stack.clone(),
+                expect_updated: expect_updated.clone(),
+                json: *json,
+            },
+            StackCmd::Rename { stack, label, json } => stack_cmds::WebOp::Rename {
+                stack: stack.clone(),
+                label: label.clone(),
+                json: *json,
+            },
+            StackCmd::Rm { stack, force, json } => stack_cmds::WebOp::Rm {
+                stack: stack.clone(),
+                force: *force,
+                json: *json,
+            },
+            _ => {
+                return Err(Error::Other(format!(
+                    "host '{h}' has no ssh destination — over its web server only `stack list / show / set / rename / rm` work; \
+set one with: fleet config set hosts.{h}.ssh <alias>"
+                )));
+            }
+        };
+        stack_cmds::via_web(h, web, op)?;
+        return Ok(0);
+    }
+
     if let Placement::Dispatch(scope) = placement(&command) {
         let t = target(cli.host.as_deref(), cli.local, scope)?;
         hosts::debug(&format!("target: {t:?}"));
