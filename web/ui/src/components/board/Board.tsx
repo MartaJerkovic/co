@@ -252,7 +252,7 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
             onMoveColumn={onMoveColumn}
           />
         )}
-        {fleet ? <DormantSection now={now} host={host} desktop className="max-h-full w-72 shrink-0 overflow-y-auto rounded-xl border border-dashed p-2" /> : null}
+        {fleet ? <DormantSection now={now} host={host} query={query} desktop className="max-h-full w-72 shrink-0 overflow-y-auto rounded-xl border border-dashed p-2" /> : null}
         {fleet && columns.length && overlayInset ? <div aria-hidden className="shrink-0" style={{ width: overlayInset }} /> : null}
       </div>
     </div>

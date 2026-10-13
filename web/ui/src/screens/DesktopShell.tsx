@@ -134,7 +134,7 @@ export function DesktopShell() {
   const board = mode === 'board'
   const toggleView = () => setMode(board ? 'list' : 'board')
   const groups = useGroups(board)
-  const { columns, moveColumn } = useBoardColumns(board, list.view.sessions, groups.groups, fleet, list.host)
+  const { columns, moveColumn } = useBoardColumns(board, list.view.sessions, groups.groups, fleet, list.host, list.query)
   // The cursor walks the sessions in on-screen order: the list, or the board column by column.
   const ordered = useMemo(() => (board ? boardOrder(columns) : list.view.sessions), [board, columns, list.view.sessions])
 

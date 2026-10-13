@@ -5,7 +5,7 @@ import type { DormantView } from '@/api/types'
 import { HostBadge } from '@/components/HostBadge'
 import { Button } from '@/components/ui/button'
 import { useDormant } from '@/hooks/useDormant'
-import { dormantMeta, dormantTitles } from '@/lib/dormant'
+import { dormantMeta, dormantTitles, searchDormant } from '@/lib/dormant'
 import { cn } from '@/lib/utils'
 
 /**
@@ -65,11 +65,11 @@ export function ArmButton({
  * Sessions a reboot left dormant, per host: what they were (tmux name, Claude titles, panes, how
  * long ago) with Resume (brings the tmux session back and resumes its Claude sessions), Forget
  * (two clicks) and Resume all (two clicks). Nothing when no host has dormant sessions.
- * `host`: only that host (the list's host filter). `desktop`: the denser sidebar / board sizes.
+ * `host`: only that host (the list's host filter). `query`: the session search — only matching entries. `desktop`: the denser sidebar / board sizes.
  */
-export function DormantSection({ now, host = null, desktop = false, className }: { now: number; host?: string | null; desktop?: boolean; className?: string }) {
+export function DormantSection({ now, host = null, query = '', desktop = false, className }: { now: number; host?: string | null; query?: string; desktop?: boolean; className?: string }) {
   const { hosts, busy, resume, resumeAll, forget } = useDormant()
-  const shown = (host ? hosts.filter((h) => h.host === host) : hosts).filter((h) => h.views.length > 0)
+  const shown = (host ? hosts.filter((h) => h.host === host) : hosts).map((h) => searchDormant(h, query)).filter((h) => h.views.length > 0)
   if (!shown.length) return null
   const size = desktop ? 'sm' : 'lg'
   return (

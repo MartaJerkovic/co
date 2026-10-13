@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '@/api/client'
 import type { ClosedView, DormantView } from '@/api/types'
-import { closedCount, closedMeta, dormantCount, dormantErrorMessage, dormantIndex, dormantMember, dormantMeta, dormantMissing, dormantTitles, hasEntries, hostDormant, restoreSummary } from '@/lib/dormant'
+import { closedCount, closedMeta, dormantCount, dormantErrorMessage, dormantIndex, dormantMember, dormantMeta, dormantMissing, dormantTitles, hasEntries, hostDormant, matchesDormantMember, restoreSummary, searchDormant } from '@/lib/dormant'
 
 const NOW = Date.parse('2026-10-04T12:00:00Z')
 const tmux: DormantView = {
@@ -70,5 +70,45 @@ describe('dormant helpers', () => {
     expect(closedMeta(closed, NOW)).toBe('in tmux api · ~/Code/project · closed 2h ago')
     expect(closedMeta({ ...closed, tmuxSession: undefined, closedAt: null, since: null }, NOW)).toBe('not in tmux · ~/Code/project')
     expect(closedMeta({ ...tmux, closedAt: '2026-10-04T11:00:00Z' }, NOW)).toBe('tmux · 1 window · 2 panes · closed 1h ago')
+  })
+})
+
+describe('searchDormant', () => {
+  const view = (name: string, extra: Partial<ClosedView> = {}): ClosedView => ({
+    kind: 'tmux',
+    target: name,
+    name,
+    since: null,
+    closedAt: null,
+    windows: 1,
+    panes: 1,
+    sessions: [{ sessionId: 'abc12345', name: null, title: 'Fix login bug', cwd: '~/Code/api' }],
+    ...extra,
+  })
+  const h = { host: 'workstation', views: [view('web'), view('docs', { sessions: [] })], closed: [view('old', { tmuxSession: 'infra', sessions: [] })] }
+
+  it('keeps everything without a query', () => {
+    expect(searchDormant(h, '  ')).toBe(h)
+  })
+
+  it('matches names, Claude titles, cwds, tmux sessions and the host', () => {
+    expect(searchDormant(h, 'login').views.map((v) => v.name)).toEqual(['web'])
+    expect(searchDormant(h, 'code/api').views.map((v) => v.name)).toEqual(['web'])
+    expect(searchDormant(h, 'DOCS').views.map((v) => v.name)).toEqual(['docs'])
+    expect(searchDormant(h, 'infra').closed.map((v) => v.name)).toEqual(['old'])
+    expect(searchDormant(h, 'workstation').views).toHaveLength(2)
+    expect(searchDormant(h, 'nothing')).toMatchObject({ views: [], closed: [] })
+  })
+})
+
+describe('matchesDormantMember', () => {
+  const m = { host: 'laptop', id: 'abc12345-0000', title: 'Refactor groups', since: null }
+
+  it('matches title, host and id', () => {
+    expect(matchesDormantMember(m, '')).toBe(true)
+    expect(matchesDormantMember(m, 'refactor')).toBe(true)
+    expect(matchesDormantMember(m, 'laptop')).toBe(true)
+    expect(matchesDormantMember(m, 'abc123')).toBe(true)
+    expect(matchesDormantMember(m, 'zzz')).toBe(false)
   })
 })

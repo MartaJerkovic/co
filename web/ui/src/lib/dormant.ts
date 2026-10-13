@@ -72,6 +72,29 @@ export function dormantMember(m: GroupMember, index: Map<string, DormantMember>)
   return m.dormant === true ? { host: m.host, id: m.id, title: m.id.slice(0, 8), since: null } : null
 }
 
+/** The session search over a dormant / closed entry: its name, target, host, tmux session and Claude titles / cwds. */
+export function matchesDormant(v: DormantView & { tmuxSession?: string }, host: string, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [v.name, v.target, v.tmuxSession, host, ...(v.sessions ?? []).flatMap((s) => [s?.title, s?.name, s?.cwd])]
+    .filter((x): x is string => typeof x === 'string')
+    .join('\n')
+    .toLowerCase()
+    .includes(q)
+}
+
+/** A host's dormant / closed lists narrowed to the entries the session search matches. */
+export function searchDormant(h: HostDormant, query: string): HostDormant {
+  if (!query.trim()) return h
+  return { ...h, views: h.views.filter((v) => matchesDormant(v, h.host, query)), closed: h.closed.filter((v) => matchesDormant(v, h.host, query)) }
+}
+
+/** The session search over a Board dormant card (its title, host and session id). */
+export function matchesDormantMember(m: DormantMember, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || [m.title, m.host, m.id].join('\n').toLowerCase().includes(q)
+}
+
 export const dormantCount = (hosts: HostDormant[]) => hosts.reduce((n, h) => n + h.views.length, 0)
 
 /** The Claude titles inside a dormant entry, or what it is when it has none. */

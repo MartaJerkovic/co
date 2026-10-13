@@ -212,8 +212,8 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
             {allSessions(fleet).length > 0 ? 'Nothing matches.' : 'No Claude sessions running.'}
           </div>
         ) : null}
-        {fleet ? <DormantSection now={now} host={host} desktop className="mt-4" /> : null}
-        {fleet ? <ClosedSection now={now} host={host} desktop className="mt-3" /> : null}
+        {fleet ? <DormantSection now={now} host={host} query={query} desktop className="mt-4" /> : null}
+        {fleet ? <ClosedSection now={now} host={host} query={query} desktop className="mt-3" /> : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-1 border-t px-2 py-1.5 text-xs text-dimmer">

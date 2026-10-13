@@ -6,36 +6,39 @@ import { ArmButton } from '@/components/DormantSection'
 import { HostBadge } from '@/components/HostBadge'
 import { Button } from '@/components/ui/button'
 import { useDormant } from '@/hooks/useDormant'
-import { closedMeta, dormantTitles } from '@/lib/dormant'
+import { closedMeta, dormantTitles, searchDormant } from '@/lib/dormant'
 import { cn } from '@/lib/utils'
 
 /**
  * Sessions closed recently within a boot (Close, kill, /exit), per host — collapsed by default.
  * Resume (one at a time: a whole tmux session with its layout, or a Claude session in a new
  * window of its tmux session when that lives on) and Forget. Unlike Dormant: no Resume all, and
- * never on the Board. Nothing when no host has any. `host`: only that host.
+ * never on the Board. Nothing when no host has any. `host`: only that host. `query`: the session
+ * search — only matching entries, expanded.
  */
-export function ClosedSection({ now, host = null, desktop = false, className }: { now: number; host?: string | null; desktop?: boolean; className?: string }) {
+export function ClosedSection({ now, host = null, query = '', desktop = false, className }: { now: number; host?: string | null; query?: string; desktop?: boolean; className?: string }) {
   const { hosts, busy, resumeClosed, forgetClosed } = useDormant()
   const [open, setOpen] = useState(false)
-  const shown = (host ? hosts.filter((h) => h.host === host) : hosts).filter((h) => h.closed.length > 0)
+  const shown = (host ? hosts.filter((h) => h.host === host) : hosts).map((h) => searchDormant(h, query)).filter((h) => h.closed.length > 0)
   if (!shown.length) return null
   const total = shown.reduce((n, h) => n + h.closed.length, 0)
   const size = desktop ? 'sm' : 'lg'
+  // A search shows its matches without having to expand the section.
+  const expanded = open || !!query.trim()
   return (
     <section aria-label="Recently closed sessions" className={cn('flex flex-col gap-2', className)}>
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={expanded}
         onClick={() => setOpen((o) => !o)}
         className="flex min-h-8 items-center gap-1.5 rounded-md px-1 text-left text-xs font-semibold text-muted-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       >
-        <ChevronRightIcon className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+        <ChevronRightIcon className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
         <HistoryIcon className="size-3.5" />
         Recently closed
         <span className="font-normal text-dimmer tabular-nums">· {total}</span>
       </button>
-      {open
+      {expanded
         ? shown.map((h) => (
             <div key={h.host} className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2 px-1">
