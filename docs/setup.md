@@ -215,6 +215,18 @@ tmux new -d -s fleet-web 'while true; do fleet web serve; sleep 2; done'
 Neither launchd nor tmux survives a FileVault reboot without the unlock — restart the service
 after one.
 
+**Scheduled jobs** (optional, on an always-on machine): add jobs under `jobs` in its config
+([cli.md → Jobs](cli.md#jobs)), then install the ticker that starts them:
+
+```sh
+fleet jobs install-service         # macOS: launchd agent `fleet.jobs`, every minute; logs to ~/Library/Logs/fleet.jobs.log
+fleet jobs                         # each job, its schedule in plain English, next and last run
+```
+
+Job sessions run unattended, so a job usually sets `command` to a launcher that does not stop for
+permission prompts, and its working directory must already be trusted by Claude Code (a first-run
+"trust this folder" prompt would stall the session).
+
 **Updating** a machine that runs from a repo checkout: `scripts/deploy.sh` there (over ssh:
 `ssh workstation '~/Code/project/scripts/deploy.sh'`) — pulls `main` (refuses uncommitted
 changes), builds the CLI into `~/.local/bin/fleet`, runs `fleet web build`, restarts the

@@ -518,7 +518,7 @@ tmuxSession, status, title }`; times in ms epoch, `keep` in seconds). State:
 
 In the web UI, the **Jobs** screen (`#/jobs`) lists every host's jobs with Run now and the
 enabled switch, and each run's sessions as a tree; job sessions wear a job chip and stay out of the
-session list unless they need you or the **Scheduled** chip shows them ([Web API](architecture.md#web-api)).
+session list unless they need you — the **Scheduled** status filter (clock icon) lists only them ([Web API](architecture.md#web-api)).
 
 ## Web
 
