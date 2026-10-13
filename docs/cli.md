@@ -485,7 +485,7 @@ the same **run**. Config: `jobs` in [the config](architecture.md#config).
 | --- | --- |
 | `schedule` | 5-field cron in local time: `*`, lists, ranges, steps (`*/15`, `5/20`), names (`mon-fri`, `jan`), `7` = Sunday, `@hourly` / `@daily` / `@weekly` / `@monthly`. Both day fields set → either matches (classic cron) |
 | `dir` | where the session starts (must exist) |
-| `prompt` / `promptFile` | the first prompt, inline or read from a file at run time (one of them, or neither) |
+| `prompt` / `promptFile` | the first prompt, inline or read from a file at run time (one of them, or neither); a file's YAML frontmatter (`---` … `---`) is left out, so a note can be the prompt |
 | `command` | launcher for the job's sessions **and everything they spawn** (it travels as `FLEET_CMD`); default config `claude` |
 | `harness`, `model` | as for `fleet spawn` |
 | `enabled` | `false` pauses the job (`fleet jobs disable`) |

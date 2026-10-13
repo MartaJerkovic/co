@@ -277,8 +277,21 @@ fn read_prompt(j: &Job) -> std::result::Result<String, String> {
         PromptSrc::Inline(p) => Ok(p.clone()),
         PromptSrc::File(f) => {
             let path = tools::expand_tilde(f);
-            std::fs::read_to_string(&path).map_err(|e| format!("cannot read promptFile {f}: {e}"))
+            std::fs::read_to_string(&path)
+                .map(|t| strip_frontmatter(&t).to_string())
+                .map_err(|e| format!("cannot read promptFile {f}: {e}"))
         }
+    }
+}
+
+/// A prompt file may be a note with YAML frontmatter (`---` … `---`): the agent gets the body.
+fn strip_frontmatter(text: &str) -> &str {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return text;
+    };
+    match rest.find("\n---\n") {
+        Some(end) => rest[end + 5..].trim_start_matches('\n'),
+        None => text,
     }
 }
 
@@ -644,6 +657,16 @@ pub fn install_service(o: ServiceOpts) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_files_lose_their_frontmatter() {
+        assert_eq!(
+            strip_frontmatter("---\ntitle: x\n---\n\nDo it.\n"),
+            "Do it.\n"
+        );
+        assert_eq!(strip_frontmatter("Do it.\n---\nmore"), "Do it.\n---\nmore");
+        assert_eq!(strip_frontmatter("---\nunterminated"), "---\nunterminated");
+    }
 
     #[test]
     fn plist_ticks_every_minute_and_outlives_itself() {
