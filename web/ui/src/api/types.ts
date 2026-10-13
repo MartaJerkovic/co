@@ -72,6 +72,8 @@ export interface HarnessesResponse {
 export interface StackRef {
   id: string
   label: string
+  /** The stack's home host (where its StackBrief lives); older servers omit it (= the session's host). */
+  host?: string
 }
 
 /** `context` on a session row — see docs/architecture.md → "Context usage". */
@@ -467,8 +469,10 @@ export interface StackView {
   updated: string | null
   generatedAt: string | null
   editedAt: string | null
-  /** The sentence every sibling's first prompt starts with. */
+  /** The sentence every sibling's first prompt starts with (on the stack's home host). */
   contextLine: string
+  /** The same for a sibling on another host (`fleet -H <home> stack …`); older CLIs omit it. */
+  remoteContextLine?: string
   members: StackMember[]
   /** The whole file, frontmatter included (what the editor edits). */
   markdown: string
@@ -493,6 +497,10 @@ export interface StackSpawnRequest {
   harness?: HarnessId | string
   /** Label for a stack this spawn creates (the model's otherwise). */
   label?: string
+  /** Start the sibling on this host (a peer of the stack's home; default: the home itself). */
+  host?: string
+  /** Where it starts: required with `host`, a path on that host. */
+  dir?: string
 }
 
 /** POST …/sessions/:id/stack/spawn and …/stacks/:id/spawn. */

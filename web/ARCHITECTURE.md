@@ -198,7 +198,7 @@ JSON everywhere, same origin, no auth. Errors are `{ "error": "message" }`.
 | PUT | `/api/hosts/:host/sessions/:id/brief` | `{ markdown }` (≤ 60000 chars; frontmatter optional — the server keeps its own keys) | `Brief` after the edit (`editedAt` set; resource lines removed by the edit become `dismissed`). 400 not a string |
 | POST | `/api/hosts/:host/sessions/:id/brief/regenerate` | `{}` | **202** `{ host, id, started, queued, generating: true }` — returns at once, poll GET until `generating` is false. `started: false, queued: false` = one for this session is already running; `queued: true` = waiting for another session's call. **429** `{ error, retryAfterMs }` at `maxCallsPerHour`; 404 no transcript / gone session |
 | GET | `/api/hosts/:host/stacks` | | `{ host, stacks: [StackView] }` (`fleet stack list --json`, which syncs membership first) |
-| POST | `/api/hosts/:host/stacks/sync` | `{}` | `{ host, changed: [ids], stacks: [StackView] }` (`fleet stack sync --json`) |
+| POST | `/api/hosts/:host/stacks/sync` | `{}` | `{ host, changed: [ids], stacks: [StackView] }` (`fleet stack sync --input - --json` with the merged fleet on stdin, so members on other hosts are judged too; a plain `sync` when it cannot be built) |
 | GET | `/api/hosts/:host/dormant` | | `{ host, bootId, dormant: [{ kind, target, name, since, windows, panes, sessions: [{ sessionId, name, title, cwd }] }], closed: [{ …same, closedAt, tmuxSession? }] }` — `fleet --local restore --json` (docs/architecture.md → Session recovery, Recently closed; `closed` only from CLIs that know it). 501 when the CLI predates `restore` |
 | POST | `/api/hosts/:host/dormant/restore` | `{ target, dryRun?, closed? }` \| `{ all: true, dryRun? }` (`closed: true` → `--closed`, a recently closed session; never with `all` → 400) | `{ host, restored: [{ kind, from, session, renamed, windows, panes, launched, warnings, commands, dryRun }], failed: [{ target, error }] }`. Starts agents: **409** `{ error, candidates }` ambiguous target, 404 no match, 400 bad body, 502 when nothing was restored; a partial `all` is 200. Refreshes the fleet (now, ~3 s, ~10 s) and then runs a stack sync. Proxy timeout 6 min |
 | POST | `/api/hosts/:host/dormant/forget` | `{ target, closed? }` \| `{ all: true, closed? }` | `{ host, forgotten: [names] }`; 409 / 404 as restore; `closed: true` → `--closed`, 501 when the CLI has no `--closed` |
@@ -206,8 +206,8 @@ JSON everywhere, same origin, no auth. Errors are `{ "error": "message" }`.
 | PUT | `/api/hosts/:host/stacks/:id` | `{ markdown, expectUpdated? }` — markdown a string ≤ 64 kB (UTF-8; the request body may be up to 256 kB), `expectUpdated` the `updated` you loaded | `StackView` after the human edit (`fleet stack set`). **409** `{ error, updated }` when the stored `updated` differs (nothing written — reload); 400 bad body / id; 404 unknown |
 | POST | `/api/hosts/:host/stacks/:id/rename` | `{ label }` — one line, 1–80 characters | `StackView` with the new label (`fleet stack rename`; `editedAt` stamped). 400 bad label / id; 404 unknown |
 | DELETE | `/api/hosts/:host/stacks/:id` | | `{ removed: id }` (`fleet stack rm <id> -f`). 404 unknown |
-| POST | `/api/hosts/:host/sessions/:id/stack/spawn` | `{ prompt?, name?, model?, harness?, dir?, label? }` — as spawn; `label` names a stack created here | **Sibling spawn**: `fleet stack ensure <session_id>` (creates the stack around the session when it has none: one model call, ≤ 150 s), then this server's spawner in the session's cwd (`dir` must be inside it or inside a spawn dir) with the prompt `contextLine + " " + prompt` (only the context line when empty); the new session is added to the stack in the background. → `{ host, stack: StackView, created, generated, spawn: { ok, host, name, dir, tmuxSession, command, trusted, model } }`. 400 bad body / dir (checked before `ensure`), 404 unknown session, 409 no session id / cwd yet. Proxy timeout 180 s |
-| POST | `/api/hosts/:host/stacks/:id/spawn` | `{ prompt?, name?, model?, harness?, dir? }` | the same without `ensure`: `dir` defaults to the stack's `absCwd` (400 when that is not a directory here); `created` / `generated` are `false` |
+| POST | `/api/hosts/:host/sessions/:id/stack/spawn` | `{ prompt?, name?, model?, harness?, dir?, label?, host? }` — as spawn; `label` names a stack created here; `host` starts the sibling on that peer | **Sibling spawn**: `fleet stack ensure <session_id>` (creates the stack around the session when it has none: one model call, ≤ 150 s), then this server's spawner in the session's cwd (`dir` must be inside it or inside a spawn dir) with the prompt `contextLine + " " + prompt` (only the context line when empty); the new session is added to the stack in the background. → `{ host, stack: StackView, created, generated, spawn: { ok, host, name, dir, tmuxSession, command, trusted, model } }`. 400 bad body / dir (checked before `ensure`), 404 unknown session, 409 no session id / cwd yet. Proxy timeout 180 s. **On another host** (`host` = a peer with a web url, else 400; `dir` required, a path there, else 400): after `ensure`, `POST /api/hosts/<host>/spawn` on that peer with `dir`, the prompt `remoteContextLine + " " + prompt`, `name` / `model` when given and `harness` (the peer checks `dir` against its spawn dirs; its error comes back with its status, 5xx as 502); the join watches the peer's list and runs `stack add <stack> <session> --on <host> --input -` here; `spawn.host` is the peer |
+| POST | `/api/hosts/:host/stacks/:id/spawn` | `{ prompt?, name?, model?, harness?, dir?, host? }` | the same without `ensure`: `dir` defaults to the stack's `absCwd` (400 when that is not a directory here); `created` / `generated` are `false` |
 
 The stack routes need the `fleet stack` subcommand on that host (501 otherwise; absent routes on
 an older server are 404). `editor` / `editorUrl` (for `absCwd`) are added to every StackView by the
@@ -230,7 +230,8 @@ are filled in by the server that received the request (lib/editor.mjs), also for
 answer — see docs/architecture.md → Session briefs → Open in editor.
 Proxied to a peer like the other session routes (PUT bodies included).
 
-**Host** = `{ name, ok, error?, fetchedAt, spawnDirs?: [{ label, path }], notes?: { name }, sessions: [Session] }`.
+**Host** = `{ name, ok, error?, fetchedAt, spawnDirs?: [{ label, path }], notes?: { name }, stacks?: [{ id, label, host, members: [{ session, host, live }] }], sessions: [Session] }`.
+`stacks` is that host's session stacks, compact (what its `fleet stack` calls last showed); the server building a merged view stamps `stack: { id, label, host }` on the rows of members that run on other hosts (`lib/stacks.mjs#stampForeign`), since only a stack's home host lists it.
 Each host advertises its own `spawnDirs` (absolute paths on that host) and, when it has `web.notes.root`, `notes`.
 
 **Session** = the `fleet list --json` object + `host` + `editorUrl` (for its cwd; set by the server that answered). Sorted `waiting` → `busy` → `idle` →
@@ -443,16 +444,26 @@ Session stacks) and the server only shells out to `fleet --local stack … --jso
   `stack ensure` (session route only), then the normal spawner (lib/spawn.mjs: tmux, trust prompt,
   long prompts via a file) with the StackView's `contextLine` prepended. An unnamed spawn with a
   prompt still gets the targeted naming pass (`createSpawnNamer`), as with `/spawn`.
-- **Joining**: `stacks.join(tmuxSession, stackId)` polls this host's fresh `fleet list` after 3,
-  4, 5, 6, 7, 10, 10, 15 and 15 s (75 s in all) for the row with that `tmux_session` and a
-  `session_id` (`findSpawned`, shared with the spawn namer), then runs `stack add <stack> <session>`.
+- **Joining**: `stacks.join(tmuxSession, stackId, host?)` polls this host's fresh `fleet list`
+  — or, for a sibling started on a peer, that peer's `/api/fleet?local=1` (`attach({
+  peerSessions })`, server.mjs) — after 3, 4, 5, 6, 7, 10, 10, 15 and 15 s (75 s in all) for the
+  row with that `tmux_session` and a `session_id` (`findSpawned`, shared with the spawn namer),
+  then runs `stack add <stack> <session>` (`--on <host> --input -` with the row for a peer's).
   A refusal (exit 1–3) stops it, other failures retry; each outcome is logged (`[stacks] …`).
   Out of tries, the log says which `fleet stack add` to run.
 - **Sync**: `fleet stack sync` runs after every successful kill (best effort, never fails the
-  kill) and every `web.stacks.syncMinutes` (default 2, first after 30 s) while `fleet list` (the
-  2 s cache) shows any session with `stack != null`. `FLEET_WEB_STACKS=0` turns the background
+  kill), once 30 s after start, and every `web.stacks.syncMinutes` (default 2) while `fleet list`
+  (the 2 s cache) shows any session with `stack != null` or this host knows a stack (members may
+  run elsewhere). The merged `/api/fleet` body (`attach({ fleetBody })`: the warm snapshot, else
+  one fresh build) goes in as `--input -`, so members on other hosts are judged against their
+  host's list; a merge that fails means a plain sync. `FLEET_WEB_STACKS=0` turns the background
   pass off. Runs are de-duplicated; a call made during a run gets one trailing run.
-  `/api/health` reports `stacks.lastSync`.
+  `/api/health` reports `stacks.lastSync` (`merged`: the input went in) and `stacks.known`.
+- **Cross-host**: a stack lives on its home host; only that host lists it. Every StackView
+  this server sees is kept compact (`compact()`: id, label, host, members' hosts and liveness)
+  and advertised in its `/api/fleet?local=1` entry as `stacks`; a server building the merged
+  view stamps `stack: { id, label, host }` on the rows of members on other hosts
+  (`stampForeign`), so the UI shows one stack across hosts and talks to the home host for it.
 
 ## UI (`ui/`, React)
 

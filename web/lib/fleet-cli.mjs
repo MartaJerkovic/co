@@ -401,8 +401,17 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
   /** The session's stack, created around it when it has none (may call the model: 150 s). */
   const stackEnsure = (sessionId, { label = null } = {}) =>
     stack(['ensure', sessionId, ...(label ? [`--label=${label}`] : [])], { timeoutMs: 150 * 1000 });
-  const stackAdd = (stackId, sessionId) => stack(['add', stackId, sessionId]);
-  const stackSync = () => stack(['sync']);
+  /**
+   * Add a session: this host's, or — `host` — one running on another host, its row carried in
+   * `input` (an /api/fleet-shaped body on stdin, so the CLI never needs ssh for it).
+   */
+  const stackAdd = (stackId, sessionId, { host = null, input = null } = {}) =>
+    stack(['add', stackId, sessionId, ...(host ? ['--on', host] : []), ...(input ? ['--input', '-'] : [])], {
+      ...(input ? { input: JSON.stringify(input) } : {}),
+    });
+  /** Membership sync; with `input` (the merged /api/fleet body) members on other hosts are judged too. */
+  const stackSync = ({ input = null } = {}) =>
+    stack(['sync', ...(input ? ['--input', '-'] : [])], { ...(input ? { input: JSON.stringify(input) } : {}) });
 
   return {
     bin,

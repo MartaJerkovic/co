@@ -339,5 +339,12 @@ describe('withStackColumns', () => {
     const cols = withStackColumns(boardColumns(two, []), two)
     expect(cols.map((c) => c.id)).toEqual(['stack:st-1', 'stack:workstation/st-1'])
     expect(boardOrder(cols).map((x) => x.session_id)).toEqual(['a', 'b'])
+    // The same stack homed on the laptop, one member running on the workstation: one column.
+    const home = { id: 'st-1', label: 'Login fix', host: 'laptop' }
+    const shared = [s({ session_id: 'a', stack: home, updated_at: 2 }), s({ session_id: 'b', host: 'workstation', stack: home, updated_at: 1 })]
+    const one = withStackColumns(boardColumns(shared, []), shared)
+    expect(one.map((c) => c.id)).toEqual(['stack:st-1'])
+    expect(one[0].stack).toEqual({ id: 'st-1', host: 'laptop' })
+    expect(one[0].sessions.map((x) => x.session_id)).toEqual(['a', 'b'])
   })
 })

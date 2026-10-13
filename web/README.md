@@ -65,10 +65,13 @@ ARCHITECTURE.md → HTTP API.
 **Session stacks** (sessions sharing one StackBrief file, owned by `fleet stack`): the server
 serves `/api/hosts/:host/stacks…` (list, show, edit with conflict check, rename, delete, sync) and spawns
 siblings (`POST …/sessions/:id/stack/spawn` creates the stack around a session first — one
-Sonnet call — and `POST …/stacks/:id/spawn`), adding the new session to the stack once it
-registers. It runs `fleet stack sync` after a kill and every `web.stacks.syncMinutes` (default 2)
-while a session is in a stack; `FLEET_WEB_STACKS=0` turns that background sync off. Routes,
-statuses and limits: ARCHITECTURE.md → HTTP API / Session stacks.
+Sonnet call — and `POST …/stacks/:id/spawn`), here or on another host (`host` + `dir` in the
+body: the peer starts it, this host adds it), adding the new session to the stack once it
+registers. It runs `fleet stack sync` (with the merged fleet, so members on other hosts count)
+after a kill and every `web.stacks.syncMinutes` (default 2) while a session is in a stack;
+`FLEET_WEB_STACKS=0` turns that background sync off. Each host advertises its stacks in
+`/api/fleet` so members on other hosts show up in them. Routes, statuses and limits:
+ARCHITECTURE.md → HTTP API / Session stacks.
 
 `web.editor` (`"vscode"` default, `"cursor"`, or `null` to hide it) sets the "Open in editor"
 link on briefs, stacks and session rows (`editorUrl`): a local folder for sessions on this server's host,

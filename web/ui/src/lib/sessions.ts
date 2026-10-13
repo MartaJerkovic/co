@@ -94,7 +94,8 @@ export function listView(
  * rows without `stack` (older servers) come back unchanged.
  */
 export function clusterByStack(sessions: Session[]): Session[] {
-  const key = (s: Session) => (s.stack?.id ? `${s.host}/${s.stack.id}` : null)
+  // Keyed by the stack's home host: members on other hosts cluster with it.
+  const key = (s: Session) => (s.stack?.id ? `${s.stack.host || s.host}/${s.stack.id}` : null)
   const members = new Map<string, Session[]>()
   for (const s of sessions) {
     const k = key(s)

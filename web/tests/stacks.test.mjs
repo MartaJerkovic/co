@@ -14,7 +14,7 @@ import { createFleet } from '../lib/fleet.mjs';
 import { createFleetCli } from '../lib/fleet-cli.mjs';
 import { normalizeConfig } from '../lib/config.mjs';
 import { HttpError } from '../lib/http.mjs';
-import { createStacks, resolveStackSpawnDir, stackHttpError, validateStackEdit, withStackEditor } from '../lib/stacks.mjs';
+import { compactStack, createStacks, resolveStackSpawnDir, stackHttpError, stampForeign, validateStackEdit, withStackEditor } from '../lib/stacks.mjs';
 
 const STACK_ID = 'st-1a2b3c4d';
 const SRC_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -35,6 +35,7 @@ function stackView({ absCwd, host = 'laptop' } = {}) {
     generatedAt: '2026-09-29T10:00:05.000Z',
     editedAt: null,
     contextLine: `You're running in the session stack with shared context: ${file}.`,
+    remoteContextLine: `You're running in the session stack with shared context: stack ${STACK_ID} on host ${host}. Read it with \`fleet -H ${host} stack show ${STACK_ID}\` and update it with \`fleet -H ${host} stack set ${STACK_ID}\` (the whole markdown on stdin; \`fleet -H ${host} stack show ${STACK_ID} --json\` has it under \`markdown\`).`,
     members: [
       { session: SRC_ID, host, name: 'login-redirect', added: '2026-09-29T10:00:00.000Z', closed: null, live: true, status: 'idle', briefPath: `/home/tester/.local/state/fleet/briefs/${SRC_ID}.md`, briefExists: false },
     ],
@@ -93,9 +94,13 @@ function fakeHost(self, { dir }) {
         if (rest[0] !== SRC_ID) throw cliError(1, `Error: no live session matches "${rest[0]}"`);
         // The real flat shape: StackView keys + created (bool) / createdAt / generated / warning + stack (nested view).
         return out({ ...view, created: true, createdAt: view.created, generated: true, warning: null, stack: view });
-      case 'add':
+      case 'add': {
         known(rest[0]);
-        return out({ ...view, members: [...view.members, { session: rest[1] }] });
+        const on = rest.indexOf('--on');
+        const host = on >= 0 ? rest[on + 1] : self;
+        if (on >= 0) assert.equal(rest.at(-1), '-', 'a member on another host comes with --input -');
+        return out({ ...view, members: [...view.members, { session: rest[1], host, closed: null, live: true }] });
+      }
       case 'sync':
         return out({ host: self, changed: [], stacks: [view] });
       default:
@@ -172,6 +177,8 @@ test('fleet CLI stack calls: `fleet --local stack <sub> … --json`, markdown on
   await cli.stackEnsure(SRC_ID, { label: '-odd label' });
   await cli.stackAdd(STACK_ID, SRC_ID);
   await cli.stackSync();
+  await cli.stackAdd(STACK_ID, SRC_ID, { host: 'workstation', input: { hosts: [] } });
+  await cli.stackSync({ input: { hosts: [] } });
   assert.deepEqual(calls.map((c) => c.args), [
     ['--local', 'stack', 'list', '--json'],
     ['--local', 'stack', 'show', STACK_ID, '--json'],
@@ -181,8 +188,13 @@ test('fleet CLI stack calls: `fleet --local stack <sub> … --json`, markdown on
     ['--local', 'stack', 'ensure', SRC_ID, '--label=-odd label', '--json'],
     ['--local', 'stack', 'add', STACK_ID, SRC_ID, '--json'],
     ['--local', 'stack', 'sync', '--json'],
+    ['--local', 'stack', 'add', STACK_ID, SRC_ID, '--on', 'workstation', '--input', '-', '--json'],
+    ['--local', 'stack', 'sync', '--input', '-', '--json'],
   ]);
   assert.equal(calls[2].opts.input, '# md');
+  assert.equal(calls[8].opts.input, '{"hosts":[]}');
+  assert.equal(calls[9].opts.input, '{"hosts":[]}');
+  assert.equal(calls[7].opts.input, undefined);
   assert.equal(calls[5].opts.timeout, 150 * 1000);
   assert.equal(calls[0].opts.timeout, 20 * 1000);
   assert.equal(calls[0].opts.env.NO_COLOR, '1');
@@ -263,29 +275,56 @@ test('sync is de-duplicated, a call made mid-run gets one trailing run, and last
   assert.equal(failing.status().lastSync.error, 'nope');
 });
 
-test('the background sync runs only while a listed session is in a stack; off = never scheduled', async () => {
+test('the background sync: the first tick always runs; then only while a listed session is in a stack or a stack is known; off = never scheduled', async () => {
   let syncs = 0;
   let rows = [{ session_id: 'a', stack: null }];
-  const cli = { stackSync: async () => (syncs += 1, { changed: [] }) };
+  let report = { changed: [], stacks: [] };
+  const inputs = [];
+  const cli = { stackSync: async (o) => (syncs += 1, inputs.push(o?.input ?? null), report) };
   const s = createStacks({ cli, listSessions: async () => assert.fail('the gate uses gateSessions'), gateSessions: async () => rows });
+  assert.deepEqual(await s.tick(), { ran: true }, 'the first tick seeds what this host knows');
+  assert.equal(syncs, 1);
   assert.deepEqual(await s.tick(), { ran: false });
   rows = [{ session_id: 'a', stack: { id: STACK_ID, label: 'x' } }];
   assert.deepEqual(await s.tick(), { ran: true });
-  assert.equal(syncs, 1);
+  assert.equal(syncs, 2);
   rows = null; // discovery failed
   assert.deepEqual(await s.tick(), { ran: false });
+  // A stack this host knows (its members may run elsewhere) keeps the sync going.
+  report = { changed: [], stacks: [stackView({ absCwd: '/x' })] };
+  rows = [{ session_id: 'a', stack: { id: STACK_ID, label: 'x' } }];
+  await s.tick();
+  assert.equal(s.status().known, 1);
+  rows = [{ session_id: 'a', stack: null }];
+  assert.deepEqual(await s.tick(), { ran: true });
+  report = { changed: [], stacks: [] };
+  await s.tick();
+  assert.equal(s.status().known, 0);
+  assert.deepEqual(await s.tick(), { ran: false });
+  assert.deepEqual(inputs, [null, null, null, null, null], 'no merged fleet attached: a plain sync');
+  // Attached: the merged fleet goes in as --input; a failing source means a plain sync.
+  s.attach({ fleetBody: async () => ({ hosts: [{ name: 'laptop', ok: true, sessions: [] }] }) });
+  rows = [{ session_id: 'a', stack: { id: STACK_ID, label: 'x' } }];
+  await s.tick();
+  assert.deepEqual(inputs.at(-1), { hosts: [{ name: 'laptop', ok: true, sessions: [] }] });
+  assert.equal(s.status().lastSync.merged, true);
+  s.attach({ fleetBody: async () => { throw new Error('peers down'); } });
+  await s.tick();
+  assert.equal(inputs.at(-1), null);
+  assert.equal(s.status().lastSync.merged, false);
 
   const off = createStacks({ cli, listSessions: async () => rows, syncEnabled: false, initialDelayMs: 1 });
   rows = [{ stack: { id: STACK_ID } }];
+  const before = syncs;
   off.start();
   await new Promise((r) => setTimeout(r, 30));
   off.stop();
-  assert.equal(syncs, 1, 'FLEET_WEB_STACKS=0: no background sync');
+  assert.equal(syncs, before, 'FLEET_WEB_STACKS=0: no background sync');
   const on = createStacks({ cli, listSessions: async () => rows, initialDelayMs: 1, syncIntervalMs: 60 * 1000 });
   on.start();
   await new Promise((r) => setTimeout(r, 30));
   on.stop();
-  assert.equal(syncs, 2, 'first run after initialDelayMs');
+  assert.equal(syncs, before + 1, 'first run after initialDelayMs');
 });
 
 test('config: web.stacks.syncMinutes (default 2), FLEET_WEB_STACKS=0, stacks.model passthrough', () => {
@@ -318,6 +357,62 @@ test('join: waits until the spawned tmux session registers, then `stack add`; re
   assert.deepEqual(await refusing.join('job', STACK_ID), { ok: false, reason: 'refused', session: 'x', tries: 1, error: 'already in stack st-99999999' });
   const never = createStacks({ cli, listSessions: async () => [], joinDelaysMs: [0, 0], sleep: async () => {} });
   assert.deepEqual(await never.join('job', STACK_ID), { ok: false, reason: 'not found', tries: 2 });
+});
+
+test('join on another host: that peer\'s rows, `stack add --on <host> --input -` with the row', async () => {
+  const added = [];
+  let tries = 0;
+  const peer = async (name) => {
+    assert.equal(name, 'workstation');
+    tries += 1;
+    return tries < 2 ? [{ tmux_session: 'job', session_id: null }] : [{ tmux_session: 'job', session_id: 'dddddddd-1', cwd: '/home/ws/project' }];
+  };
+  const cli = { stackSync: async () => ({}), stackAdd: async (st, sid, o) => (added.push([st, sid, o]), stackView({ absCwd: '/x' })) };
+  const s = createStacks({ cli, self: 'laptop', listSessions: async () => assert.fail('not this host'), joinDelaysMs: [0, 0, 0], sleep: async () => {} });
+  assert.deepEqual(await s.join('job', STACK_ID, 'workstation'), { ok: false, reason: 'not found', tries: 3 }, 'no peer source attached yet');
+  s.attach({ peerSessions: peer });
+  tries = 0;
+  const r = await s.join('job', STACK_ID, 'workstation');
+  assert.deepEqual(r, { ok: true, reason: 'added', session: 'dddddddd-1', tries: 2 });
+  assert.deepEqual(added, [[STACK_ID, 'dddddddd-1', { host: 'workstation', input: { hosts: [{ name: 'workstation', ok: true, sessions: [{ tmux_session: 'job', session_id: 'dddddddd-1', cwd: '/home/ws/project' }] }] } }]]);
+  assert.equal(s.status().known, 1, 'the add\'s StackView is remembered');
+  // Same name on this host is a different join.
+  const local = createStacks({ cli, self: 'laptop', listSessions: async () => [{ tmux_session: 'job', session_id: 'x' }], joinDelaysMs: [0], sleep: async () => {} });
+  assert.equal((await local.join('job', STACK_ID)).reason, 'added');
+  assert.deepEqual(added.at(-1), [STACK_ID, 'x', undefined]);
+});
+
+test('compactStack and stampForeign: members of a stack homed elsewhere get `stack` on their rows', () => {
+  const view = { ...stackView({ absCwd: '/x', host: 'laptop' }), members: [
+    { session: 'a1', host: 'laptop', closed: null, live: true },
+    { session: 'b1', host: 'workstation', closed: null },
+    { session: 'b2', host: 'workstation', closed: '2026-01-01T00:00:00.000Z', live: false },
+    { session: 'c1', host: 'office', closed: null, live: true },
+  ] };
+  const c = compactStack(view);
+  assert.deepEqual(c, { id: STACK_ID, label: 'Login redirect fix', host: 'laptop', members: [
+    { session: 'a1', host: 'laptop', live: true },
+    { session: 'b1', host: 'workstation', live: true },
+    { session: 'b2', host: 'workstation', live: false },
+    { session: 'c1', host: 'office', live: true },
+  ] });
+  assert.equal(compactStack({ id: 'nope' }), null);
+  const hosts = [
+    { name: 'laptop', ok: true, stacks: [c], sessions: [{ session_id: 'a1', stack: { id: STACK_ID, label: 'Login redirect fix', host: 'laptop' } }] },
+    { name: 'workstation', ok: true, stacks: [{ id: 'st-99999999', label: 'Own', host: 'workstation', members: [{ session: 'b3', host: 'workstation', live: true }, { session: 'a1', host: 'laptop', live: true }] }], sessions: [
+      { session_id: 'b1', stack: null },
+      { session_id: 'b2', stack: null },
+      { session_id: 'b3', stack: { id: 'st-99999999', label: 'Own', host: 'workstation' } },
+    ] },
+    { name: 'office', ok: false, error: 'unreachable', sessions: [] },
+  ];
+  const out = stampForeign(hosts);
+  assert.deepEqual(out[1].sessions[0].stack, { id: STACK_ID, label: 'Login redirect fix', host: 'laptop' });
+  assert.equal(out[1].sessions[1].stack, null, 'a closed member is not stamped');
+  assert.deepEqual(out[1].sessions[2].stack, { id: 'st-99999999', label: 'Own', host: 'workstation' });
+  assert.deepEqual(out[0].sessions[0].stack, { id: STACK_ID, label: 'Login redirect fix', host: 'laptop' }, "the row's own stack wins");
+  assert.equal(hosts[1].sessions[0].stack, null, 'pure: the input is untouched');
+  assert.equal(stampForeign(null), null);
 });
 
 // --- routes (createApi, local) ------------------------------------------------------------
@@ -524,4 +619,72 @@ test('stack routes are proxied once to the peer; the asking server builds the ed
 
   assert.deepEqual((await json('DELETE', `${base}/stacks/${STACK_ID}`)).body, { removed: STACK_ID });
   assert.equal((await json('GET', `${urls.laptop}/api/hosts/workstation/stacks?local=1`)).status, 404, 'never chained');
+});
+
+test('a sibling on another host: the peer spawns it with the remote context line, the home host adds it, every merged fleet shows it in the stack', async (t) => {
+  const { cwd } = tempTree(t);
+  const hosts = { laptop: fakeHost('laptop', { dir: cwd }), workstation: fakeHost('workstation', { dir: cwd }) };
+  const urls = {};
+  const handles = {};
+  for (const name of Object.keys(hosts)) {
+    const server = createHttpServer({ handleApi: (req, url) => handles[name](req, url) });
+    urls[name] = await listen(server);
+    t.after(() => server.close());
+  }
+  const peerSessions = (name) => fetch(`${urls[name]}/api/fleet?local=1`).then((r) => r.json()).then((b) => b.hosts[0].sessions);
+  for (const [name, host] of Object.entries(hosts)) {
+    const config = normalizeConfig(
+      { self: name, hosts: { laptop: { web: urls.laptop }, workstation: { web: urls.workstation, ssh: 'ws' } }, spawnDirs: [{ path: cwd }] },
+      { env: {}, home: '/home/tester' },
+    );
+    handles[name] = createApi({ config, ...host, warmFleet: false });
+    host.stacks.attach({ fleetBody: () => handles[name].buildFleet(), peerSessions });
+  }
+  const json = async (method, url, body) => {
+    const res = await fetch(url, { method, headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { status: res.status, body: await res.json() };
+  };
+  const home = `${urls.laptop}/api/hosts/laptop`;
+  // A peer without a web url, or no dir, is refused before any model call.
+  assert.equal((await json('POST', `${home}/stacks/${STACK_ID}/spawn`, { host: 'office', dir: cwd })).status, 400);
+  const noDir = await json('POST', `${home}/stacks/${STACK_ID}/spawn`, { host: 'workstation' });
+  assert.equal(noDir.status, 400);
+  assert.match(noDir.body.error, /dir is required/);
+  assert.equal(hosts.laptop.stackCalls().filter((c) => c[0] === 'ensure').length, 0);
+
+  const res = await json('POST', `${home}/sessions/${SRC_ID}/stack/spawn`, { host: 'workstation', dir: cwd, prompt: 'Run the e2e suite', name: 'login-e2e' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.host, 'laptop');
+  assert.equal(res.body.created, true);
+  assert.equal(res.body.spawn.host, 'workstation');
+  assert.equal(res.body.spawn.name, 'login-e2e');
+  assert.equal(res.body.spawn.tmuxSession, 'login-e2e');
+  assert.equal(hosts.laptop.calls.some((c) => c.spawn), false, 'not spawned here');
+  const spawned = hosts.workstation.calls.find((c) => c.spawn).spawn;
+  assert.equal(spawned.dir, cwd);
+  assert.equal(spawned.prompt, `${hosts.laptop.view.remoteContextLine} Run the e2e suite`);
+  // The join: the laptop found the session in the workstation's list and added it there.
+  assert.equal(hosts.laptop.joins.length, 1);
+  const joined = await hosts.laptop.joins[0];
+  assert.equal(joined.ok, true, JSON.stringify(joined));
+  const add = hosts.laptop.calls.find((c) => c.args?.[2] === 'add');
+  assert.deepEqual(add.args.slice(2, -1), ['add', STACK_ID, joined.session, '--on', 'workstation', '--input', '-']);
+  const input = JSON.parse(add.opts.input);
+  assert.equal(input.hosts[0].name, 'workstation');
+  assert.equal(input.hosts[0].sessions[0].session_id, joined.session);
+  assert.equal(hosts.workstation.stackCalls().length, 0, 'the workstation never touches the stack');
+  // Both merged fleets show the workstation session in the laptop's stack.
+  for (const name of ['laptop', 'workstation']) {
+    const fleet = (await json('GET', `${urls[name]}/api/fleet`)).body;
+    const ws = fleet.hosts.find((h) => h.name === 'workstation');
+    const row = ws.sessions.find((s) => s.session_id === joined.session);
+    assert.deepEqual(row.stack, { id: STACK_ID, label: 'Login redirect fix', host: 'laptop' }, `${name}'s view`);
+    const lp = fleet.hosts.find((h) => h.name === 'laptop');
+    assert.equal(lp.stacks.find((s) => s.id === STACK_ID).members.some((m) => m.session === joined.session && m.host === 'workstation'), true);
+  }
+  // The laptop's sync goes out with the merged fleet (so the workstation member is judged).
+  await hosts.laptop.stacks.syncNow('test');
+  const sync = hosts.laptop.calls.filter((c) => c.args?.[2] === 'sync').at(-1);
+  assert.deepEqual(sync.args.slice(2, -1), ['sync', '--input', '-']);
+  assert.deepEqual(JSON.parse(sync.opts.input).hosts.map((h) => h.name), ['laptop', 'workstation']);
 });

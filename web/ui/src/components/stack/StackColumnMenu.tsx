@@ -39,7 +39,7 @@ export function StackColumnMenu({ stack, label: server, sessions, className }: S
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() =>
-            openSiblingSpawn({ host: stack.host, stackId: stack.id, cwd: sessions[0]?.cwd ?? null, label, creates: false })
+            openSiblingSpawn({ host: stack.host, stackId: stack.id, cwd: sessions[0]?.cwd ?? null, cwdHost: sessions[0]?.host ?? stack.host, label, creates: false })
           }
         >
           <GitForkIcon />

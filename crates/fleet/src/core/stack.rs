@@ -7,6 +7,11 @@
 //! session) edit it by hand. Format conventions are the session briefs' ([`crate::core::brief`]):
 //! the same frontmatter encoding, atomic writes, tolerant parsing, human lines never dropped.
 //!
+//! A stack lives on the host where it was created (its *home*, frontmatter `host`); its members
+//! may run on any host (`members[].host`). A sibling on another host gets the shared context
+//! through `fleet -H <home> stack …` instead of a path ([`remote_context_line`]), and a
+//! membership sync judges a member only against the rows of its own host ([`Observed`]).
+//!
 //! Nothing in here prints.
 
 use std::collections::{HashMap, HashSet};
@@ -198,6 +203,9 @@ pub fn save(dir: &Path, stack: &mut Stack, now: &str, paths: &Paths) -> Result<(
 pub struct StackRef {
     pub id: String,
     pub label: String,
+    /// The stack's home host: where its file is (frontmatter `host`).
+    #[serde(default)]
+    pub host: String,
 }
 
 /// One entry of the frontmatter `members` array.
@@ -269,14 +277,28 @@ impl Stack {
     pub fn label(&self) -> String {
         self.meta_str("label").unwrap_or_else(|| self.id())
     }
-    pub fn stack_ref(&self) -> StackRef {
+    /// The home host (frontmatter `host`); `local` when a file predates the key.
+    pub fn home(&self, local: &str) -> String {
+        self.meta_str("host").unwrap_or_else(|| local.to_string())
+    }
+    pub fn stack_ref(&self, local: &str) -> StackRef {
         StackRef {
             id: self.id(),
             label: self.label(),
+            host: self.home(local),
         }
     }
     pub fn member(&self, session_id: &str) -> Option<&Member> {
         self.members.iter().find(|m| m.session == session_id)
+    }
+    /// The host a member runs on: its `host`, else the stack's home.
+    pub fn member_host(&self, m: &Member, local: &str) -> String {
+        m.host
+            .as_deref()
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| self.home(local))
     }
     pub fn counts(&self) -> (usize, usize) {
         let live = self.members.iter().filter(|m| m.is_live()).count();
@@ -483,12 +505,14 @@ pub fn header(label: &str, id: &str) -> String {
     )
 }
 
-/// `## Sessions`, regenerated from the members.
+/// `## Sessions`, regenerated from the members. A member on another host than the stack's
+/// home says so (`on <host>`): the brief and transcript paths are on that host.
 pub fn sessions_section(stack: &Stack, paths: &Paths) -> String {
     if stack.members.is_empty() {
         return "(no sessions yet)".into();
     }
     let stack_cwd = stack.meta_str("cwd");
+    let home = stack.home("");
     let mut out = Vec::new();
     for m in &stack.members {
         let name = m
@@ -497,10 +521,14 @@ pub fn sessions_section(stack: &Stack, paths: &Paths) -> String {
             .map(brief::one_line)
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| m.short());
-        let state = match &m.closed {
+        let mut state = match &m.closed {
             None => "live".to_string(),
             Some(c) => format!("closed {}", short_time(c)),
         };
+        let host = stack.member_host(m, &home);
+        if host != home {
+            state.push_str(&format!(", on {host}"));
+        }
         let mut parts = Vec::new();
         if let Some(a) = &m.added {
             parts.push(format!("added {}", short_time(a)));
@@ -722,48 +750,139 @@ pub fn add_member(stack: &mut Stack, m: Member) -> bool {
 
 // ------------------------------------------------------------------ membership sync
 
-/// Reconcile one stack's members with the live `rows`: gone → `closed = now` (once), live →
+/// What a sync (or a view) sees: the live sessions of the hosts that answered.
+#[derive(Debug, Clone)]
+pub struct Observed<'a> {
+    /// Live rows; a row's host is its `host`, else `local`.
+    pub rows: &'a [Session],
+    /// Hosts whose sessions `rows` lists in full. A member of any other host is not judged:
+    /// it stays as it was.
+    pub hosts_ok: &'a HashSet<String>,
+    /// Session ids dormant on `local` (left by a reboot, `snapshot::dormant_session_ids`).
+    pub dormant: &'a HashSet<String>,
+    /// This machine's host name (what rows and members without a `host` are under).
+    pub local: &'a str,
+}
+
+impl<'a> Observed<'a> {
+    /// `(host, session id)` → its row.
+    pub fn live(&self) -> HashMap<(String, &'a str), &'a Session> {
+        self.rows
+            .iter()
+            .filter_map(|r| {
+                let id = r.session_id.as_deref()?;
+                let host = r
+                    .host
+                    .as_deref()
+                    .filter(|h| !h.is_empty())
+                    .unwrap_or(self.local)
+                    .to_string();
+                Some(((host, id), r))
+            })
+            .collect()
+    }
+}
+
+/// Parse a sessions document for `--input`: a `list --json` array (rows under their `host`,
+/// else `local`; every host present counts as answered) or a `/api/fleet`-shaped
+/// `{ hosts: [{ name, ok, sessions }] }` (hosts with `ok: false` are not observed). Rows that
+/// don't parse are skipped.
+pub fn parse_input(
+    v: &Value,
+    local: &str,
+) -> std::result::Result<(Vec<Session>, HashSet<String>), String> {
+    let mut rows = Vec::new();
+    let mut hosts_ok = HashSet::new();
+    let row = |r: &Value, host: &str| -> Option<Session> {
+        let mut s: Session = serde_json::from_value(r.clone()).ok()?;
+        if s.host.as_deref().is_none_or(|h| h.trim().is_empty()) {
+            s.host = Some(host.to_string());
+        }
+        Some(s)
+    };
+    if let Some(list) = v.as_array() {
+        for r in list {
+            let host = r
+                .get("host")
+                .and_then(Value::as_str)
+                .filter(|h| !h.trim().is_empty())
+                .unwrap_or(local)
+                .to_string();
+            if let Some(s) = row(r, &host) {
+                hosts_ok.insert(host);
+                rows.push(s);
+            }
+        }
+        return Ok((rows, hosts_ok));
+    }
+    let hosts = v
+        .get("hosts")
+        .and_then(Value::as_array)
+        .ok_or("expected a session array or an object with `hosts`")?;
+    for h in hosts {
+        let Some(name) = h.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if h.get("ok").and_then(Value::as_bool) == Some(false) {
+            continue;
+        }
+        hosts_ok.insert(name.to_string());
+        for r in h
+            .get("sessions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(s) = row(r, name) {
+                rows.push(s);
+            }
+        }
+    }
+    Ok((rows, hosts_ok))
+}
+
+/// Reconcile one stack's members with the live sessions: gone → `closed = now` (once), live →
 /// `name` refreshed from the display title (and re-opened if it had been marked closed — a
 /// resumed session). A `dormant` one (left by a reboot, waiting for `fleet restore`) is
-/// neither: it stays as it was. → whether anything changed.
-pub fn sync_stack(
-    stack: &mut Stack,
-    rows: &[Session],
-    dormant: &HashSet<String>,
-    now: &str,
-    paths: &Paths,
-) -> bool {
-    let live: HashMap<&str, &Session> = rows
-        .iter()
-        .filter_map(|r| r.session_id.as_deref().map(|id| (id, r)))
-        .collect();
+/// neither: it stays as it was. So does a member of a host not in `hosts_ok` — its state is
+/// unknown here. → whether anything changed.
+pub fn sync_stack(stack: &mut Stack, obs: &Observed, now: &str, paths: &Paths) -> bool {
+    let live = obs.live();
+    let home = stack.home(obs.local);
     let mut changed = false;
-    for m in stack.members.iter_mut() {
+    let members = std::mem::take(&mut stack.members);
+    let mut next = Vec::with_capacity(members.len());
+    for mut m in members {
         let before = m.clone();
-        match live.get(m.session.as_str()) {
-            Some(s) => {
-                m.closed = None;
-                m.name = Some(s.headline());
-                if m.cwd.is_none() {
-                    m.cwd = s.cwd.as_deref().map(|c| paths.tilde(c));
+        let host = stack.member_host(&m, &home);
+        if obs.hosts_ok.contains(&host) {
+            match live.get(&(host.clone(), m.session.as_str())) {
+                Some(s) => {
+                    m.closed = None;
+                    m.name = Some(s.headline());
+                    if m.cwd.is_none() {
+                        m.cwd = s.cwd.as_deref().map(|c| paths.tilde(c));
+                    }
+                    if m.first_prompt.is_none() {
+                        m.first_prompt = s
+                            .title
+                            .as_deref()
+                            .map(|t| clip(t, FIRST_PROMPT_CAP))
+                            .filter(|t| !t.is_empty());
+                    }
                 }
-                if m.first_prompt.is_none() {
-                    m.first_prompt = s
-                        .title
-                        .as_deref()
-                        .map(|t| clip(t, FIRST_PROMPT_CAP))
-                        .filter(|t| !t.is_empty());
-                }
-            }
-            None if dormant.contains(&m.session) => {}
-            None => {
-                if m.closed.is_none() {
-                    m.closed = Some(now.to_string());
+                None if host == obs.local && obs.dormant.contains(&m.session) => {}
+                None => {
+                    if m.closed.is_none() {
+                        m.closed = Some(now.to_string());
+                    }
                 }
             }
         }
-        changed |= *m != before;
+        changed |= m != before;
+        next.push(m);
     }
+    stack.members = next;
     changed
 }
 
@@ -771,15 +890,14 @@ pub fn sync_stack(
 /// `write` is false: dry-run). → the ids that changed.
 pub fn sync(
     dir: &Path,
-    rows: &[Session],
-    dormant: &HashSet<String>,
+    obs: &Observed,
     now: &str,
     paths: &Paths,
     write: bool,
 ) -> Result<Vec<String>> {
     let mut changed = Vec::new();
     for mut s in load_all(dir) {
-        if sync_stack(&mut s, rows, dormant, now, paths) {
+        if sync_stack(&mut s, obs, now, paths) {
             if write {
                 save(dir, &mut s, now, paths)?;
             }
@@ -807,24 +925,27 @@ pub fn stack_of<'a>(stacks: &'a [Stack], session_id: &str) -> Option<&'a Stack> 
     best.map(|(s, _, _)| s)
 }
 
-/// Put `stack: { id, label }` on every row that is a member of a stack in `dir`. Read-only:
-/// no sync, no writes (what `fleet list` does).
-pub fn stamp_stacks_in(dir: &Path, rows: &mut [Session]) {
+/// Put `stack: { id, label, host }` on every row that is a member of a stack in `dir` (`host`
+/// = the stack's home, `local` for a file without one). Read-only: no sync, no writes (what
+/// `fleet list` does). Only this host's files are known here: a membership in a stack homed
+/// elsewhere is stamped by the web server, from the home host's list.
+pub fn stamp_stacks_in(dir: &Path, local: &str, rows: &mut [Session]) {
     let stacks = load_all(dir);
     if stacks.is_empty() {
         return;
     }
     for r in rows.iter_mut() {
         if let Some(id) = r.session_id.as_deref() {
-            r.stack = stack_of(&stacks, id).map(Stack::stack_ref);
+            r.stack = stack_of(&stacks, id).map(|s| s.stack_ref(local));
         }
     }
 }
 
-/// [`stamp_stacks_in`] the configured stacks dir.
+/// [`stamp_stacks_in`] the configured stacks dir, under this machine's name (config `self`).
 pub fn stamp_stacks(rows: &mut [Session]) {
     if let Ok(dir) = stacks_dir() {
-        stamp_stacks_in(&dir, rows);
+        let local = crate::core::config::get().self_name();
+        stamp_stacks_in(&dir, &local, rows);
     }
 }
 
@@ -912,7 +1033,7 @@ pub fn is_ambiguous_session(err: &str) -> bool {
 
 // ------------------------------------------------------------------ the context line
 
-/// The sentence every session spawned into a stack starts with.
+/// The sentence every session spawned into a stack on its home host starts with.
 pub fn context_line(path: &Path) -> String {
     format!(
         "You're running in the session stack with shared context: {}.",
@@ -920,15 +1041,30 @@ pub fn context_line(path: &Path) -> String {
     )
 }
 
-/// [`context_line`], a space, then `prompt` (nothing after the period when it is empty).
-pub fn stack_prompt(path: &Path, prompt: &str) -> String {
-    let line = context_line(path);
+/// The same sentence for a session on another host than the stack's `home`: the file is not
+/// there, `fleet -H <home> stack …` reads and writes it.
+pub fn remote_context_line(id: &str, home: &str) -> String {
+    format!(
+        "You're running in the session stack with shared context: stack {id} on host {home}. \
+Read it with `fleet -H {home} stack show {id}` and update it with `fleet -H {home} stack set \
+{id}` (the whole markdown on stdin; `fleet -H {home} stack show {id} --json` has it under \
+`markdown`)."
+    )
+}
+
+/// `line`, a space, then `prompt` (nothing after the line when the prompt is empty).
+pub fn prompt_after(line: &str, prompt: &str) -> String {
     let p = prompt.trim();
     if p.is_empty() {
-        line
+        line.to_string()
     } else {
         format!("{line} {p}")
     }
+}
+
+/// [`context_line`], a space, then `prompt` (nothing after the period when it is empty).
+pub fn stack_prompt(path: &Path, prompt: &str) -> String {
+    prompt_after(&context_line(path), prompt)
 }
 
 // ------------------------------------------------------------------ the JSON view
@@ -937,21 +1073,19 @@ pub fn stack_prompt(path: &Path, prompt: &str) -> String {
 pub struct ViewCtx<'a> {
     /// The name rows are tagged with (the caller's name for this host).
     pub host_label: &'a str,
-    pub rows: &'a [Session],
-    /// Session ids dormant on this machine (`snapshot::dormant_session_ids`).
-    pub dormant: &'a HashSet<String>,
+    /// The live sessions seen (this host's, or every host's through `--input`).
+    pub obs: &'a Observed<'a>,
     pub paths: &'a Paths,
     /// The stack file.
     pub path: &'a Path,
 }
 
-/// StackView: the `--json` shape of every `fleet stack` command (and the web API's).
+/// StackView: the `--json` shape of every `fleet stack` command (and the web API's). A member
+/// on a host not observed here keeps `live` from its `closed` (unknown otherwise: `status`
+/// null, `briefPath` null — the brief is on that host).
 pub fn view(stack: &Stack, c: &ViewCtx) -> Value {
-    let live: HashMap<&str, &Session> = c
-        .rows
-        .iter()
-        .filter_map(|r| r.session_id.as_deref().map(|id| (id, r)))
-        .collect();
+    let live = c.obs.live();
+    let home = stack.home(c.obs.local);
     let get = |k: &str| stack.meta.get(k).cloned().unwrap_or(Value::Null);
     let cwd = stack.meta_str("cwd");
     let abs = cwd
@@ -963,17 +1097,31 @@ pub fn view(stack: &Stack, c: &ViewCtx) -> Value {
         .iter()
         .map(|m| {
             let mut v = serde_json::to_value(m).unwrap_or(Value::Null);
-            let row = live.get(m.session.as_str());
-            let brief_path = c.paths.brief_path(&m.session);
+            let host = stack.member_host(m, &home);
+            let observed = c.obs.hosts_ok.contains(&host);
+            let row = live.get(&(host.clone(), m.session.as_str()));
+            let brief_path = (host == c.obs.local).then(|| c.paths.brief_path(&m.session));
             if let Value::Object(o) = &mut v {
-                o.insert("live".into(), json!(row.is_some()));
+                o.insert("host".into(), json!(host));
+                o.insert(
+                    "live".into(),
+                    json!(if observed { row.is_some() } else { m.is_live() }),
+                );
                 o.insert(
                     "dormant".into(),
-                    json!(row.is_none() && c.dormant.contains(&m.session)),
+                    json!(
+                        row.is_none() && host == c.obs.local && c.obs.dormant.contains(&m.session)
+                    ),
                 );
                 o.insert("status".into(), json!(row.map(|r| r.status.clone())));
-                o.insert("briefPath".into(), json!(brief_path.display().to_string()));
-                o.insert("briefExists".into(), json!(brief_path.is_file()));
+                o.insert(
+                    "briefPath".into(),
+                    json!(brief_path.as_ref().map(|p| p.display().to_string())),
+                );
+                o.insert(
+                    "briefExists".into(),
+                    json!(brief_path.as_ref().is_some_and(|p| p.is_file())),
+                );
             }
             v
         })
@@ -990,6 +1138,7 @@ pub fn view(stack: &Stack, c: &ViewCtx) -> Value {
         "generatedAt": get("generatedAt"),
         "editedAt": get("editedAt"),
         "contextLine": context_line(c.path),
+        "remoteContextLine": remote_context_line(&stack.id(), &home),
         "members": members,
         "markdown": serialize_stack(stack, c.paths),
         "body": serialize_body(stack, c.paths),
@@ -1485,22 +1634,46 @@ mod tests {
         assert!(human_edit(&before, &"x".repeat(MAX_EDIT_BYTES + 1), LATER).is_err());
     }
 
+    /// A laptop-only observation: `rows` are laptop's, nothing dormant.
+    struct Seen {
+        rows: Vec<Session>,
+        ok: HashSet<String>,
+        dormant: HashSet<String>,
+    }
+
+    impl Seen {
+        fn laptop(rows: Vec<Session>) -> Self {
+            Seen {
+                rows,
+                ok: ["laptop".to_string()].into(),
+                dormant: HashSet::new(),
+            }
+        }
+        fn obs(&self) -> Observed<'_> {
+            Observed {
+                rows: &self.rows,
+                hosts_ok: &self.ok,
+                dormant: &self.dormant,
+                local: "laptop",
+            }
+        }
+    }
+
     #[test]
     fn sync_marks_closed_refreshes_names_and_reopens() {
         let p = paths();
         let mut s = sample();
         s.members
             .push(member_for(&row(SID2, "login-tests"), "laptop", NOW, &p).unwrap());
-        let rows = vec![row(SID, "renamed-one")];
-        assert!(sync_stack(&mut s, &rows, &none(), LATER, &p));
+        let seen = Seen::laptop(vec![row(SID, "renamed-one")]);
+        assert!(sync_stack(&mut s, &seen.obs(), LATER, &p));
         assert_eq!(s.members[0].name.as_deref(), Some("renamed-one"));
         assert_eq!(s.members[0].closed, None);
         assert_eq!(s.members[1].closed.as_deref(), Some(LATER));
         // Nothing changed → no write.
         assert!(!sync_stack(
             &mut s,
-            &rows,
-            &none(),
+            &seen.obs(),
             "2026-09-29T12:00:00.000Z",
             &p
         ));
@@ -1511,13 +1684,9 @@ mod tests {
             "{text}"
         );
         // Back (resumed): re-opened.
-        let rows = vec![row(SID, "renamed-one"), row(SID2, "login-tests")];
-        assert!(sync_stack(&mut s, &rows, &none(), LATER, &p));
+        let seen = Seen::laptop(vec![row(SID, "renamed-one"), row(SID2, "login-tests")]);
+        assert!(sync_stack(&mut s, &seen.obs(), LATER, &p));
         assert_eq!(s.members[1].closed, None);
-    }
-
-    fn none() -> HashSet<String> {
-        HashSet::new()
     }
 
     #[test]
@@ -1527,8 +1696,9 @@ mod tests {
         s.members
             .push(member_for(&row(SID2, "login-tests"), "laptop", NOW, &p).unwrap());
         // After a reboot nothing is live; SID2 is dormant, SID was closed on purpose.
-        let dormant: HashSet<String> = [SID2.to_string()].into();
-        assert!(sync_stack(&mut s, &[], &dormant, LATER, &p));
+        let mut seen = Seen::laptop(Vec::new());
+        seen.dormant = [SID2.to_string()].into();
+        assert!(sync_stack(&mut s, &seen.obs(), LATER, &p));
         assert_eq!(s.members[0].closed.as_deref(), Some(LATER));
         assert_eq!(s.members[1].closed, None, "dormant is not closed");
         let d = tempfile::tempdir().unwrap();
@@ -1537,8 +1707,7 @@ mod tests {
             &s,
             &ViewCtx {
                 host_label: "laptop",
-                rows: &[],
-                dormant: &dormant,
+                obs: &seen.obs(),
                 paths: &p,
                 path: &path,
             },
@@ -1547,13 +1716,12 @@ mod tests {
         assert_eq!(v["members"][1]["dormant"], true);
         assert_eq!(v["members"][1]["live"], false);
         // Resumed: live again, no longer dormant.
-        let rows = vec![row(SID2, "login-tests")];
+        seen.rows = vec![row(SID2, "login-tests")];
         let v = view(
             &s,
             &ViewCtx {
                 host_label: "laptop",
-                rows: &rows,
-                dormant: &dormant,
+                obs: &seen.obs(),
                 paths: &p,
                 path: &path,
             },
@@ -1563,14 +1731,94 @@ mod tests {
     }
 
     #[test]
+    fn members_on_other_hosts_are_judged_only_against_their_host() {
+        let p = paths();
+        let mut s = sample();
+        // SID2 runs on the workstation (a sibling spawned there).
+        let mut r2 = row(SID2, "login-tests");
+        r2.host = Some("workstation".into());
+        s.members
+            .push(member_for(&r2, "workstation", NOW, &p).unwrap());
+        let text = serialize_stack(&s, &p);
+        assert!(
+            text.contains("(`bbbbbbbb`, live, on workstation)"),
+            "{text}"
+        );
+        // Laptop alone: the workstation member is left as it was.
+        let seen = Seen::laptop(vec![row(SID, "login-redirect")]);
+        assert!(!sync_stack(&mut s, &seen.obs(), LATER, &p));
+        assert_eq!(s.members[1].closed, None);
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("st.md");
+        let v = view(
+            &s,
+            &ViewCtx {
+                host_label: "laptop",
+                obs: &seen.obs(),
+                paths: &p,
+                path: &path,
+            },
+        );
+        assert_eq!(v["members"][1]["host"], "workstation");
+        assert_eq!(v["members"][1]["live"], true, "unknown here: from `closed`");
+        assert_eq!(v["members"][1]["status"], Value::Null);
+        assert_eq!(v["members"][1]["briefPath"], Value::Null);
+        assert_eq!(v["members"][1]["briefExists"], false);
+        assert_eq!(v["members"][0]["host"], "laptop");
+        assert_eq!(
+            v["remoteContextLine"],
+            remote_context_line("st-1a2b3c4d", "laptop")
+        );
+        // Both hosts observed (the web server's merged fleet): gone on the workstation → closed.
+        let mut seen = Seen::laptop(vec![row(SID, "login-redirect")]);
+        seen.ok.insert("workstation".into());
+        assert!(sync_stack(&mut s, &seen.obs(), LATER, &p));
+        assert_eq!(s.members[1].closed.as_deref(), Some(LATER));
+        // The same id live on the laptop is not the workstation's session.
+        seen.rows.push(row(SID2, "login-tests"));
+        assert!(!sync_stack(&mut s, &seen.obs(), LATER, &p));
+        assert_eq!(s.members[1].closed.as_deref(), Some(LATER));
+        // Back on the workstation: re-opened.
+        seen.rows.push(r2.clone());
+        assert!(sync_stack(&mut s, &seen.obs(), LATER, &p));
+        assert_eq!(s.members[1].closed, None);
+    }
+
+    #[test]
+    fn input_parses_a_list_and_a_fleet_body() {
+        let (rows, ok) = parse_input(
+            &json!([{ "session_id": SID, "name": "a" }, { "session_id": SID2, "host": "workstation" }]),
+            "laptop",
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].host.as_deref(), Some("laptop"));
+        assert_eq!(rows[1].host.as_deref(), Some("workstation"));
+        assert_eq!(ok, ["laptop".to_string(), "workstation".to_string()].into());
+        let (rows, ok) = parse_input(
+            &json!({ "hosts": [
+                { "name": "laptop", "ok": true, "sessions": [{ "session_id": SID, "stack": { "id": "st-1a2b3c4d", "label": "x", "host": "laptop" } }] },
+                { "name": "workstation", "ok": false, "error": "unreachable", "sessions": [] },
+                { "name": "office", "sessions": [{ "pid": 5 }] }
+            ] }),
+            "laptop",
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].host.as_deref(), Some("office"));
+        assert_eq!(ok, ["laptop".to_string(), "office".to_string()].into());
+        assert!(parse_input(&json!({ "nope": 1 }), "laptop").is_err());
+    }
+
+    #[test]
     fn sync_writes_only_changed_files() {
         let d = tempfile::tempdir().unwrap();
         let p = paths();
         let mut s = sample();
         save(d.path(), &mut s, NOW, &p).unwrap();
-        let rows = vec![row(SID, "login-redirect")];
+        let seen = Seen::laptop(vec![row(SID, "login-redirect")]);
         assert!(
-            sync(d.path(), &rows, &none(), LATER, &p, true)
+            sync(d.path(), &seen.obs(), LATER, &p, true)
                 .unwrap()
                 .is_empty()
         );
@@ -1582,8 +1830,9 @@ mod tests {
                 .as_deref(),
             Some(NOW)
         );
+        let seen = Seen::laptop(Vec::new());
         assert_eq!(
-            sync(d.path(), &[], &none(), LATER, &p, true).unwrap(),
+            sync(d.path(), &seen.obs(), LATER, &p, true).unwrap(),
             ["st-1a2b3c4d"]
         );
         let back = load(d.path(), "st-1a2b3c4d").unwrap().unwrap();
@@ -1596,12 +1845,13 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         // stamp_stacks is read-only.
         let mut rows = vec![row(SID, "x"), row("cccccccc-0000", "y")];
-        stamp_stacks_in(d.path(), &mut rows);
+        stamp_stacks_in(d.path(), "laptop", &mut rows);
         assert_eq!(
             rows[0].stack,
             Some(StackRef {
                 id: "st-1a2b3c4d".into(),
-                label: "Login redirect fix".into()
+                label: "Login redirect fix".into(),
+                host: "laptop".into(),
             })
         );
         assert_eq!(rows[1].stack, None);

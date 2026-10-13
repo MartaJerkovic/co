@@ -124,9 +124,12 @@ test('clusterByStack: a stack moves up to its first member, everything else keep
     s({ session_id: 'e', stack: { id: 'st-2', label: 'x' } }),
   ]
   expect(clusterByStack(rows).map((x) => x.session_id)).toEqual(['a', 'd', 'b', 'c', 'e'])
-  // Same id on another host: a different stack.
+  // Same id on another host: a different stack — unless it names the same home host.
   const hosts = [s({ session_id: 'a', stack: st }), s({ session_id: 'b' }), s({ session_id: 'c', host: 'workstation', stack: st })]
   expect(clusterByStack(hosts).map((x) => x.session_id)).toEqual(['a', 'b', 'c'])
+  const home = { ...st, host: 'laptop' }
+  const shared = [s({ session_id: 'a', stack: home }), s({ session_id: 'b' }), s({ session_id: 'c', host: 'workstation', stack: home })]
+  expect(clusterByStack(shared).map((x) => x.session_id)).toEqual(['a', 'c', 'b'])
   // Nothing to move: the same array back.
   const plain = [s({ session_id: 'a' }), s({ session_id: 'b' })]
   expect(clusterByStack(plain)).toBe(plain)

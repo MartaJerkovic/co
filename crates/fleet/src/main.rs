@@ -597,6 +597,9 @@ enum StackCmd {
         /// Don't wait for the new session to register (prints the `fleet stack add` to run)
         #[arg(long)]
         no_wait: bool,
+        /// Start the sibling on another host (the stack stays on this one; --dir is a path there)
+        #[arg(long, value_name = "HOST")]
+        on: Option<String>,
         /// Label for a stack created by this spawn
         #[arg(long)]
         label: Option<String>,
@@ -606,10 +609,17 @@ enum StackCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Add a live session to a stack
+    /// Add a live session to a stack (one of this host's, or --on another host's)
     Add {
         stack: String,
+        /// A session target; with --on, resolved among that host's sessions
         target: String,
+        /// The host the session runs on (default: this one); the stack stays here
+        #[arg(long, value_name = "HOST")]
+        on: Option<String>,
+        /// Other hosts' sessions: a `list --json` array or an /api/fleet body (`-` = stdin)
+        #[arg(long, value_name = "SRC")]
+        input: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -645,6 +655,9 @@ enum StackCmd {
     },
     /// Reconcile members with the live sessions (gone → closed)
     Sync {
+        /// Other hosts' sessions too: a `list --json` array or an /api/fleet body (`-` = stdin)
+        #[arg(long, value_name = "SRC")]
+        input: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -1091,6 +1104,7 @@ fn run(cli: Cli) -> Result<i32> {
                 tmux_session,
                 window,
                 no_wait,
+                on,
                 label,
                 no_llm,
                 json,
@@ -1099,6 +1113,7 @@ fn run(cli: Cli) -> Result<i32> {
                 prompt,
                 label,
                 no_llm,
+                on,
                 opts: commands::SpawnOpts {
                     dir,
                     backend: backend.map(Into::into),
@@ -1114,8 +1129,10 @@ fn run(cli: Cli) -> Result<i32> {
             StackCmd::Add {
                 stack,
                 target,
+                on,
+                input,
                 json,
-            } => stack_cmds::add(&stack, &target, json)?,
+            } => stack_cmds::add(&stack, &target, on.as_deref(), input.as_deref(), json)?,
             StackCmd::Remove {
                 stack,
                 target,
@@ -1131,7 +1148,7 @@ fn run(cli: Cli) -> Result<i32> {
                 expect_updated,
                 json,
             } => stack_cmds::set(&stack, expect_updated.as_deref(), json)?,
-            StackCmd::Sync { json } => stack_cmds::sync(json)?,
+            StackCmd::Sync { input, json } => stack_cmds::sync(input.as_deref(), json)?,
             StackCmd::Rm { stack, force, json } => stack_cmds::rm(&stack, force, json)?,
         },
         Commands::Handoff {

@@ -66,6 +66,11 @@ export function conflictUpdated(err: unknown): string | null {
   return typeof u === 'string' ? u : null
 }
 
+/** The host a session's stack is homed on (its StackBrief): `stack.host`, else — older servers — the session's own. */
+export function stackHome(s: Pick<Session, 'host' | 'stack'>): string {
+  return s.stack?.host || s.host
+}
+
 /** The Stack sheet's member → a session route (`#/s/<host>/<id>`). */
 export function memberSession(m: Pick<StackMember, 'host' | 'session'>, stackHost: string): { host: string; session_id: string } {
   return { host: m.host || stackHost, session_id: m.session }

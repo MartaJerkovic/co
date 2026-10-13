@@ -54,7 +54,7 @@ the first rung with hits wins. Two hits on the same rung is an error that lists 
 | `fleet brief <target> [--json \| --prompt]` | print the session's [brief](#briefs) — its body (Summary / Resources / Todos, no frontmatter); `--json` the parsed shape; `--prompt` only the continue prompt |
 | `fleet brief <target> --edit` / `--set [--expect-updated <iso>]` / `--regenerate` / `--open` | edit it in `$VISUAL`/`$EDITOR`; save markdown from stdin; ask the web server to regenerate it; open the session's checkout in VS Code — see [Briefs](#briefs) |
 | `fleet stack list\|show\|new\|ensure\|spawn\|add\|remove\|rename\|edit\|set\|sync\|rm …` | [session stacks](#stacks): sessions that share one context file (the StackBrief) |
-| `fleet stack spawn <target> [prompt] [--harness <h>] [--name <n>] [--model <id>] [--dir <path>] [--no-wait]` | spawn a **sibling** of `<target>`: a new session in its cwd, in its stack (created around it first when it has none), told where the StackBrief is — see [Stacks](#stacks) |
+| `fleet stack spawn <target> [prompt] [--harness <h>] [--name <n>] [--model <id>] [--dir <path>] [--on <host>] [--no-wait]` | spawn a **sibling** of `<target>`: a new session in its cwd (`--on`: on another host), in its stack (created around it first when it has none), told where the StackBrief is — see [Stacks](#stacks) |
 | `fleet watch [--interval 5] [--stuck 300] [--quiet] [--rows 1\|2\|auto] [--no-mouse]` | live dashboard + notifications on finished/stuck sessions |
 | `fleet usage [--json] [--refresh]` | the Claude subscription's usage limits on this host's login — current session (5h), weekly all models, weekly per model (e.g. Fable), extra usage — as bars with reset times; the numbers Claude Code's `/usage` shows. Cached 60s (`--refresh` skips it); a failed read serves the last one marked stale and backs off 2 minutes. `--json`: see [architecture](architecture.md#subscription-usage). `-H <host>` reads another machine's login |
 | `fleet skill install [--force]\|show` | install / print the Claude Code skill (`~/.claude/skills/fleet/SKILL.md`; `--force` overwrites a different one) |
@@ -108,22 +108,30 @@ reachable by its **full** session id. With `-H <host>` every form runs on that h
 
 ### Stacks
 
-A **stack** is a set of sessions on one host that share one context layer: a markdown file, the
-**StackBrief** — `$FLEET_STACKS_DIR`, else `${XDG_STATE_HOME:-~/.local/state}/fleet/stacks/<stack_id>.md`
-(dir `0700`, files `0600`, atomic writes; format in [architecture.md](architecture.md#session-stacks)).
-The file is the state: id (`st-` + 8 hex, never changes), label, cwd, the members, and the
-sections Summary / Resources / Sessions / Notes. It is written with one `claude -p --model
-<stacks.model>` call (default `sonnet`) when the stack is created; after that scripts keep
-`## Sessions` (membership) and people — or the sessions themselves — edit the rest by hand.
+A **stack** is a set of sessions — on one host or across hosts — that share one context layer:
+a markdown file, the **StackBrief** — `$FLEET_STACKS_DIR`, else
+`${XDG_STATE_HOME:-~/.local/state}/fleet/stacks/<stack_id>.md` on the host where the stack was
+created, its **home** (dir `0700`, files `0600`, atomic writes; format in
+[architecture.md](architecture.md#session-stacks)).
+The file is the state: id (`st-` + 8 hex, never changes), label, cwd, the members (each with the
+host it runs on), and the sections Summary / Resources / Sessions / Notes. It is written with one
+`claude -p --model <stacks.model>` call (default `sonnet`) when the stack is created; after that
+scripts keep `## Sessions` (membership) and people — or the sessions themselves — edit the rest
+by hand.
 
-Every session spawned into a stack gets this first prompt: `You're running in the session stack
-with shared context: <abs path to the file>. <prompt>`.
+Every session spawned into a stack on its home host gets this first prompt: `You're running in
+the session stack with shared context: <abs path to the file>. <prompt>`. One spawned on another
+host (`--on`) cannot read that path and gets: `You're running in the session stack with shared
+context: stack <id> on host <home>. Read it with \`fleet -H <home> stack show <id>\` and update it
+with \`fleet -H <home> stack set <id>\` (the whole markdown on stdin; …). <prompt>`.
 
 `<stack>` resolves: exact id (`st-1a2b3c4d` or `1a2b3c4d`) → label (exact, then case-insensitive
 prefix, then substring) → a member's session id (whole, or a prefix of ≥ 8) → a session target
 that is a member. Two hits on the same rung is an error listing the candidates (exit 2); no hit is
 exit 3. `<target>` is a live session target as everywhere else (an ambiguous one is exit 2).
-With `-H <host>` every form runs on that host, where the files are.
+With `-H <host>` every form runs on that host, where the files are — a stack is always addressed
+on its home, whichever hosts its members run on. `--on <host>` (`add`, `spawn`) is different: the
+stack stays here, the session is (started) there.
 
 | form | does |
 | --- | --- |
@@ -131,13 +139,13 @@ With `-H <host>` every form runs on that host, where the files are.
 | `fleet stack show <stack> [--json \| --path]` | the StackBrief body (no frontmatter); `--json` the StackView; `--path` only the file path |
 | `fleet stack new --from <target> [--label <l>] [--no-llm] [--json]` | create a stack around a live session (error if it is in one already — says which). The model writes Summary / Resources and a label (unless `--label`); `--no-llm`, `FLEET_FIXTURE`, `stacks.enabled: false` or a failing call give the skeleton (Summary "Started from <title> in <cwd>.", Resources = the Git line + Folder) — a failed call never blocks the stack: `generated: false` and a `warning` |
 | `fleet stack ensure <target> [--label] [--no-llm] [--json]` | the session's stack, created like `new` when it has none |
-| `fleet stack spawn <target> [prompt] [--harness] [--name] [--model] [--dir] [--backend iterm\|tmux] [--tmux-session <s>] [--window] [--no-wait] [--label] [--no-llm] [--json]` | a sibling: `ensure` on `<target>`, then a new session on this host in `<target>`'s cwd (`--dir` overrides) whose first prompt is the context line + `prompt`, always through a prompt file `~/.claude/fleet-handoffs/<stamp>-stack-<hex>.md`; then waits (≤ 75 s) for it to register and adds it. `--no-wait` skips that and prints the `fleet stack add` to run later. `-n` / `FLEET_DRY_RUN` prints the launch line and the prompt and writes nothing (not even a new stack). Starts an agent — confirm like `spawn` |
-| `fleet stack add <stack> <target> [--json]` | add a live session (refused when it is live in another stack) |
+| `fleet stack spawn <target> [prompt] [--harness] [--name] [--model] [--dir] [--backend iterm\|tmux] [--tmux-session <s>] [--window] [--on <host>] [--no-wait] [--label] [--no-llm] [--json]` | a sibling: `ensure` on `<target>`, then a new session on this host in `<target>`'s cwd (`--dir` overrides) whose first prompt is the context line + `prompt`, always through a prompt file `~/.claude/fleet-handoffs/<stamp>-stack-<hex>.md`; then waits (≤ 75 s) for it to register and adds it. `--on <host>`: the session starts on that host instead — `fleet --local spawn` there over ssh, in `--dir` (a path there; default `<target>`'s cwd as `~/…`, the same place on that machine) with the remote context line + `prompt` as the argument; it then waits for it in that host's `fleet list` and adds it as a member of that host (`spawned.host`, `session.host` in `--json`). `--no-wait` skips the waiting and prints the `fleet stack add` to run later. `-n` / `FLEET_DRY_RUN` prints the launch line (the ssh line with `--on`) and the prompt and writes nothing (not even a new stack). Starts an agent — confirm like `spawn` |
+| `fleet stack add <stack> <target> [--on <host>] [--input <src>] [--json]` | add a live session (refused when it is live in another stack of this host). `--on <host>`: a session running on that host — `<target>` is resolved among its rows, from `fleet list --json` over ssh, or from `--input` (`-` = stdin: a `list --json` array or an `/api/fleet` body carrying that host; what the web server passes, so it never needs ssh). Naming this machine is the plain form |
 | `fleet stack remove <stack> <target\|session_id> [--json]` | drop a member (a gone one by its session id or a prefix of ≥ 4, or its name); removing the last leaves an empty stack (the file stays) |
 | `fleet stack rename <stack> <label> [--json]` | rename the stack: the label (one line, ≤ 80 chars, cleaned like `--label`) in the frontmatter, the header line follows; `editedAt` stamped. `--json`: the StackView |
 | `fleet stack edit <stack>` | the body in `$VISUAL` / `$EDITOR`, saved as a human edit (with `--expect-updated` semantics; on another host fetched with `stack show --json` and written back with `stack set`) |
 | `fleet stack set <stack> [--expect-updated <iso>] [--json]` | the markdown on stdin, saved as a human edit: authoritative for everything but the header and `## Sessions` (regenerated); the stored machine keys stay; a `label:` in its frontmatter renames the stack; `editedAt` stamped. A stale `--expect-updated` is exit 3, nothing written (with `--json` stdout still carries `{ error, id, updated }`, the stored timestamp) |
-| `fleet stack sync [--json]` | reconcile members with the live sessions: gone → `closed` (once; a session dormant after a reboot is left open), live → name refreshed; only changed files are rewritten. `--json`: `{ host, changed: [ids], stacks: [StackView…] }`. Also runs implicitly in `list`, `show` and after `spawn` / `add` / `remove` |
+| `fleet stack sync [--input <src>] [--json]` | reconcile members with the live sessions: gone → `closed` (once; a session dormant after a reboot is left open), live → name refreshed; only changed files are rewritten. A member is judged only against its own host's sessions: without `--input` that is this machine (members on other hosts are left as they were); `--input <src>` (`-` = stdin: a `list --json` array or an `/api/fleet` body) brings the other hosts' live sessions, a host with `ok: false` in it is still not judged. `--json`: `{ host, changed: [ids], stacks: [StackView…] }`. Also runs implicitly (without input) in `list`, `show` and after `spawn` / `add` / `remove` |
 | `fleet stack rm <stack> [-f] [--json]` | delete the stack's file (asks unless `-f`; `--json` needs `-f`) → `{ removed: id }` |
 
 **StackView** (`--json`; the web API serves it as-is):
@@ -147,15 +155,21 @@ With `-H <host>` every form runs on that host, where the files are.
   "cwd": "~/Code/project", "absCwd": "/abs/…/Code/project",
   "created": "…", "updated": "…", "generatedAt": "…", "editedAt": null,
   "contextLine": "You're running in the session stack with shared context: /abs/…/stacks/st-1a2b3c4d.md.",
+  "remoteContextLine": "You're running in the session stack with shared context: stack st-1a2b3c4d on host laptop. Read it with `fleet -H laptop stack show st-1a2b3c4d` and update it with `fleet -H laptop stack set st-1a2b3c4d` (the whole markdown on stdin; `fleet -H laptop stack show st-1a2b3c4d --json` has it under `markdown`).",
   "members": [ { "session": "<uuid>", "host": "laptop", "name": "login-redirect", "added": "…", "closed": null,
                  "cwd": "~/Code/project", "firstPrompt": "…",
-                 "live": true, "dormant": false, "status": "idle", "briefPath": "/abs/…/briefs/<uuid>.md", "briefExists": true } ],
+                 "live": true, "dormant": false, "status": "idle", "briefPath": "/abs/…/briefs/<uuid>.md", "briefExists": true },
+               { "session": "<uuid>", "host": "workstation", "name": "login-e2e", "added": "…", "closed": null,
+                 "cwd": "/home/x/Code/project", "firstPrompt": "…",
+                 "live": true, "dormant": false, "status": null, "briefPath": null, "briefExists": false } ],
   "markdown": "<whole file>", "body": "<without frontmatter>",
   "parsed": { "summary": "…", "resources": [ { "kind": "PR", "label": "…", "url": "…", "path": null, "text": "…", "branch": null, "linked": null } ],
               "notes": "…" } }
 ```
 
-`status` is `null` for a member that is not live. `new` / `ensure --json` print the StackView plus
+`status` is `null` for a member that is not live, and for one on a host not observed by this call
+(then `live` is `closed == null`; `briefPath` is `null` — the brief is on that host). `new` /
+`ensure --json` print the StackView plus
 `created` (**bool**: made by this call — it shadows the view's timestamp, which is repeated as
 `createdAt`), `generated`, `warning` (string \| null) and `stack` (the untouched StackView).
 `spawn --json`: `{ stack: StackView, created, generated, warning, spawned: { desc, dir,

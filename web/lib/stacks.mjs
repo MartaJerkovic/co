@@ -2,8 +2,11 @@
 // sessions sharing one markdown file, the StackBrief; the `fleet` CLI owns it entirely
 // (`fleet --local stack … --json`, lib/fleet-cli.mjs). The server never parses the markdown: it
 // passes the CLI's JSON (StackView) through, adds `editorUrl` on the serving side, spawns
-// siblings with its own spawner and, in the background, adds the new session to the stack once
-// it has registered and keeps membership in sync (`stack sync`).
+// siblings with its own spawner (or a peer's, for a sibling on another host) and, in the
+// background, adds the new session to the stack once it has registered and keeps membership in
+// sync (`stack sync --input -` with the merged fleet, so members on other hosts are judged too).
+// This host's stacks go out in its `/api/fleet?local=1` entry (`stacks`, compact) and every
+// server stamps `stack` on the rows of members whose stack is homed elsewhere (`stampForeign`).
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 
@@ -113,19 +116,63 @@ export async function resolveStackSpawnDir({ base, requested = null, roots = [],
   }
 }
 
+/** A StackView → the compact entry this host advertises in `/api/fleet` (`stacks[]`). */
+export function compactStack(view) {
+  if (!view || typeof view !== 'object' || !STACK_ID_RE.test(String(view.id))) return null;
+  return {
+    id: view.id,
+    label: typeof view.label === 'string' ? view.label : view.id,
+    host: typeof view.host === 'string' ? view.host : null,
+    members: (Array.isArray(view.members) ? view.members : [])
+      .filter((m) => m && typeof m.session === 'string')
+      .map((m) => ({ session: m.session, host: typeof m.host === 'string' ? m.host : null, live: typeof m.live === 'boolean' ? m.live : m.closed == null })),
+  };
+}
+
+/**
+ * Stamp `stack: { id, label, host }` on the rows of sessions that are live members of a stack
+ * homed on another host (each host's `stacks[]` names its own stacks and their members' hosts).
+ * A row's own `stack` (its host's file) wins. Pure: a new `hosts` array, rows copied as needed.
+ */
+export function stampForeign(hosts) {
+  if (!Array.isArray(hosts)) return hosts;
+  const out = hosts.map((h) => (h && typeof h === 'object' ? { ...h, sessions: Array.isArray(h.sessions) ? [...h.sessions] : h.sessions } : h));
+  const byName = new Map(out.filter((h) => h && typeof h.name === 'string').map((h) => [h.name, h]));
+  for (const home of out) {
+    if (!home || !Array.isArray(home.stacks)) continue;
+    for (const st of home.stacks) {
+      if (!st || typeof st.id !== 'string' || !Array.isArray(st.members)) continue;
+      const ref = { id: st.id, label: typeof st.label === 'string' ? st.label : st.id, host: home.name };
+      for (const m of st.members) {
+        if (!m || typeof m.session !== 'string' || !m.host || m.host === home.name || m.live === false) continue;
+        const entry = byName.get(m.host);
+        if (!entry || !Array.isArray(entry.sessions)) continue;
+        const i = entry.sessions.findIndex((s) => s?.session_id === m.session);
+        if (i < 0 || entry.sessions[i].stack) continue;
+        entry.sessions[i] = { ...entry.sessions[i], stack: ref };
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * @param deps
  *   cli           lib/fleet-cli.mjs instance (stackList/Show/Set/Remove/Ensure/Add/Sync)
  *   listSessions  () => Promise<rows> — this host's fresh `fleet list --json` rows
  *   gateSessions  () => Promise<rows | null> — the current list for the sync gate (a cached one
  *                 is fine: server.mjs passes fleet.localHost(), 2 s TTL); default listSessions
+ *   self          this host's name (members without a host, and the join's default)
  *   syncEnabled   run the background sync (web.stacks; FLEET_WEB_STACKS=0 turns it off)
  *   syncIntervalMs, initialDelayMs, joinDelaysMs, sleep, log, now
+ * `attach({ fleetBody, peerSessions })` (server.mjs, once the API exists): the merged
+ * `/api/fleet` body for the sync, and a peer's fresh rows for a join on another host.
  */
 export function createStacks({
   cli,
   listSessions,
   gateSessions = null,
+  self = 'local',
   syncEnabled = true,
   syncIntervalMs = 2 * 60 * 1000,
   initialDelayMs = STACK_SYNC_INITIAL_DELAY_MS,
@@ -137,6 +184,8 @@ export function createStacks({
   if (!cli || typeof cli.stackSync !== 'function') throw new TypeError('cli.stackSync must be a function');
   if (typeof listSessions !== 'function') throw new TypeError('listSessions must be a function');
   const wait = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms).unref?.()));
+  let fleetBody = null; // () => Promise<{ hosts }> — the merged fleet (attach)
+  let peerSessions = null; // (host) => Promise<rows | null> (attach)
 
   const call = async (what, fn) => {
     try {
@@ -144,6 +193,26 @@ export function createStacks({
     } catch (err) {
       throw stackHttpError(err, what);
     }
+  };
+
+  // --- what this host's stacks look like now: every StackView seen, by id ------------------
+  const known = new Map(); // id → compact
+  const remember = (view) => {
+    const c = compactStack(view);
+    if (c) known.set(c.id, c);
+    return view;
+  };
+  const rememberAll = (body) => {
+    if (Array.isArray(body?.stacks)) {
+      known.clear();
+      for (const v of body.stacks) remember(v);
+    }
+    return body;
+  };
+  /** The nested StackView of an `ensure` answer (its own `created` is the timestamp). */
+  const rememberEnsured = (out) => {
+    remember(out?.stack && typeof out.stack === 'object' ? out.stack : out);
+    return out;
   };
 
   // --- membership sync: de-duplicated, with one trailing re-run for a call made mid-run ---
@@ -154,9 +223,10 @@ export function createStacks({
   async function doSync(reason) {
     const at = now();
     try {
-      const report = await cli.stackSync();
+      const input = fleetBody ? await fleetBody().catch(() => null) : null;
+      const report = rememberAll(await cli.stackSync(input && Array.isArray(input.hosts) ? { input } : {}));
       const changed = Array.isArray(report?.changed) ? report.changed : [];
-      lastSync = { at, ms: now() - at, reason, ok: true, changed };
+      lastSync = { at, ms: now() - at, reason, ok: true, changed, merged: Boolean(input) };
       if (changed.length) log(`[stacks] ${reason} sync: ${changed.join(', ')} updated`);
       return report;
     } catch (err) {
@@ -185,11 +255,18 @@ export function createStacks({
     return queued;
   }
 
-  /** One background tick: sync only when the last list showed a session in a stack. */
+  /**
+   * One background tick: sync when the last list showed a session in a stack, or a known
+   * stack may have members elsewhere (`known`, seeded by the first tick, which always runs).
+   */
+  let ticked = false;
   async function tick() {
+    const first = !ticked;
+    ticked = true;
     const rows = await (gateSessions ?? listSessions)().catch(() => null);
-    if (!Array.isArray(rows) || !rows.some((r) => r?.stack != null)) return { ran: false };
-    await sync('scheduled').catch(() => {}); // logged in doSync
+    const inStack = Array.isArray(rows) && rows.some((r) => r?.stack != null);
+    if (!first && !inStack && known.size === 0) return { ran: false };
+    await sync(first ? 'initial' : 'scheduled').catch(() => {}); // logged in doSync
     return { ran: true };
   }
 
@@ -206,56 +283,71 @@ export function createStacks({
   }
 
   // --- after a sibling spawn: find the new session by its tmux name, then `stack add` ----
-  const pending = new Map(); // `${stackId} ${tmuxSession}` -> promise
+  const pending = new Map(); // `${stackId} ${host} ${tmuxSession}` -> promise
 
-  async function runJoin(tmuxSession, stackId) {
+  /**
+   * The new session's row: this host's fresh list, or — a sibling started on `host` — that
+   * peer's (`peerSessions`, its `/api/fleet?local=1`). `null` = could not list this try.
+   */
+  async function rowsOn(host) {
+    if (host === self) return listSessions().catch(() => null);
+    if (!peerSessions) return null;
+    return peerSessions(host).catch(() => null);
+  }
+
+  async function runJoin(tmuxSession, stackId, host) {
+    const where = host === self ? '' : ` on ${host}`;
+    const hint = host === self ? `fleet stack add ${stackId} <session>` : `fleet stack add ${stackId} <session> --on ${host}`;
     let tries = 0;
     for (const delay of joinDelaysMs) {
       await wait(delay);
       if (stopped) return { ok: false, reason: 'stopped', tries };
       tries += 1;
-      let rows;
-      try {
-        rows = await listSessions();
-      } catch {
-        continue;
-      }
+      const rows = await rowsOn(host);
+      if (!Array.isArray(rows)) continue;
       const s = findSpawned(rows, tmuxSession);
       if (!s) continue; // not registered yet
       if (s.stack?.id === stackId) return { ok: true, reason: 'already a member', session: s.session_id, tries };
       try {
-        await cli.stackAdd(stackId, s.session_id);
-        log(`[stacks] ${tmuxSession} (${String(s.session_id).slice(0, 8)}) joined ${stackId}`);
+        const view =
+          host === self
+            ? await cli.stackAdd(stackId, s.session_id)
+            : await cli.stackAdd(stackId, s.session_id, { host, input: { hosts: [{ name: host, ok: true, sessions: [s] }] } });
+        remember(view);
+        log(`[stacks] ${tmuxSession}${where} (${String(s.session_id).slice(0, 8)}) joined ${stackId}`);
         return { ok: true, reason: 'added', session: s.session_id, tries };
       } catch (err) {
         const msg = String(err?.message ?? err);
         if (!err?.timedOut && [1, 2, 3].includes(err?.exitCode)) {
-          log(`[stacks] ${tmuxSession}: not added to ${stackId}: ${msg}`);
+          log(`[stacks] ${tmuxSession}${where}: not added to ${stackId}: ${msg}`);
           return { ok: false, reason: 'refused', session: s.session_id, tries, error: msg };
         }
-        log(`[stacks] ${tmuxSession}: add to ${stackId} failed (try ${tries}): ${msg}`);
+        log(`[stacks] ${tmuxSession}${where}: add to ${stackId} failed (try ${tries}): ${msg}`);
       }
     }
-    log(`[stacks] ${tmuxSession}: not found after ${tries} tries — run \`fleet stack add ${stackId} <session>\``);
+    log(`[stacks] ${tmuxSession}${where}: not found after ${tries} tries — run \`${hint}\``);
     return { ok: false, reason: 'not found', tries };
   }
 
-  /** Start the background add for a just-spawned tmux session (once per pair); its promise never rejects. */
-  function join(tmuxSession, stackId) {
-    const key = `${stackId} ${tmuxSession}`;
+  /**
+   * Start the background add for a just-spawned tmux session (once per stack / host / name);
+   * `host` is where it was started (default: this host). Its promise never rejects.
+   */
+  function join(tmuxSession, stackId, host = self) {
+    const key = `${stackId} ${host} ${tmuxSession}`;
     if (pending.has(key)) return pending.get(key);
-    const p = runJoin(tmuxSession, stackId).finally(() => pending.delete(key));
+    const p = runJoin(tmuxSession, stackId, host).finally(() => pending.delete(key));
     pending.set(key, p);
     return p;
   }
 
   return {
-    list: () => call('fleet stack list', () => cli.stackList()),
-    show: (id) => call('fleet stack show', () => cli.stackShow(id)),
+    list: () => call('fleet stack list', async () => rememberAll(await cli.stackList())),
+    show: (id) => call('fleet stack show', async () => remember(await cli.stackShow(id))),
     /** A human edit. Conflict (CLI exit 3) → HttpError 409 carrying `body: { error, updated }`. */
     async set(id, markdown, expectUpdated = null) {
       try {
-        return await cli.stackSet(id, markdown, expectUpdated);
+        return remember(await cli.stackSet(id, markdown, expectUpdated));
       } catch (err) {
         if (err?.exitCode === 3 && !err?.missing && !STACK_MISSING_RE.test(String(err?.message))) {
           const report = err.report ?? {};
@@ -266,14 +358,26 @@ export function createStacks({
         throw stackHttpError(err, 'fleet stack set');
       }
     },
-    remove: (id) => call('fleet stack rm', () => cli.stackRemove(id)),
-    rename: (id, label) => call('fleet stack rename', () => cli.stackRename(id, label)),
-    ensure: (sessionId, opts) => call('fleet stack ensure', () => cli.stackEnsure(sessionId, opts)),
+    remove: (id) =>
+      call('fleet stack rm', async () => {
+        const r = await cli.stackRemove(id);
+        known.delete(id);
+        return r;
+      }),
+    rename: (id, label) => call('fleet stack rename', async () => remember(await cli.stackRename(id, label))),
+    ensure: (sessionId, opts) => call('fleet stack ensure', async () => rememberEnsured(await cli.stackEnsure(sessionId, opts))),
     /** POST …/stacks/sync: like `sync`, errors mapped to HttpError. */
     syncNow: (reason = 'manual') => call('fleet stack sync', () => sync(reason)),
     sync,
     tick,
     join,
+    /** This host's stacks, compact (`/api/fleet` → `hosts[].stacks`): what the last calls showed. */
+    compact: () => [...known.values()],
+    /** Wire the merged fleet (sync) and a peer's rows (join on another host); either may be absent. */
+    attach({ fleetBody: fb = null, peerSessions: ps = null } = {}) {
+      fleetBody = typeof fb === 'function' ? fb : null;
+      peerSessions = typeof ps === 'function' ? ps : null;
+    },
     start() {
       stopped = false;
       if (syncEnabled) schedule(initialDelayMs);
@@ -282,7 +386,7 @@ export function createStacks({
       stopped = true;
       clearTimeout(timer);
     },
-    status: () => ({ sync: syncEnabled, syncMinutes: syncIntervalMs / 60000, lastSync }),
+    status: () => ({ sync: syncEnabled, syncMinutes: syncIntervalMs / 60000, lastSync, known: known.size }),
     get lastSync() {
       return lastSync;
     },

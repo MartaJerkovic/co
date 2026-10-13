@@ -27,6 +27,7 @@ import { createTouchedIndex } from './lib/touched.mjs';
 import { createBriefExtractor } from './lib/brief-extract.mjs';
 import { createBriefStore, createBriefs, createClaudeAsk, gitInfo } from './lib/briefs.mjs';
 import { createStacks } from './lib/stacks.mjs';
+import { fetchPeerHost } from './lib/peers.mjs';
 import { createDormant } from './lib/dormant.mjs';
 import { createApi } from './lib/api.mjs';
 import { createHttpServer } from './lib/app.mjs';
@@ -108,6 +109,7 @@ const briefs = createBriefs({
 // sync runs every web.stacks.syncMinutes while a session is in a stack (FLEET_WEB_STACKS=0: off).
 const stacks = createStacks({
   cli,
+  self: config.self,
   listSessions: async () => {
     const host = await fleet.localHost({ force: true });
     if (!host.ok) throw new Error(host.error);
@@ -186,6 +188,17 @@ server.listen(config.port, config.bind, () => {
   } else {
     log(`[fleet-web] briefs: background generation off (web.briefs.enabled = false); ${config.briefs.dir}`);
   }
+  // The sync judges members on other hosts with the merged fleet (the warm snapshot when someone
+  // is watching, else one fresh build); a sibling started on a peer is found in that peer's list.
+  stacks.attach({
+    fleetBody: async () => handleApi.peekFleet() ?? (await handleApi.buildFleet()),
+    peerSessions: async (name) => {
+      const url = config.peers[name];
+      if (!url) return null;
+      const h = await fetchPeerHost(name, url, { timeoutMs: 6000 });
+      return h.ok ? h.sessions : null;
+    },
+  });
   stacks.start();
   log(config.stacks.sync
     ? `[fleet-web] stacks: sync every ${config.stacks.syncMinutes}m while a session is in a stack (fleet stack sync)`

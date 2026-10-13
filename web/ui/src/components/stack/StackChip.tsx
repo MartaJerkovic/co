@@ -3,6 +3,7 @@ import { LayersIcon } from 'lucide-react'
 import type { Session } from '@/api/types'
 import { useStackLabel } from '@/hooks/useStackLabels'
 import { openStackSheet } from '@/hooks/useStackUi'
+import { stackHome } from '@/lib/stacks'
 import { cn } from '@/lib/utils'
 
 /**
@@ -11,8 +12,9 @@ import { cn } from '@/lib/utils'
  */
 export function StackChip({ session: s, className }: { session: Session; className?: string }) {
   const st = s.stack
+  const home = stackHome(s)
   // A rename in flight shows here at once (hooks/useStackLabels.ts).
-  const { label } = useStackLabel(s.host, st?.id, st?.label || st?.id || '')
+  const { label } = useStackLabel(home, st?.id, st?.label || st?.id || '')
   if (!st?.id) return null
   return (
     <button
@@ -22,7 +24,7 @@ export function StackChip({ session: s, className }: { session: Session; classNa
       onClick={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        openStackSheet(s.host, st.id)
+        openStackSheet(home, st.id)
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}

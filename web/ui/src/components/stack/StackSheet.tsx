@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { api } from '@/api/client'
 import type { BriefResource, StackMember, StackView } from '@/api/types'
 import { InlineEdit } from '@/components/InlineEdit'
+import { HostDot } from '@/components/HostBadge'
 import { Markdown } from '@/components/Markdown'
 import { StatusDot } from '@/components/StatusDot'
 import { Button } from '@/components/ui/button'
@@ -184,7 +185,7 @@ function StackBody({
   }
 
   const spawnSibling = () =>
-    openSiblingSpawn({ host, stackId: id, cwd: s?.absCwd ?? s?.cwd ?? null, label: label || null, creates: false })
+    openSiblingSpawn({ host, stackId: id, cwd: s?.absCwd ?? s?.cwd ?? null, cwdHost: host, label: label || null, creates: false })
 
   const updated = briefTime(s?.updated)
   const edited = briefTime(s?.editedAt)
@@ -381,6 +382,8 @@ function Members({ stack, onOpen, now }: { stack: StackView; onOpen: (m: StackMe
             const title = session ? sessionTitle(session) : m.name || m.session.slice(0, 8)
             const status = session?.status ?? m.status ?? null
             const closed = briefTime(m.closed)
+            // A member on another host than the stack's home says where it runs.
+            const elsewhere = ref.host !== stack.host
             return (
               <li key={`${m.host}/${m.session}`}>
                 <button
@@ -390,6 +393,12 @@ function Members({ stack, onOpen, now }: { stack: StackView; onOpen: (m: StackMe
                 >
                   {live ? <StatusDot status={status} className="size-2" /> : <span aria-label="closed" className="inline-block size-2 shrink-0 rounded-full border border-dimmer" />}
                   <span className={cn('min-w-0 flex-1 truncate text-sm', !live && 'text-muted-foreground')}>{title}</span>
+                  {elsewhere ? (
+                    <span className="flex shrink-0 items-center gap-1 text-[0.6875rem] text-dimmer" title={`Runs on ${ref.host}`}>
+                      <HostDot host={ref.host} />
+                      {ref.host}
+                    </span>
+                  ) : null}
                   <span className={cn('shrink-0 text-xs', live ? STATUS_TEXT[statusMeta(status).key] : 'text-dimmer')}>
                     {live ? (session ? statusLabel(session) : statusMeta(status).label) : m.dormant ? 'dormant' : closed ? `closed ${relTime(closed, now)} ago` : 'closed'}
                   </span>

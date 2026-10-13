@@ -176,10 +176,12 @@ export function withStackColumns(columns: BoardColumn[], sessions: Session[]): B
   for (const s of sessions) {
     const st = s.stack
     if (!st?.id) continue
-    const k = memberKey(s.host, st.id)
+    // One column per stack, keyed by its home host: members on other hosts join it.
+    const home = st.host || s.host
+    const k = memberKey(home, st.id)
     const entry = stacks.get(k)
     if (entry) entry.sessions.push(s)
-    else stacks.set(k, { id: st.id, host: s.host, label: st.label || st.id, sessions: [s] })
+    else stacks.set(k, { id: st.id, host: home, label: st.label || st.id, sessions: [s] })
   }
   if (!stacks.size) return columns
   const inStack = new Set([...stacks.values()].flatMap((st) => st.sessions.map((s) => memberKey(s.host, s.session_id))))

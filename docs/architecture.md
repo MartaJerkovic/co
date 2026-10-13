@@ -372,7 +372,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | --- | --- | --- |
 | GET | `/api/health` | name, version, apiVersion, self, uptime, autoName (`lastRun`) |
 | GET | `/api/settings` | apiVersion, self, host names, quick replies, `transcribe: { enabled }` (this server has a transcription key) |
-| GET | `/api/fleet[?local=1]` | `{ self, hosts: [{ name, ok, error?, sessions, spawnDirs, notes? }], snapshotAt }` — sessions are `list --json` objects + `host` (a Codex session with no transcript yet gets `session_id: "pid-<pid>"` until it has one) (`title` capped at 300 chars) + `editorUrl` (the "Open in editor" link for its cwd, built by the server that answered — see [Session briefs](#session-briefs)); the merged view is a warm background-refreshed snapshot |
+| GET | `/api/fleet[?local=1]` | `{ self, hosts: [{ name, ok, error?, sessions, spawnDirs, notes?, stacks? }], snapshotAt }` — `stacks`: that host's [session stacks](#session-stacks), compact (`{ id, label, host, members: [{ session, host, live }] }`), from which the merged view stamps `stack: { id, label, host }` on the rows of members running on *other* hosts; sessions are `list --json` objects + `host` (a Codex session with no transcript yet gets `session_id: "pid-<pid>"` until it has one) (`title` capped at 300 chars) + `editorUrl` (the "Open in editor" link for its cwd, built by the server that answered — see [Session briefs](#session-briefs)); the merged view is a warm background-refreshed snapshot |
 | GET | `/api/hosts/:host/sessions/:id/peek?lines=N` | plain-text screen |
 | GET | `/api/hosts/:host/sessions/:id/messages?limit=N` | conversation (no tool calls) from the transcript; an AskUserQuestion call is a message of `kind: "question"` with `id` (the tool use id), `questions` (`[{ question, header, multiSelect, options: [{ label, description }] }]`), `text` (a markdown rendering) and, once it has a result, `answers` (per question, the answer string) or `declined: true` |
 | POST | `/api/hosts/:host/sessions/:id/send` | `{ text }` → typed + Enter |
@@ -408,9 +408,9 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | PUT | `/api/hosts/:host/stacks/:id` | `{ markdown, expectUpdated? }` → `fleet --local stack set <id> [--expect-updated] --json` (markdown on stdin) → StackView; **409** `{ error, updated }` on conflict; 400 bad body (markdown a string ≤ 64 kB) |
 | POST | `/api/hosts/:host/stacks/:id/rename` | `{ label }` (one line, 1–80 chars) → `fleet --local stack rename <id> <label> --json` → StackView; 400 bad label; 404 unknown |
 | DELETE | `/api/hosts/:host/stacks/:id` | `fleet --local stack rm <id> -f --json` → `{ removed }` |
-| POST | `/api/hosts/:host/stacks/:id/spawn` | `{ prompt?, name?, model?, harness?, dir? }` → a sibling in that stack: `dir` defaults to the stack's `absCwd`; otherwise as the session route below, without `ensure` |
-| POST | `/api/hosts/:host/sessions/:id/stack/spawn` | `{ prompt?, name?, model?, harness?, dir? }` → (1) `fleet --local stack ensure <session_id> --json` (timeout 150 s: it may call the model); (2) the server's own spawner (tmux, trust prompt handled) in the session's cwd (or `dir`, inside the session's cwd or a spawn dir) with `prompt` = `contextLine + ' ' + prompt`; (3) in the background, find the new session (by tmux session name, ≤ ~75 s) and `fleet --local stack add <stack id> <session_id> --json` → 200 `{ host, stack: StackView, created, generated, spawn: { name, dir, tmuxSession, command, trusted, model } }` |
-| POST | `/api/hosts/:host/stacks/sync` | `fleet --local stack sync --json` → `{ host, changed, stacks }` |
+| POST | `/api/hosts/:host/stacks/:id/spawn` | `{ prompt?, name?, model?, harness?, dir?, host? }` → a sibling in that stack: `dir` defaults to the stack's `absCwd`; otherwise as the session route below, without `ensure` |
+| POST | `/api/hosts/:host/sessions/:id/stack/spawn` | `{ prompt?, name?, model?, harness?, dir?, host? }` → (1) `fleet --local stack ensure <session_id> --json` (timeout 150 s: it may call the model); (2) the server's own spawner (tmux, trust prompt handled) in the session's cwd (or `dir`, inside the session's cwd or a spawn dir) with `prompt` = `contextLine + ' ' + prompt`; (3) in the background, find the new session (by tmux session name, ≤ ~75 s) and `fleet --local stack add <stack id> <session_id> --json` → 200 `{ host, stack: StackView, created, generated, spawn: { name, dir, tmuxSession, command, trusted, model } }`. With `host` (a peer of `:host`, the stack's home): `dir` is required (a path there), the peer's `/spawn` starts it with `remoteContextLine + ' ' + prompt`, the join watches the peer's list and runs `stack add … --on <host> --input -` here; `spawn.host` names the peer |
+| POST | `/api/hosts/:host/stacks/sync` | `fleet --local stack sync --input - --json` with the merged `/api/fleet` body on stdin (plain `sync` when it cannot be built) → `{ host, changed, stacks }` |
 | GET | `/api/hosts/:host/dormant` | [session recovery](#session-recovery): `fleet --local restore --json` → `{ host, bootId, dormant: [DormantView], closed: [ClosedView] }` (`closed`: [recently closed](#recently-closed), from CLIs that know it); 501 when this host's CLI has no `restore` |
 | POST | `/api/hosts/:host/dormant/restore` | `{ target, dryRun? }` (a dormant tmux name or session id, one line ≤ 200 chars) or `{ all: true, dryRun? }` → `fleet --local restore [--dry-run] (-- <target> \| --all) --json` → `{ host, restored, failed }`. Starts agents, like spawn: **409** `{ error, candidates }` when the target is ambiguous (exit 2), 404 no match (exit 3), 502 `{ error, restored: [], failed }` when nothing came back; a partial `--all` is 200 with `failed` filled. The fleet list (and a stack sync) refresh as the sessions register. Proxy timeout 6 min |
 | POST | `/api/hosts/:host/dormant/forget` | `{ target }` or `{ all: true }` → `fleet --local restore (--forget=<target> \| --forget-all) --json` → `{ host, forgotten }`; 409 / 404 as restore |
@@ -611,10 +611,11 @@ ssh-remote+<ssh dest> <path>` for a session on another host (`cursor` with `web.
 
 ## Session stacks
 
-A **stack** is N Claude Code sessions on one host sharing one context layer: a markdown file,
-the **StackBrief**. Any session can spawn a *sibling* (`fleet stack spawn`, the web UI's "Spawn
-sibling"); the sibling joins the source's stack, which is created around the source first when
-it has none. Every session spawned into a stack starts with the **context line**:
+A **stack** is N Claude Code sessions — on one host or across hosts — sharing one context
+layer: a markdown file, the **StackBrief**. Any session can spawn a *sibling* (`fleet stack
+spawn`, the web UI's "Spawn sibling"), on its own host or on another one (`--on <host>`, the
+form's Host choice); the sibling joins the source's stack, which is created around the source
+first when it has none. Every session spawned into a stack starts with the **context line**:
 
 ```
 You're running in the session stack with shared context: <abs path to the stack file>. <prompt>
@@ -622,15 +623,27 @@ You're running in the session stack with shared context: <abs path to the stack 
 
 (nothing after the period when the prompt is empty; `core::stack::context_line` /
 `stack_prompt`, and `contextLine` in every `--json` output so the web server prepends the same
-text). The StackBrief is generated once, at creation; after that it is maintained by scripts
+text). A sibling on **another host** than the stack's home cannot read that path, so it gets the
+**remote context line** instead (`core::stack::remote_context_line`, `remoteContextLine` in the
+StackView):
+
+```
+You're running in the session stack with shared context: stack <id> on host <home>. Read it with `fleet -H <home> stack show <id>` and update it with `fleet -H <home> stack set <id>` (the whole markdown on stdin; `fleet -H <home> stack show <id> --json` has it under `markdown`). <prompt>
+```
+
+The StackBrief is generated once, at creation; after that it is maintained by scripts
 (membership) and by hand. Logic: `core::stack`; CLI: `fleet stack` ([cli.md](cli.md#stacks));
 the web server only shells out to `fleet --local stack … --json` and never parses the markdown.
 
 **Storage.** `$FLEET_STACKS_DIR`, else `${XDG_STATE_HOME:-~/.local/state}/fleet/stacks/`, one
 `<stack_id>.md` per stack (dir `0700`, files `0600`, atomic temp + rename writes). The file is
 the state — no index; "which stack is session X in" scans the dir. Stack id: `st-` + 8 random
-lowercase hex, never changes. A stack lives on the host where its file is; its members are
-sessions of that host (`host` on members is for later — v1 never mixes hosts).
+lowercase hex, never changes. A stack lives on the host where its file is — its **home**
+(frontmatter `host`) — and every `fleet stack` command about it runs there (`-H <home>` from
+elsewhere). Its members may run on any host: `members[].host` (a member without one is on the
+home). Only the home host knows the stack: `fleet list` on another host does not stamp its
+members' rows (the web server does, from the home's `/api/fleet` entry — see below), and
+`fleet stack list` there does not show it.
 
 **Format** (a contract: add keys freely, never rename or retype one):
 
@@ -671,13 +684,15 @@ free text; any other `## ` section is kept as is
   `stack`, `host`, `cwd`, `created`, `updated` (last write of any kind), `generatedAt` (the model
   wrote Summary/Resources), `editedAt` (last human edit), `members` — are never taken from an
   edited body; `label` is (from the submitted frontmatter). Unknown keys are preserved.
-- `members[]`: `{ session, host, name, added, closed, cwd?, firstPrompt? }` — `name` is the
+- `members[]`: `{ session, host, name, added, closed, cwd?, firstPrompt? }` — `host` is where
+  the session runs (the stack's home when absent), `name` is the
   display title at the last sync, `closed` `null` while live and an ISO time once the session was
-  seen gone (members are never removed automatically; `fleet stack remove` does), `cwd` (`~/…`)
-  and `firstPrompt` (≤ 160 chars) are kept so the Sessions line survives the session. Unknown
-  member keys are preserved.
+  seen gone (members are never removed automatically; `fleet stack remove` does), `cwd` (`~/…`,
+  or absolute on another host) and `firstPrompt` (≤ 160 chars) are kept so the Sessions line
+  survives the session. Unknown member keys are preserved.
 - Body: the header blockquote and `## Sessions` are **regenerated** on every machine write
-  (Sessions from `members`: `live` / `closed <date>`, the brief path whether or not it exists, the
+  (Sessions from `members`: `live` / `closed <date>`, `, on <host>` for a member on another host
+  than the home (its paths are paths there), the brief path whether or not it exists, the
   transcript path for the member's cwd, `first prompt:` when known; dates UTC). `Summary`,
   `Resources`, `Notes` and any other section, and text above the first heading, are a human's
   and kept verbatim. Parsing is tolerant like briefs (case-insensitive headings, any order,
@@ -689,16 +704,23 @@ free text; any other `## ` section is kept as is
   most 64 kB.
 
 **Membership sync** (`core::stack::sync`, no model): for every stack file on this host, a member
-whose session id is not among the live sessions gets `closed = now` (once); a live one gets its
-`name` refreshed from `display_title` (and `closed` cleared — a resumed session). Only files
-whose members changed are rewritten. It runs in `fleet stack list` / `show` / `sync` and after
-`spawn` / `add` / `remove`; the web server runs `stack sync` after a kill and every
-`web.stacks.syncMinutes` while any session is in a stack. Nothing is marked closed when the
-session registry can't be read, and a member dormant on this machine (left by a reboot,
+whose session id is not among the live sessions *of its host* gets `closed = now` (once); a live
+one gets its `name` refreshed from `display_title` (and `closed` cleared — a resumed session).
+A member is judged only against the rows of its own host (`core::stack::Observed`): plain
+`fleet stack sync` knows this machine's sessions, so members on other hosts are left as they
+were; `--input <src>` (`-` = stdin; a `list --json` array or a `/api/fleet` body) adds the other
+hosts' live rows, and a host with `ok: false` there is still not judged. The web server passes
+its merged fleet that way, so a sibling that ended on another host is closed within a sync
+interval (and re-opened if it comes back). Only files whose members changed are rewritten. It
+runs in `fleet stack list` / `show` / `sync` and after `spawn` / `add` / `remove`; the web server
+runs `stack sync` after a kill, once 30 s after start, and every `web.stacks.syncMinutes` while
+any session is in a stack or it knows a stack. Nothing is marked closed when the session
+registry can't be read, and a member dormant on this machine (left by a reboot,
 `snapshot::dormant_session_ids`) is not marked closed either — it is left as it was. StackView
-members carry `dormant: true|false` next to `live` (dormant = not live and in this machine's
-dormant set). `fleet list` only stamps `stack: { id, label } | null` on each
-row (read-only).
+members carry `host`, `dormant: true|false` next to `live` (dormant = not live and in this
+machine's dormant set); for a member on a host not observed, `live` is `closed == null`,
+`status` is `null` and `briefPath` is `null` (the brief is on that host). `fleet list` only
+stamps `stack: { id, label, host } | null` on each row (read-only; `host` = the stack's home).
 
 **Generation** (creation only; `stacks.model`, default `sonnet`): one `core::naming::ask_claude`
 call (`-p --model <m> --strict-mcp-config`, tools disallowed, prompt on stdin, neutral cwd, 120 s)

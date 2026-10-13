@@ -441,7 +441,7 @@ export function SessionScreen({
   const stackMenu: DetailsPanelProps['stack'] = !session || !stacksKnown(session)
     ? null
     : stackRef
-      ? { label: stackRef.label, onOpen: () => fromMenu(() => openStackSheet(host, stackRef.id)) }
+      ? { label: stackRef.label, onOpen: () => fromMenu(() => openStackSheet(stackRef.host || host, stackRef.id)) }
       : {
           label: null,
           onSpawnSibling: () =>

@@ -5,13 +5,16 @@ import { useSyncExternalStore } from 'react'
 
 /** Who a sibling is spawned from: a session (its stack, created on demand) or a stack. */
 export interface SiblingTarget {
+  /** The host the request goes to: the stack's home (the session's own host when it creates the stack). */
   host: string
   /** A session: POST …/sessions/:id/stack/spawn (creates the stack when it has none). */
   sessionId?: string
   /** A stack: POST …/stacks/:id/spawn (used when there is no source session). */
   stackId?: string
-  /** Where the sibling starts (the source session's / stack's cwd), shown read-only. */
+  /** Where the sibling starts by default (the source session's / stack's cwd), shown read-only. */
   cwd: string | null
+  /** The host `cwd` is on (where the user is looking): the form's initial host. Default: `host`. */
+  cwdHost?: string | null
   /** The stack's label, or the source session's title when it creates the stack. */
   label: string | null
   /** No stack yet: this spawn creates one (one model call). */

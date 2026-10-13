@@ -93,12 +93,18 @@ export interface NewSessionDrawerProps {
   prefill?: SpawnPrefill | null
   /**
    * Spawn sibling: a new session in the source session's / stack's directory (read-only), in its
-   * stack (created first when it has none) — POST …/stack/spawn. Host and directory are fixed.
+   * stack (created first when it has none) — POST …/stack/spawn to the stack's home. The host is
+   * the source's unless the user picks another (then one of that host's directories, sent as `host` + `dir`).
    */
   sibling?: SiblingTarget | null
 }
 
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+/** The same last folder name (`~/Code/app` on one host, `/home/x/Code/app` on another). */
+const sameFolderName = (a: string, b: string) => {
+  const last = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? ''
+  return !!last(a) && last(a) === last(b)
+}
 
 /**
  * `+` in the list header: host, directory (that host's spawnDirs), model and an optional first
@@ -152,7 +158,8 @@ function NewSessionForm({
   const hosts = spawnTargets(fleet)
 
   const [host, setHost] = useState(() => {
-    if (sibling) return sibling.host
+    // A sibling starts where the user is looking (the source session's host); the stack's home may differ.
+    if (sibling) return sibling.cwdHost ?? sibling.host
     if (prefill && hosts.some((h) => h.name === prefill.host)) return prefill.host
     const remembered = storage.get(HOST_KEY)
     return hosts.find((h) => h.name === remembered)?.name ?? hosts[0]?.name ?? ''
@@ -163,8 +170,12 @@ function NewSessionForm({
   const dirs =
     prefillDir && !hostDirs.some((d) => samePath(d.path, prefillDir)) ? [{ label: PREFILL_DIR_LABEL, path: prefillDir }, ...hostDirs] : hostDirs
   const [dirLabels, setDirLabels] = useState<Record<string, string | null>>({})
+  // A sibling on the source's host starts in its directory (no choice); on another host the user
+  // picks one of that host's directories — the same repo (by folder name) is preselected.
+  const siblingSameHost = !!sibling && host === (sibling.cwdHost ?? sibling.host)
+  const siblingMatch = sibling && !siblingSameHost && sibling.cwd ? (hostDirs.find((d) => sameFolderName(d.path, sibling.cwd ?? ''))?.label ?? null) : null
   const rememberedLabel =
-    dirLabels[host] ?? (prefillDir ? dirs.find((d) => samePath(d.path, prefillDir))?.label : null) ?? storage.get(dirKey(host))
+    dirLabels[host] ?? (prefillDir ? dirs.find((d) => samePath(d.path, prefillDir))?.label : null) ?? siblingMatch ?? storage.get(dirKey(host))
   const dir = dirs.find((d) => d.label === rememberedLabel) ?? dirs[0] ?? null
 
   const { models: claudeModels, voice: voiceEnabled } = useSettings()
@@ -222,7 +233,7 @@ function NewSessionForm({
 
   const pickHost = (h: string) => {
     setHost(h)
-    storage.set(HOST_KEY, h)
+    if (!sibling) storage.set(HOST_KEY, h) // a sibling's host is a one-off choice
     setError(null)
   }
   const chooseModel = (id: string) => {
@@ -239,14 +250,20 @@ function NewSessionForm({
   }
 
   // ⌘/Ctrl+Enter submits from any field (the prompt included; plain Enter there stays a newline).
-  const canStart = !busy && (!!sibling || !!dir) && progress == null && voice.state === 'idle'
+  const canStart = !busy && (sibling ? siblingSameHost || !!dir : !!dir) && progress == null && voice.state === 'idle'
 
   const startSibling = async (sib: SiblingTarget) => {
     setBusy(true)
     setError(null)
     try {
       const sent = prompt
-      const body = { prompt: sent.trim() ? sent : undefined, model: model || undefined, harness: harness === 'claude' ? undefined : harness }
+      const body = {
+        prompt: sent.trim() ? sent : undefined,
+        model: model || undefined,
+        harness: harness === 'claude' ? undefined : harness,
+        // Another host than the source's: say where, and in which of its directories.
+        ...(siblingSameHost ? {} : { host, dir: dir?.path }),
+      }
       const res = sib.sessionId ? await api.spawnSibling(sib.host, sib.sessionId, body) : await api.spawnInStack(sib.host, sib.stackId ?? '', body)
       onDone()
       const label = res.stack?.label || sib.label || 'the stack'
@@ -441,6 +458,62 @@ function NewSessionForm({
       </div>
     </Field>
   )
+  const hostField =
+    hosts.length > 1 ? (
+      <Field label="Host">
+        <ToggleGroup
+          type="single"
+          value={host}
+          onValueChange={(v) => v && pickHost(v)}
+          aria-label="Host"
+          className="no-scrollbar w-full overflow-x-auto"
+        >
+          {hosts.map((h) => (
+            <ToggleGroupItem
+              key={h.name}
+              value={h.name}
+              className="h-10 gap-2 rounded-full border border-border bg-card px-4 text-sm data-[state=on]:border-primary/50 data-[state=on]:bg-accent"
+            >
+              <HostDot host={h.name} />
+              {h.name}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </Field>
+    ) : null
+  const dirField = (
+    <Field label="Directory">
+      {dirs.length ? (
+        <div role="radiogroup" aria-label="Directory" className="grid grid-cols-1 gap-1.5">
+          {dirs.map((d) => {
+            const on = d === dir
+            return (
+              <button
+                key={d.label}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => pickDir(d.label)}
+                className={cn(
+                  'flex min-h-12 items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors',
+                  on ? 'border-primary/50 bg-accent' : 'border-border bg-card active:bg-muted',
+                )}
+              >
+                <FolderIcon className={cn('size-4 shrink-0', on ? 'text-primary' : 'text-dimmer')} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{d.label}</span>
+                  <span className="block truncate font-mono text-[0.6875rem] text-dimmer">{shortCwd(d.path, 60)}</span>
+                </span>
+                {on ? <CheckIcon className="size-4 shrink-0 text-primary" /> : null}
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-sm text-dimmer">{host} advertises no directories.</p>
+      )}
+    </Field>
+  )
   const errorBox =
     error ? (
       <Alert variant="destructive">
@@ -483,8 +556,8 @@ function NewSessionForm({
         <Description className="text-left text-xs">
           {sibling
             ? sibling.creates
-              ? 'This starts a new stack around this session (one Sonnet call), then a sibling session in the same directory that reads the shared StackBrief first.'
-              : `A new session in the stack ${sibling.label ? `“${sibling.label}”` : ''}, in the same directory. It reads the shared StackBrief first.`
+              ? `This starts a new stack around this session (one Sonnet call), then a sibling session${siblingSameHost ? ' in the same directory' : ` on ${host}`} that reads the shared StackBrief first.`
+              : `A new session in the stack ${sibling.label ? `“${sibling.label}”` : ''}${siblingSameHost ? ', in the same directory' : ` on ${host}`}. It reads the shared StackBrief first${siblingSameHost ? '' : ` (through fleet, from ${sibling.host})`}.`
             : `Starts ${who} in a new tmux session. A first-run folder trust prompt is accepted for you.`}
         </Description>
       </Header>
@@ -497,13 +570,15 @@ function NewSessionForm({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{sibling.label || (sibling.creates ? 'this session' : 'Session stack')}</span>
                 <span className="flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-dimmer">
-                  <HostDot host={sibling.host} />
-                  <span className="shrink-0">{sibling.host}</span>
+                  <HostDot host={sibling.cwdHost ?? sibling.host} />
+                  <span className="shrink-0">{sibling.cwdHost ?? sibling.host}</span>
                   {sibling.cwd ? <span className="min-w-0 truncate font-mono">· {shortCwd(sibling.cwd, 60)}</span> : null}
                 </span>
               </span>
             </div>
           </Field>
+          {hostField}
+          {siblingSameHost ? null : dirField}
           {harnessField}
           {modelField}
           {promptField}
@@ -516,60 +591,9 @@ function NewSessionForm({
         </Alert>
       ) : (
         <div className="space-y-4 pt-1">
-          {hosts.length > 1 ? (
-            <Field label="Host">
-              <ToggleGroup
-                type="single"
-                value={host}
-                onValueChange={(v) => v && pickHost(v)}
-                aria-label="Host"
-                className="no-scrollbar w-full overflow-x-auto"
-              >
-                {hosts.map((h) => (
-                  <ToggleGroupItem
-                    key={h.name}
-                    value={h.name}
-                    className="h-10 gap-2 rounded-full border border-border bg-card px-4 text-sm data-[state=on]:border-primary/50 data-[state=on]:bg-accent"
-                  >
-                    <HostDot host={h.name} />
-                    {h.name}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </Field>
-          ) : null}
+          {hostField}
 
-          <Field label="Directory">
-            {dirs.length ? (
-              <div role="radiogroup" aria-label="Directory" className="grid grid-cols-1 gap-1.5">
-                {dirs.map((d) => {
-                  const on = d === dir
-                  return (
-                    <button
-                      key={d.label}
-                      type="button"
-                      role="radio"
-                      aria-checked={on}
-                      onClick={() => pickDir(d.label)}
-                      className={cn(
-                        'flex min-h-12 items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors',
-                        on ? 'border-primary/50 bg-accent' : 'border-border bg-card active:bg-muted',
-                      )}
-                    >
-                      <FolderIcon className={cn('size-4 shrink-0', on ? 'text-primary' : 'text-dimmer')} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium">{d.label}</span>
-                        <span className="block truncate font-mono text-[0.6875rem] text-dimmer">{shortCwd(d.path, 60)}</span>
-                      </span>
-                      {on ? <CheckIcon className="size-4 shrink-0 text-primary" /> : null}
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="text-sm text-dimmer">{host} advertises no directories.</p>
-            )}
-          </Field>
+          {dirField}
 
           {harnessField}
 

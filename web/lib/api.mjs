@@ -21,6 +21,7 @@ import {
   STACK_BODY_LIMIT,
   STACK_ID_RE,
   resolveStackSpawnDir,
+  stampForeign,
   validateStackEdit,
   validateStackLabel,
   withStackEditor,
@@ -173,15 +174,18 @@ export function createApi({
 }) {
   // Each host advertises whether it has a notes explorer (like its spawnDirs).
   const notesInfo = () => (notes ? { notes: { name: notes.name ?? null } } : {});
+  // …and its session stacks, compact, so a peer can stamp the rows of their members on its side.
+  const stacksInfo = () => (stacks ? { stacks: stacks.compact() } : {});
 
   async function buildFleet({ force = false } = {}) {
-    const selfHost = { ...(await fleet.localHost({ force })), spawnDirs: config.spawnDirs, ...notesInfo() };
+    const selfHost = { ...(await fleet.localHost({ force })), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() };
     const peerNames = Object.keys(config.peers);
     const peerHosts = await Promise.all(
       peerNames.map((n) => fetchPeerHost(n, config.peers[n], { timeoutMs: peerFleetTimeoutMs })),
     );
     // Editor links are added per request (handleFleet): they depend on where the browser is.
-    return { self: config.self, hosts: [selfHost, ...peerHosts] };
+    // A member of a stack homed on another host gets that stack on its row here.
+    return { self: config.self, hosts: stampForeign([selfHost, ...peerHosts]) };
   }
 
   // The merged fleet, served stale-while-revalidate so a page load never waits on
@@ -213,7 +217,7 @@ export function createApi({
     const withEditors = (body) => ({ ...body, hosts: body.hosts.map((h) => withSessionEditors(h, ec)) });
     if (url.searchParams.get('local') === '1') {
       // Peers poll this: the local host (2s TTL cache), never the merged snapshot.
-      const selfHost = { ...(await fleet.localHost()), spawnDirs: config.spawnDirs, ...notesInfo() };
+      const selfHost = { ...(await fleet.localHost()), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() };
       return { status: 200, body: withEditors({ self: config.self, hosts: [selfHost] }) };
     }
     if (snapshot) return { status: 200, body: withEditors(await snapshot.get()) };
@@ -1004,7 +1008,9 @@ export function createApi({
    * A sibling: from a session (`sessionId`: `stack ensure` first — it may create the stack) or
    * from a stack (`stackId`). Spawns with this server's spawner in the source's directory, the
    * stack's context line prepended to the prompt, then adds the new session to the stack in the
-   * background once it shows up in `fleet list` (lib/stacks.mjs#join).
+   * background once it shows up in `fleet list` (lib/stacks.mjs#join). With `host` (a peer):
+   * the peer's `/spawn` route starts it in `dir` (a path there, required) with the stack's
+   * `remoteContextLine`, and the join watches that peer's list; the stack stays on this host.
    */
   async function localStackSpawn({ req, sessionId = null, stackId = null }) {
     if (!stacks) throw new HttpError('session stacks are not available on this server', 501);
@@ -1014,6 +1020,10 @@ export function createApi({
     if (!check.ok) throw new HttpError(check.error, 400);
     const requested = typeof body.dir === 'string' && body.dir.trim() ? check.dir : null;
     const label = validateStackLabel(body.label);
+    const spawnHost = typeof body.host === 'string' && body.host.trim() ? body.host.trim() : config.self;
+    const remote = spawnHost !== config.self;
+    if (remote && !config.peers[spawnHost]) throw new HttpError(`unknown host: ${spawnHost} (not a peer with a web url)`, 400);
+    if (remote && !requested) throw new HttpError(`dir is required for a sibling on ${spawnHost}`, 400);
 
     let stack;
     let created = false;
@@ -1023,7 +1033,7 @@ export function createApi({
       const source = await resolveLocalSession(sessionId);
       if (!source.session_id || !SESSION_ID_RE.test(source.session_id)) throw new HttpError('this session has no session id yet', 409);
       if (typeof source.cwd !== 'string' || !source.cwd) throw new HttpError('this session has no working directory', 409);
-      dir = await resolveStackSpawnDir({ base: source.cwd, requested, roots }); // before any model call
+      if (!remote) dir = await resolveStackSpawnDir({ base: source.cwd, requested, roots }); // before any model call
       const out = await stacks.ensure(source.session_id, { label });
       // `ensure --json` is flat: the StackView keys plus `created` (bool: made by this call),
       // `createdAt`, `generated`, `warning` and `stack` (the untouched StackView, whose own
@@ -1037,13 +1047,40 @@ export function createApi({
       }
     } else {
       stack = await stacks.show(stackId);
-      dir = await resolveStackSpawnDir({ base: stack?.absCwd ?? stack?.cwd, requested, roots });
+      if (!remote) dir = await resolveStackSpawnDir({ base: stack?.absCwd ?? stack?.cwd, requested, roots });
     }
     if (!stack?.id || typeof stack.contextLine !== 'string') throw new HttpError('fleet stack returned no stack id / contextLine — update fleet on this host', 502);
+    if (remote && typeof stack.remoteContextLine !== 'string') throw new HttpError('fleet stack returned no remoteContextLine — update fleet on this host', 502);
 
     // Exactly `core::stack::stack_prompt`: the context line, a space, the trimmed prompt.
     const userPrompt = check.prompt.trim();
-    const prompt = userPrompt ? `${stack.contextLine} ${userPrompt}` : stack.contextLine;
+    const line = remote ? stack.remoteContextLine : stack.contextLine;
+    const prompt = userPrompt ? `${line} ${userPrompt}` : line;
+    if (remote) {
+      // The peer validates `dir` against its own spawn dirs and names / auto-names the session.
+      const proxied = await proxyToPeer(config.peers[spawnHost], {
+        method: 'POST',
+        pathname: `/api/hosts/${encodeURIComponent(spawnHost)}/spawn`,
+        body: JSON.stringify({
+          dir: requested,
+          prompt,
+          ...(check.nameGiven ? { name: check.name } : {}),
+          ...(check.model ? { model: check.model } : {}),
+          harness: check.harness,
+        }),
+        timeoutMs: peerProxyTimeoutMs,
+      });
+      if (proxied.status !== 200) {
+        const why = proxied.body?.error ?? `HTTP ${proxied.status}`;
+        throw new HttpError(`${spawnHost}: ${why}`, proxied.status >= 500 ? 502 : proxied.status);
+      }
+      refreshFleet();
+      if (typeof proxied.body?.tmuxSession === 'string') stacks.join(proxied.body.tmuxSession, stack.id, spawnHost);
+      return {
+        status: 200,
+        body: { host: config.self, stack, created: Boolean(created), generated: Boolean(generated), spawn: { ok: true, ...proxied.body, host: spawnHost } },
+      };
+    }
     const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
     let result;
     try {

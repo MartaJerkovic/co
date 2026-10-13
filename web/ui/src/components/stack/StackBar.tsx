@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { STACK_BAR_POLL_MS, useStack } from '@/hooks/useStack'
 import { useRenameStack, useStackLabel } from '@/hooks/useStackLabels'
 import { openSiblingSpawn, openStackSheet } from '@/hooks/useStackUi'
-import { MAX_STACK_LABEL, memberCountsText, stackLabelChanged } from '@/lib/stacks'
+import { MAX_STACK_LABEL, memberCountsText, stackHome, stackLabelChanged } from '@/lib/stacks'
 import { cn } from '@/lib/utils'
 
 /**
@@ -18,12 +18,14 @@ import { cn } from '@/lib/utils'
  */
 export function StackBar({ session, pane = false }: { session: Session; pane?: boolean }) {
   const ref = session.stack
-  const st = useStack(session.host, ref?.id ?? null, !!ref?.id, STACK_BAR_POLL_MS)
+  // Everything about the stack is served by its home host (the session may run elsewhere).
+  const home = stackHome(session)
+  const st = useStack(home, ref?.id ?? null, !!ref?.id, STACK_BAR_POLL_MS)
   const [editing, setEditing] = useState(false)
-  const { label, saving } = useStackLabel(session.host, ref?.id, st.stack?.label || ref?.label || ref?.id || '')
+  const { label, saving } = useStackLabel(home, ref?.id, st.stack?.label || ref?.label || ref?.id || '')
   const rename = useRenameStack()
   if (!ref?.id || st.missing) return null
-  const open = () => openStackSheet(session.host, ref.id)
+  const open = () => openStackSheet(home, ref.id)
   return (
     <div className="shrink-0 border-b bg-muted/30 px-safe">
       <div className={cn('mx-auto flex w-full items-center gap-1.5 py-1 text-xs', pane ? 'px-4' : 'max-w-3xl px-3')}>
@@ -42,7 +44,7 @@ export function StackBar({ session, pane = false }: { session: Session; pane?: b
               setEditing(false)
               if (!stackLabelChanged(text, label)) return
               // The bar polls once a minute: take the renamed StackView now.
-              void rename(session.host, ref.id, text).then((view) => view && st.apply(view))
+              void rename(home, ref.id, text).then((view) => view && st.apply(view))
             }}
             onCancel={() => setEditing(false)}
             className={cn('font-medium text-foreground', saving && 'opacity-70')}
@@ -73,7 +75,15 @@ export function StackBar({ session, pane = false }: { session: Session; pane?: b
           title="Spawn sibling"
           className={cn('shrink-0 rounded-lg text-xs', pane ? 'h-8 px-2' : '-my-1 size-11 px-0')}
           onClick={() =>
-            openSiblingSpawn({ host: session.host, sessionId: session.session_id, cwd: session.cwd ?? null, label, creates: false })
+            openSiblingSpawn({
+              host: home,
+              // A member on the home host spawns from itself (its cwd); one elsewhere from the stack.
+              ...(home === session.host ? { sessionId: session.session_id } : { stackId: ref.id }),
+              cwd: session.cwd ?? null,
+              cwdHost: session.host,
+              label,
+              creates: false,
+            })
           }
         >
           <GitForkIcon />

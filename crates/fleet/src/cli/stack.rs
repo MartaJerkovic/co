@@ -1,6 +1,8 @@
 //! `fleet stack`: session stacks — sessions that share one context file, the StackBrief
 //! (docs/architecture.md → "Session stacks"). The logic lives in `core::stack`; this is argument
-//! handling, the text / JSON output, the editor round trip and the sibling spawn.
+//! handling, the text / JSON output, the editor round trip and the sibling spawn — on this host
+//! or, with `--on <host>`, on another one (the stack stays here; the sibling gets the shared
+//! context through `fleet -H <here> stack …`).
 
 use std::collections::HashSet;
 use std::io::{BufRead, Read, Write};
@@ -30,6 +32,8 @@ const AWAIT: Duration = Duration::from_secs(75);
 struct Ctx {
     dir: PathBuf,
     paths: Paths,
+    /// This machine's live sessions (host unset), then — with `--input` — other hosts' rows,
+    /// each under its `host`.
     rows: Vec<Session>,
     /// `false` when the registry could not be read: nothing may be marked closed then.
     rows_ok: bool,
@@ -39,10 +43,20 @@ struct Ctx {
     me: String,
     /// The name rows are tagged with (the caller's name for this host).
     label: String,
+    /// Hosts whose sessions `rows` lists in full: this machine, plus every host an `--input`
+    /// answered for. Members of other hosts are never judged.
+    hosts_ok: HashSet<String>,
 }
 
 impl Ctx {
     fn new() -> Result<Self> {
+        Self::load(None)
+    }
+
+    /// With `input` (`-` = stdin, else a file): a `list --json` array or a `/api/fleet` body —
+    /// the other hosts' live sessions, so their members can be judged (the web server's
+    /// merged fleet). Rows of this machine come from discovery regardless.
+    fn load(input: Option<&str>) -> Result<Self> {
         let (mut rows, rows_ok) = match discovery::discover_checked() {
             Ok(r) => (r, true),
             Err(e) => {
@@ -52,15 +66,64 @@ impl Ctx {
         };
         naming::stamp_titles(&mut rows);
         title::stamp_display_titles(&mut rows);
+        let me = config::get().self_name();
+        let label = host_label();
+        let mut hosts_ok: HashSet<String> = [me.clone(), label.clone()].into();
+        if let Some(src) = input {
+            let text = if src == "-" {
+                let mut s = String::new();
+                std::io::stdin().read_to_string(&mut s)?;
+                s
+            } else {
+                std::fs::read_to_string(crate::core::tools::expand_tilde(src))
+                    .map_err(|e| Error::Other(format!("cannot read {src}: {e}")))?
+            };
+            let v: Value = serde_json::from_str(&text)
+                .map_err(|e| Error::Other(format!("--input is not JSON: {e}")))?;
+            let (more, ok) = stack::parse_input(&v, &me).map_err(Error::Other)?;
+            let mine = |h: &str| h == me || h == label;
+            rows.extend(
+                more.into_iter()
+                    .filter(|r| r.host.as_deref().is_none_or(|h| !mine(h))),
+            );
+            hosts_ok.extend(ok.into_iter().filter(|h| !mine(h)));
+        }
         Ok(Ctx {
             dir: stack::stacks_dir()?,
             paths: Paths::current(),
             rows,
             rows_ok,
             dormant: crate::core::snapshot::dormant_session_ids(),
-            me: config::get().self_name(),
-            label: host_label(),
+            me,
+            label,
+            hosts_ok,
         })
+    }
+
+    fn obs(&self) -> stack::Observed<'_> {
+        stack::Observed {
+            rows: &self.rows,
+            hosts_ok: &self.hosts_ok,
+            dormant: &self.dormant,
+            local: &self.me,
+        }
+    }
+
+    /// `host` means this machine: its config name, the caller's name for it, or a local alias.
+    fn is_me(&self, host: &str) -> bool {
+        let h = host.trim();
+        h == self.me
+            || h == self.label
+            || matches!(h.to_lowercase().as_str(), "local" | "localhost" | "self")
+    }
+
+    /// This machine's rows only.
+    fn local_rows(&self) -> Vec<Session> {
+        self.rows
+            .iter()
+            .filter(|r| r.host.as_deref().is_none_or(|h| self.is_me(h)))
+            .cloned()
+            .collect()
     }
 
     /// Reconcile members with the live sessions (writes only what changed; nothing on a
@@ -71,8 +134,7 @@ impl Ctx {
         }
         stack::sync(
             &self.dir,
-            &self.rows,
-            &self.dormant,
+            &self.obs(),
             &brief::iso_now(),
             &self.paths,
             !hosts::dry_run(),
@@ -93,8 +155,7 @@ impl Ctx {
             s,
             &stack::ViewCtx {
                 host_label: &self.label,
-                rows: &self.rows,
-                dormant: &self.dormant,
+                obs: &self.obs(),
                 paths: &self.paths,
                 path: &path,
             },
@@ -103,28 +164,31 @@ impl Ctx {
 
     fn resolve(&self, q: &str) -> Result<Stack> {
         let all = self.stacks();
-        stack::resolve(&all, &self.rows, q).cloned()
+        stack::resolve(&all, &self.local_rows(), q).cloned()
     }
 
-    /// A live session target — an ambiguous one is exit 2 with the candidates.
+    /// A live session target on this machine — an ambiguous one is exit 2 with the candidates.
     fn session(&self, target: &str) -> Result<Session> {
-        let s = discovery::resolve_in(self.rows.clone(), target).map_err(|e| {
-            if stack::is_ambiguous_session(&e) {
-                Error::exit(EXIT_AMBIGUOUS, e)
-            } else {
-                Error::Other(e)
+        session_in(self.local_rows(), target)
+    }
+
+    /// A live session target among `rows` (one host's), as [`Ctx::session`].
+    fn session_on(&self, host: &str, target: &str, input: bool) -> Result<Session> {
+        let rows = if input {
+            if !self.hosts_ok.contains(host) {
+                return Err(Error::Other(format!(
+                    "--input has no sessions for host '{host}' (it did not answer, or is not in it)"
+                )));
             }
-        })?;
-        if s.session_id
-            .as_deref()
-            .is_none_or(|id| !brief::is_session_id(id))
-        {
-            return Err(Error::Other(format!(
-                "{} has no session id yet",
-                s.headline()
-            )));
-        }
-        Ok(s)
+            self.rows
+                .iter()
+                .filter(|r| r.host.as_deref() == Some(host))
+                .cloned()
+                .collect()
+        } else {
+            remote_rows(host)?
+        };
+        session_in(rows, target)
     }
 
     /// Write `s` (stamps `updated`), or say what would be written on a dry run.
@@ -137,6 +201,55 @@ impl Ctx {
         }
         stack::save(&self.dir, s, &now, &self.paths)
     }
+}
+
+fn session_in(rows: Vec<Session>, target: &str) -> Result<Session> {
+    let s = discovery::resolve_in(rows, target).map_err(|e| {
+        if stack::is_ambiguous_session(&e) {
+            Error::exit(EXIT_AMBIGUOUS, e)
+        } else {
+            Error::Other(e)
+        }
+    })?;
+    if s.session_id
+        .as_deref()
+        .is_none_or(|id| !brief::is_session_id(id))
+    {
+        return Err(Error::Other(format!(
+            "{} has no session id yet",
+            s.headline()
+        )));
+    }
+    Ok(s)
+}
+
+/// A configured host other than this machine, by name (an ssh destination as-is otherwise).
+fn remote_of(host: &str) -> Result<Remote> {
+    match hosts::resolve(config::get(), Some(host), false, hosts::Scope::SelfHost)? {
+        Target::Remote(r) => Ok(r),
+        Target::Local { .. } => Err(Error::Other(format!(
+            "'{host}' is this machine — leave --on out"
+        ))),
+    }
+}
+
+/// `fleet list --json` on `host` (over ssh), rows tagged with it.
+fn remote_rows(host: &str) -> Result<Vec<Session>> {
+    let r = remote_of(host)?;
+    let got = hosts::capture_remote(
+        &r,
+        &["list".into(), "--json".into()],
+        hosts::remote_timeout(),
+    )?;
+    if !got.ok() {
+        return Err(Error::Other(format!("{}: {}", r.name, got.why(&r))));
+    }
+    let mut rows: Vec<Session> = serde_json::from_str(&got.stdout)
+        .map_err(|e| Error::Other(format!("bad `fleet list --json` from {}: {e}", r.name)))?;
+    for s in rows.iter_mut() {
+        s.host = Some(host.to_string());
+    }
+    Ok(rows)
 }
 
 fn print_json(v: &Value) -> Result<()> {
@@ -213,9 +326,9 @@ pub fn show(q: &str, json: bool, path_only: bool) -> Result<()> {
     Ok(())
 }
 
-/// `fleet stack sync`
-pub fn sync(json: bool) -> Result<()> {
-    let c = Ctx::new()?;
+/// `fleet stack sync [--input <src>]`
+pub fn sync(input: Option<&str>, json: bool) -> Result<()> {
+    let c = Ctx::load(input)?;
     if !c.rows_ok {
         return Err(Error::Other(
             "cannot read the session registry — nothing synced".into(),
@@ -419,15 +532,17 @@ pub fn ensure(target: &str, label: Option<&str>, no_llm: bool, json: bool) -> Re
 
 // ------------------------------------------------------------------ add / remove
 
-/// Add live session `s` to the stack with id `id` (re-read from disk). Refuses when `s` is in
-/// another stack.
-fn add_to(c: &Ctx, id: &str, s: &Session) -> Result<Stack> {
+/// Add live session `s` (running on `host`) to the stack with id `id` (re-read from disk).
+/// Refuses when `s` is live in another stack of this host.
+fn add_to(c: &Ctx, id: &str, s: &Session, host: &str) -> Result<Stack> {
     let sid = s.session_id.clone().unwrap_or_default();
     let all = c.stacks();
-    if let Some(other) = all
-        .iter()
-        .find(|st| st.id() != id && st.member(&sid).is_some_and(|m| m.is_live()))
-    {
+    if let Some(other) = all.iter().find(|st| {
+        st.id() != id
+            && st
+                .member(&sid)
+                .is_some_and(|m| m.is_live() && st.member_host(m, &c.me) == host)
+    }) {
         return Err(Error::Other(format!(
             "{} is already in stack {} ({}) — `fleet stack remove {} {}` first",
             s.headline(),
@@ -439,7 +554,7 @@ fn add_to(c: &Ctx, id: &str, s: &Session) -> Result<Stack> {
     }
     let mut st = stack::load(&c.dir, id)?
         .ok_or_else(|| Error::exit(EXIT_NOTHING, format!("stack {id} is gone")))?;
-    let m = stack::member_for(s, &c.me, &brief::iso_now(), &c.paths)
+    let m = stack::member_for(s, host, &brief::iso_now(), &c.paths)
         .ok_or_else(|| Error::Other(format!("{} has no session id yet", s.headline())))?;
     if stack::add_member(&mut st, m) {
         c.save(&mut st)?;
@@ -447,19 +562,29 @@ fn add_to(c: &Ctx, id: &str, s: &Session) -> Result<Stack> {
     Ok(st)
 }
 
-/// `fleet stack add <stack> <target>`
-pub fn add(q: &str, target: &str, json: bool) -> Result<()> {
-    let c = Ctx::new()?;
+/// `fleet stack add <stack> <target> [--on <host>] [--input <src>]`: a session of this
+/// machine, or — `--on` — one running on another host, resolved among that host's rows
+/// (`fleet list --json` over ssh, or the ones `--input` carries for it).
+pub fn add(q: &str, target: &str, on: Option<&str>, input: Option<&str>, json: bool) -> Result<()> {
+    let c = Ctx::load(input)?;
     c.sync()?;
     let st = c.resolve(q)?;
-    let s = c.session(target)?;
-    let st = add_to(&c, &st.id(), &s)?;
+    let (s, host) = match on.map(str::trim).filter(|h| !h.is_empty()) {
+        Some(h) if !c.is_me(h) => (c.session_on(h, target, input.is_some())?, h.to_string()),
+        _ => (c.session(target)?, c.me.clone()),
+    };
+    let st = add_to(&c, &st.id(), &s, &host)?;
     if json {
         return print_json(&c.view(&st));
     }
     println!(
-        "added {} to stack {} ({}, {})",
+        "added {}{} to stack {} ({}, {})",
         s.headline().bold(),
+        if host == c.me {
+            String::new()
+        } else {
+            format!(" (on {host})")
+        },
         st.label().bold(),
         st.id(),
         counts(&st)
@@ -838,6 +963,8 @@ pub struct SpawnArgs {
     pub opts: SpawnOpts,
     pub wait: bool,
     pub json: bool,
+    /// `--on <host>`: the sibling runs there (the stack stays on this host).
+    pub on: Option<String>,
 }
 
 /// `... (attach: tmux attach -t <session>)` → `<session>`.
@@ -849,11 +976,19 @@ fn tmux_session_of(desc: &str) -> Option<String> {
 
 /// `fleet stack spawn <target> [prompt]`: `ensure` on the target, then a new session in its
 /// cwd whose first prompt is the context line + `prompt` (through a prompt file), then wait for
-/// it to register and add it.
+/// it to register and add it. With `--on <host>`: [`spawn_on`].
 pub fn spawn(a: SpawnArgs) -> Result<()> {
     let c = Ctx::new()?;
     c.sync()?;
     let src = c.session(&a.target)?;
+    let on =
+        a.on.as_deref()
+            .map(str::trim)
+            .filter(|h| !h.is_empty() && !c.is_me(h))
+            .map(str::to_string);
+    if let Some(h) = on {
+        return spawn_on(&c, &src, &h, a);
+    }
     let mut opts = a.opts;
     if opts.dir.is_none() {
         opts.dir = Some(src.cwd.clone().ok_or_else(|| {
@@ -959,7 +1094,7 @@ pub fn spawn(a: SpawnArgs) -> Result<()> {
                 naming::stamp_titles(&mut one);
                 title::stamp_display_titles(&mut one);
                 s = one.remove(0);
-                match add_to(&c, &id, &s) {
+                match add_to(&c, &id, &s, &c.me) {
                     Ok(_) => {}
                     Err(err) => add_error = Some(err.to_string()),
                 }
@@ -1012,9 +1147,213 @@ pub fn spawn(a: SpawnArgs) -> Result<()> {
     Ok(())
 }
 
+/// `cwd` on another host is `dir` (`~/…` or absolute, as passed to `spawn --dir` there).
+fn same_remote_dir(cwd: &str, dir: &str) -> bool {
+    let cwd = cwd.trim_end_matches('/');
+    let dir = dir.trim_end_matches('/');
+    match dir.strip_prefix('~') {
+        Some("") => true,
+        Some(rest) => cwd.ends_with(rest),
+        None => cwd == dir,
+    }
+}
+
+/// `fleet stack spawn <target> --on <host>`: `ensure` on the target (here), then
+/// `fleet --local spawn` on `host` over ssh in `--dir` (default: the target's cwd as `~/…`,
+/// the same place on that machine) with the remote context line + `prompt`, then wait for it
+/// to register there (`fleet list --json` over ssh) and add it as a member of that host.
+fn spawn_on(c: &Ctx, src: &Session, host: &str, a: SpawnArgs) -> Result<()> {
+    let r = remote_of(host)?;
+    let opts = a.opts;
+    let dir = match opts.dir.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => d.to_string(),
+        None => c.paths.tilde(src.cwd.as_deref().ok_or_else(|| {
+            Error::Other(format!(
+                "no working directory known for {} — pass --dir",
+                src.headline()
+            ))
+        })?),
+    };
+    let name = opts
+        .name
+        .as_deref()
+        .map(crate::core::title::clean_title)
+        .transpose()?;
+    let model = opts
+        .model
+        .as_deref()
+        .map(commands::clean_model)
+        .transpose()?
+        .flatten();
+    let e = ensure_for(c, src, a.label.as_deref(), a.no_llm)?;
+    let id = e.stack.id();
+    let line = stack::remote_context_line(&id, &e.stack.home(&c.me));
+    let text = stack::prompt_after(&line, a.prompt.as_deref().unwrap_or_default());
+    let mut args: Vec<String> = vec!["spawn".into(), "--dir".into(), dir.clone()];
+    if let Some(n) = &name {
+        args.extend(["--name".into(), n.clone()]);
+    }
+    if let Some(m) = &model {
+        args.extend(["--model".into(), m.clone()]);
+    }
+    if opts.harness != Default::default() {
+        args.extend(["--harness".into(), opts.harness.id().to_string()]);
+    }
+    if let Some(b) = opts.backend {
+        args.extend(["--backend".into(), b.label().to_string()]);
+    }
+    if let Some(t) = &opts.tmux_session {
+        args.extend(["--tmux-session".into(), t.clone()]);
+    }
+    if opts.window {
+        args.push("--window".into());
+    }
+    args.extend(["--".into(), text.clone()]);
+    let cmd = hosts::ssh_command(&r.dest, &hosts::remote_fleet_command(&r, &args), Tty::Never);
+    let shown = hosts::display_command(&cmd);
+    if hosts::dry_run() {
+        if a.json {
+            return print_json(&json!({
+                "dryRun": true,
+                "stack": c.view(&e.stack),
+                "created": e.created,
+                "generated": e.generated,
+                "warning": e.warning,
+                "spawned": { "desc": format!("dry-run: {shown}"), "dir": dir, "host": host, "promptFile": null, "tmuxSession": null },
+                "session": null,
+                "prompt": text,
+                "contextLine": line,
+            }));
+        }
+        if e.created {
+            println!(
+                "dry-run: would create stack {} ({}) around {} — not written",
+                e.stack.label(),
+                id,
+                src.headline()
+            );
+        }
+        println!(
+            "dry-run: would spawn a sibling on {} in stack {}: {shown}",
+            r.name,
+            e.stack.label()
+        );
+        println!("dry-run: first prompt:\n{text}");
+        return Ok(());
+    }
+    if let Some(w) = &e.warning
+        && !a.json
+    {
+        eprintln!("{}", format!("warning: {w}").yellow());
+    }
+    let before: HashSet<String> = remote_rows(host)
+        .unwrap_or_default()
+        .iter()
+        .map(Session::key)
+        .collect();
+    hosts::debug(&format!("[{} spawn] {shown}", r.name));
+    let got = hosts::capture(cmd, Duration::from_secs(60))?;
+    if !got.ok() {
+        return Err(Error::Other(format!("{}: {}", r.name, got.why(&r))));
+    }
+    let desc = got.stdout.trim().to_string();
+    if !a.json {
+        println!(
+            "{} {desc} on {} — sibling in stack {} ({})",
+            "→".cyan(),
+            r.name.bold(),
+            e.stack.label().bold(),
+            id
+        );
+    }
+    let mut joined: Option<Session> = None;
+    let mut add_error = None;
+    if a.wait {
+        let deadline = std::time::Instant::now() + AWAIT;
+        let mut found = None;
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_secs(3));
+            let Ok(rows) = remote_rows(host) else {
+                continue;
+            };
+            if let Some(s) = rows.into_iter().find(|s| {
+                !before.contains(&s.key())
+                    && s.session_id.as_deref().is_some_and(brief::is_session_id)
+                    && s.cwd
+                        .as_deref()
+                        .is_some_and(|cwd| same_remote_dir(cwd, &dir))
+            }) {
+                found = Some(s);
+                break;
+            }
+        }
+        match found {
+            Some(s) => {
+                match add_to(c, &id, &s, host) {
+                    Ok(_) => {}
+                    Err(err) => add_error = Some(err.to_string()),
+                }
+                joined = Some(s);
+            }
+            None => {
+                add_error = Some(format!(
+                    "the new session has not registered on {host} yet — add it later: fleet stack add {id} <session> --on {host}"
+                ));
+            }
+        }
+    }
+    let hint = format!(
+        "fleet stack add {id} {} --on {host}",
+        name.clone().unwrap_or_else(|| "<new session>".into())
+    );
+    let c = Ctx::new()?;
+    c.sync()?;
+    let st = stack::load(&c.dir, &id)?.unwrap_or(e.stack.clone());
+    if a.json {
+        return print_json(&json!({
+            "stack": c.view(&st),
+            "created": e.created,
+            "generated": e.generated,
+            "warning": e.warning,
+            "spawned": {
+                "desc": desc,
+                "dir": dir,
+                "host": host,
+                "promptFile": null,
+                "tmuxSession": tmux_session_of(&desc),
+            },
+            "session": joined.as_ref().map(|s| json!({
+                "session_id": s.session_id, "pid": s.pid, "display_title": s.headline(), "host": host,
+            })),
+            "addError": add_error,
+            "addCommand": (!a.wait).then_some(hint.clone()),
+            "contextLine": line,
+        }));
+    }
+    match (&joined, &add_error) {
+        (Some(s), None) => println!(
+            "  joined as {} on {host} — steer it with `fleet -H {host} send {} \"…\"`",
+            s.headline().bold(),
+            s.label()
+        ),
+        (_, Some(err)) => println!("  {}", err.yellow()),
+        (None, None) => println!("  once it has registered, add it: {}", hint.bold()),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_dirs_match_by_home_relative_suffix() {
+        assert!(same_remote_dir("/Users/x/Code/app", "~/Code/app"));
+        assert!(same_remote_dir("/home/y/Code/app/", "~/Code/app"));
+        assert!(!same_remote_dir("/home/y/Code/app2", "~/Code/app"));
+        assert!(same_remote_dir("/srv/app", "/srv/app/"));
+        assert!(!same_remote_dir("/srv/app", "/srv/other"));
+    }
 
     #[test]
     fn tmux_session_is_read_off_the_spawn_description() {

@@ -11,6 +11,7 @@ import {
   sortedMembers,
   STACK_LABEL_TTL_MS,
   stackErrorMessage,
+  stackHome,
   stackLabelChanged,
   stacksKnown,
   stacksMissing,
@@ -61,6 +62,12 @@ test('stacksMissing: 501 or the router’s generic 404, not an unknown stack', (
 test('conflictUpdated reads the 409 body', () => {
   expect(conflictUpdated(new ApiError('conflict', 409, { error: 'conflict', updated: '2026-09-29T12:00:00.000Z' }))).toBe('2026-09-29T12:00:00.000Z')
   expect(conflictUpdated(new ApiError('x', 400, { updated: 'y' }))).toBeNull()
+})
+
+test('stackHome: the stack’s home host, else the session’s own (older servers)', () => {
+  expect(stackHome({ host: 'workstation', stack: { id: 'st-1', label: 'x', host: 'laptop' } })).toBe('laptop')
+  expect(stackHome({ host: 'workstation', stack: { id: 'st-1', label: 'x' } })).toBe('workstation')
+  expect(stackHome({ host: 'workstation', stack: null })).toBe('workstation')
 })
 
 test('stacksKnown: rows from newer CLIs carry stack (null included)', () => {

@@ -177,7 +177,10 @@ fn new_with_a_label_and_list_json_carries_stack() {
             .unwrap()
             .clone()
     };
-    assert_eq!(by(A)["stack"], json!({ "id": id, "label": "Login fix" }));
+    assert_eq!(
+        by(A)["stack"],
+        json!({ "id": id, "label": "Login fix", "host": "laptop" })
+    );
     assert!(by(B).get("stack").unwrap().is_null(), "null, not missing");
     // Listing is read-only: nothing rewritten.
     let before = std::fs::read_to_string(t.env.path(&format!("stacks/{id}.md"))).unwrap();
@@ -560,6 +563,217 @@ fn edit_under_dry_run_and_remote_dispatch() {
         .unwrap();
     let text = stdout(&out);
     assert!(text.contains("stack show x --json"), "{text}");
+}
+
+/// A `/api/fleet`-shaped body: `workstation` answered with these rows (a `list --json` row
+/// shape, as the web server merges them).
+fn fleet_body(ws_rows: &[Value], ok: bool) -> String {
+    json!({ "hosts": [
+        { "name": "laptop", "ok": true, "sessions": [] },
+        { "name": "workstation", "ok": ok, "sessions": ws_rows }
+    ] })
+    .to_string()
+}
+
+const C: &str = "cccccccc-1111-2222-3333-444444444444";
+
+#[test]
+fn members_on_another_host_join_through_input_and_are_judged_only_with_it() {
+    let t = T::new();
+    let id = t.json(&["stack", "ensure", A, "--no-llm", "--json"])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let ws = json!({
+        "pid": 77, "session_id": C, "name": "login-e2e", "cwd": "/home/ws/Code/project",
+        "status": "busy", "backend": "tmux", "handle": "%5", "tmux_session": "login-e2e",
+        "title": "Write the e2e test"
+    });
+    // `--on` without `--input` would ssh to `devbox`; with `--input` the row comes from there.
+    let out = t
+        .cmd()
+        .args([
+            "stack",
+            "add",
+            &id,
+            "login-e2e",
+            "--on",
+            "workstation",
+            "--input",
+            "-",
+            "--json",
+        ])
+        .write_stdin(fleet_body(std::slice::from_ref(&ws), true))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let m = &v["members"][1];
+    assert_eq!(m["session"], C);
+    assert_eq!(m["host"], "workstation");
+    assert_eq!(m["live"], true);
+    assert_eq!(m["status"], "busy");
+    assert_eq!(m["cwd"], "/home/ws/Code/project");
+    assert!(m["briefPath"].is_null(), "the brief is on the workstation");
+    assert_eq!(v["members"][0]["host"], "laptop");
+    assert!(
+        v["body"]
+            .as_str()
+            .unwrap()
+            .contains("(`cccccccc`, live, on workstation)"),
+        "{}",
+        v["body"]
+    );
+    assert_eq!(
+        v["remoteContextLine"],
+        format!(
+            "You're running in the session stack with shared context: stack {id} on host laptop. Read it with `fleet -H laptop stack show {id}` and update it with `fleet -H laptop stack set {id}` (the whole markdown on stdin; `fleet -H laptop stack show {id} --json` has it under `markdown`)."
+        )
+    );
+    // A host the input has no rows for is refused; this machine's name means a local target.
+    let out = t
+        .cmd()
+        .args([
+            "stack",
+            "add",
+            &id,
+            "login-e2e",
+            "--on",
+            "office",
+            "--input",
+            "-",
+            "--json",
+        ])
+        .write_stdin(fleet_body(std::slice::from_ref(&ws), true))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(
+        stderr(&out).contains("no sessions for host 'office'"),
+        "{}",
+        stderr(&out)
+    );
+    let v = t.json(&[
+        "stack",
+        "add",
+        &id,
+        "login-tests",
+        "--on",
+        "laptop",
+        "--json",
+    ]);
+    assert_eq!(v["members"][2]["host"], "laptop");
+
+    // A plain sync (this host only) never touches the workstation member…
+    let s = t.json(&["stack", "sync", "--json"]);
+    assert_eq!(s["changed"], json!([]));
+    assert_eq!(
+        s["stacks"][0]["members"][1]["live"], true,
+        "unknown here: from `closed`"
+    );
+    assert!(s["stacks"][0]["members"][1]["status"].is_null());
+    // …nor does one whose input says the workstation did not answer…
+    let out = t
+        .cmd()
+        .args(["stack", "sync", "--input", "-", "--json"])
+        .write_stdin(fleet_body(&[], false))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let s: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(s["changed"], json!([]));
+    // …but one that answered without it marks it closed, and brings it back when it returns.
+    let out = t
+        .cmd()
+        .args(["stack", "sync", "--input", "-", "--json"])
+        .write_stdin(fleet_body(&[], true))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let s: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(s["changed"], json!([id]));
+    assert_eq!(s["stacks"][0]["members"][1]["live"], false);
+    assert!(s["stacks"][0]["members"][1]["closed"].is_string());
+    let out = t
+        .cmd()
+        .args(["stack", "sync", "--input", "-", "--json"])
+        .write_stdin(fleet_body(&[ws], true))
+        .output()
+        .unwrap();
+    let s: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(s["changed"], json!([id]));
+    assert!(s["stacks"][0]["members"][1]["closed"].is_null());
+    // The local member is still judged by discovery, not by the input's (empty) laptop entry.
+    assert_eq!(s["stacks"][0]["members"][0]["live"], true);
+    assert_eq!(s["stacks"][0]["members"][0]["status"], "idle");
+}
+
+#[test]
+fn spawn_on_another_host_under_dry_run_shows_the_ssh_line_and_the_remote_context() {
+    let t = T::new();
+    let out = t
+        .cmd()
+        .env("FLEET_DRY_RUN", "1")
+        .args([
+            "stack",
+            "spawn",
+            "login-redirect",
+            "Write the e2e test",
+            "--on",
+            "workstation",
+            "--name",
+            "login-e2e",
+            "--no-llm",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("would create stack"), "{text}");
+    assert!(
+        text.contains("would spawn a sibling on workstation"),
+        "{text}"
+    );
+    assert!(text.contains("ssh ") && text.contains(" devbox "), "{text}");
+    // The same place over there, home-relative; the prompt is the remote context line.
+    assert!(
+        text.contains("--dir ") && text.contains("~/project"),
+        "{text}"
+    );
+    assert!(text.contains("--name login-e2e"), "{text}");
+    assert!(
+        text.contains("shared context: stack st-")
+            && text.contains("on host laptop. Read it with `fleet -H laptop stack show st-"),
+        "{text}"
+    );
+    assert!(
+        text.trim_end()
+            .ends_with("under `markdown`). Write the e2e test"),
+        "{text}"
+    );
+    assert_eq!(t.stack_files(), Vec::<String>::new(), "nothing written");
+    // Naming this machine means a plain local spawn.
+    let out = t
+        .cmd()
+        .env("FLEET_DRY_RUN", "1")
+        .args([
+            "stack",
+            "spawn",
+            "login-redirect",
+            "--on",
+            "laptop",
+            "--backend",
+            "tmux",
+            "--no-llm",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("would spawn a tmux sibling"),
+        "{}",
+        stdout(&out)
+    );
 }
 
 #[test]
