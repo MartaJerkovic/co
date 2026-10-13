@@ -597,6 +597,24 @@ end run"#,
     Ok(())
 }
 
+/// Longest launch line typed into a shell; a longer prompt goes through a file
+/// (`web/lib/spawn.mjs` uses the same limit).
+const TYPED_LINE_MAX: usize = 900;
+
+/// Store a prompt in `~/.claude/fleet-prompts/` for a spawn to read at launch.
+fn write_prompt_file(text: &str) -> Result<String> {
+    let dir = crate::core::discovery::claude_home().join("fleet-prompts");
+    std::fs::create_dir_all(&dir)?;
+    let now = chrono::Local::now();
+    let path = dir.join(format!(
+        "{}-{}.md",
+        now.format("%Y%m%d-%H%M%S"),
+        now.timestamp_subsec_nanos() % 1_000_000
+    ));
+    std::fs::write(&path, text)?;
+    Ok(path.display().to_string())
+}
+
 /// Spawn a fresh session and return a human description of where it landed. Spawned from
 /// inside a job run (`FLEET_JOB_RUN` set), the new session joins that run.
 #[allow(clippy::too_many_arguments)]
@@ -644,6 +662,20 @@ pub fn spawn_tagged(
     let backend = match (backend, tag) {
         (Backend::Iterm, Some(_)) => Backend::Tmux,
         (b, _) => b,
+    };
+    // A long prompt typed onto the command line is slow and fragile (the web spawn has the
+    // same limit): it goes through a file the shell expands at launch instead.
+    let long_file = match prompt {
+        Prompt::Inline(p)
+            if launch_command(dir, prompt, name, launcher, harness).len() > TYPED_LINE_MAX =>
+        {
+            Some(write_prompt_file(p)?)
+        }
+        _ => None,
+    };
+    let prompt = match &long_file {
+        Some(f) => Prompt::File(f),
+        None => prompt,
     };
     let line = launch_command(dir, prompt, name, launcher, harness);
     match backend {
