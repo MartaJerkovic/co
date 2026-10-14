@@ -133,8 +133,8 @@ const dormant = createDormant({ cli, log });
 const transcribeKey = createKeySource({ run });
 const ttsKey = createKeySource({ name: SPEECH_KEY_NAME, run });
 const speechKey = async () => (await ttsKey()) ?? (await transcribeKey());
-const operator = createOperator({ config, fleet, spawner });
 const spawner = createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers });
+const operator = createOperator({ config, fleet, spawner });
 const handleApi = createApi({
   config,
   fleet,
