@@ -62,3 +62,12 @@ describe('session lists', () => {
     expect(findSession(fleet as never, 'a', 'op')?.session_id).toBe('op')
   })
 })
+
+describe('reading speed', () => {
+  it('cycles and parses', async () => {
+    const { nextRate, parseRate } = await import('./operator')
+    expect([1, 1.25, 1.5, 2].map(nextRate)).toEqual([1.25, 1.5, 2, 1])
+    expect(parseRate('1.5')).toBe(1.5)
+    expect(parseRate('3')).toBeUndefined()
+  })
+})

@@ -27,7 +27,7 @@ import { useSettings } from '@/hooks/useSettings'
 import { hasBrowserVoice, useSpeech } from '@/hooks/useSpeech'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { useVoice } from '@/hooks/useVoice'
-import { conversation, newlyWaiting, replyToSpeak, sessionKey, waitingAnnouncement, waitingKeys } from '@/lib/operator'
+import { conversation, newlyWaiting, nextRate, parseRate, replyToSpeak, sessionKey, waitingAnnouncement, waitingKeys } from '@/lib/operator'
 import { allSessions } from '@/lib/sessions'
 import { sessionTitle } from '@/lib/title'
 import { formatElapsed } from '@/lib/voice'
@@ -54,7 +54,8 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
   const [draft, setDraft] = useState('')
   const [autoSpeak, setAutoSpeak] = usePersistentState<boolean>('fleet.operator.speak', true, parseBool)
   const [announce, setAnnounce] = usePersistentState<boolean>('fleet.operator.announce', true, parseBool)
-  const speech = useSpeech({ server: settings.speak })
+  const [rate, setRate] = usePersistentState<number>('fleet.operator.rate', 1, parseRate)
+  const speech = useSpeech({ server: settings.speak, rate })
   // Replies can be read aloud: by the server (OpenAI voice) or, failing that, by this device.
   const canSpeak = settings.speak || hasBrowserVoice()
   const { speak, state: speechState } = speech
@@ -222,6 +223,17 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
         disabled={!canSpeak}
       >
         {autoSpeak && canSpeak ? <Volume2Icon className="size-5" /> : <VolumeXIcon className="size-5" />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Reading speed ${rate}×`}
+        title="Reading speed (tap to change)"
+        onClick={() => setRate(nextRate(rate))}
+        className="size-11 shrink-0 rounded-xl text-sm font-semibold tabular-nums"
+        disabled={!canSpeak}
+      >
+        {rate}×
       </Button>
       <Button
         variant="ghost"

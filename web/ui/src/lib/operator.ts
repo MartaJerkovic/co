@@ -76,3 +76,18 @@ export function plainSpeech(markdown: string): string {
 export function speechLang(text: string): 'hr-HR' | 'en-US' {
   return /[čćžšđ]|\b(je|su|da|ne|na|što|sesij\w*|radi|čeka)\b/i.test(text) ? 'hr-HR' : 'en-US'
 }
+
+/** Reading speeds the rate button cycles through. */
+export const SPEECH_RATES = [1, 1.25, 1.5, 2] as const
+
+/** The next speed after `rate` (back to 1× after the fastest). */
+export function nextRate(rate: number): number {
+  const i = SPEECH_RATES.findIndex((r) => r === rate)
+  return SPEECH_RATES[(i + 1) % SPEECH_RATES.length]
+}
+
+/** A stored speed, if it is one of SPEECH_RATES. */
+export function parseRate(raw: string): number | undefined {
+  const n = Number(raw)
+  return (SPEECH_RATES as readonly number[]).includes(n) ? n : undefined
+}

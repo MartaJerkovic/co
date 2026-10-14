@@ -39,12 +39,21 @@ function browserVoice(lang: string): SpeechSynthesisVoice | null {
  * button) so replies that arrive later may play; a new `speak` cuts the current one.
  * `server`: this server offers /api/speak (settings.speak).
  */
-export function useSpeech({ server }: { server: boolean }) {
+export function useSpeech({ server, rate = 1 }: { server: boolean; rate?: number }) {
   const [state, setState] = useState<SpeechState>('idle')
   const audio = useRef<HTMLAudioElement | null>(null)
   const url = useRef<string | null>(null)
   const inflight = useRef<AbortController | null>(null)
   // Flips to false on the first server failure: the rest of the visit uses the browser's voice.
+  // Playback speed: applied to every reply, and at once to the one playing.
+  const rateRef = useRef(rate)
+  useEffect(() => {
+    rateRef.current = rate
+    if (audio.current) {
+      audio.current.defaultPlaybackRate = rate
+      audio.current.playbackRate = rate
+    }
+  }, [rate])
   const useServer = useRef(server)
   useEffect(() => {
     useServer.current = server
@@ -95,6 +104,7 @@ export function useSpeech({ server }: { server: boolean }) {
     if (!plain) return setState('idle')
     const u = new SpeechSynthesisUtterance(plain)
     u.lang = speechLang(plain)
+    u.rate = rateRef.current
     const voice = browserVoice(u.lang)
     if (voice) u.voice = voice
     u.onend = () => setState('idle')
@@ -117,6 +127,9 @@ export function useSpeech({ server }: { server: boolean }) {
         const a = element()
         url.current = URL.createObjectURL(blob)
         a.src = url.current
+        // A new source resets playbackRate to defaultPlaybackRate: set both.
+        a.defaultPlaybackRate = rateRef.current
+        a.playbackRate = rateRef.current
         await a.play()
         setState('playing')
       } catch (err) {
