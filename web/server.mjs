@@ -134,7 +134,7 @@ const transcribeKey = createKeySource({ run });
 const ttsKey = createKeySource({ name: SPEECH_KEY_NAME, run });
 const speechKey = async () => (await ttsKey()) ?? (await transcribeKey());
 const spawner = createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers });
-const operator = createOperator({ config, fleet, spawner });
+const operator = createOperator({ config, fleet, spawner, backend, log });
 const handleApi = createApi({
   config,
   fleet,
@@ -189,6 +189,8 @@ server.listen(config.port, config.bind, () => {
   uploader.start();
   // A running operator keeps its workspace current (its ./api helper names this server's port).
   operator.prepare().catch((err) => logError(err, 'operator workspace'));
+  operator.start();
+  if (config.operator.compactIdleMinutes) log(`[fleet-web] operator: autocompact after ${config.operator.compactIdleMinutes}m idle (≥ ${config.operator.compactMinTokens} tokens of context)`);
   log(`[fleet-web] uploads ${config.uploads.dir} (max ${config.uploads.maxMB} MB, kept ${config.uploads.retentionDays || '∞'} days)`);
   if (grouper) {
     grouper.start();
@@ -238,6 +240,7 @@ function shutdown(signal) {
   grouper?.stop();
   briefs.stop();
   stacks.stop();
+  operator.stop();
   uploader.stop();
   handleApi.stop();
   const timer = setTimeout(() => process.exit(0), 3000);

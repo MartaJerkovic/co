@@ -53,6 +53,8 @@ export interface Session {
    * null = started by hand. Older CLIs omit it.
    */
   origin?: SessionOrigin | null
+  /** The host's voice operator (web/lib/operator.mjs): kept out of session lists. Older servers omit it. */
+  operator?: boolean
 }
 
 /** `origin` on a session row: the job and the run id (`<job>/<run>` in its tmux environment). */
@@ -190,7 +192,7 @@ export interface Settings {
   /** Spoken replies (POST /api/speak): this server has the key (older servers: absent). */
   speak?: { enabled: boolean; voice?: string | null }
   /** The voice operator (GET/POST /api/operator) is available on this server (older servers: absent). */
-  operator?: { enabled: boolean }
+  operator?: { enabled: boolean; hosts?: string[] }
 }
 
 /** GET/POST /api/operator — this server's operator session (null until it shows in the fleet). */

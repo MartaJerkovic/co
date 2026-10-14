@@ -115,7 +115,7 @@ test('routes: /api/speak streams mp3, /api/operator finds or starts, settings re
 
   const settings = await api(jsonReq('GET'), new URL('http://x/api/settings'));
   assert.deepEqual(settings.body.speak, { enabled: true, voice: 'alloy' });
-  assert.deepEqual(settings.body.operator, { enabled: true });
+  assert.deepEqual(settings.body.operator, { enabled: true, hosts: ['laptop'] });
 
   const spoken = await api(jsonReq('POST', { text: 'bok' }), new URL('http://x/api/speak'));
   assert.equal(spoken.headers['content-type'], 'audio/mpeg');
@@ -139,4 +139,66 @@ test('createKeySource reads the key it is named for', async () => {
   const env = { [SPEECH_KEY_NAME]: 'sk-tts', OPENAI_SPEECH_TO_TEXT_API_KEY: 'sk-stt' };
   assert.equal(await createKeySource({ name: SPEECH_KEY_NAME, env, platform: 'linux' })(), 'sk-tts');
   assert.equal(await createKeySource({ env, platform: 'linux' })(), 'sk-stt');
+});
+
+test('operator: stamp marks its row; tick compacts an idle, full operator once', async (t) => {
+  const config = tmpConfig(t, { compactIdleMinutes: 60, compactMinTokens: 1000 });
+  const dir = config.operator.dir;
+  let t0 = 10 * 3600 * 1000;
+  const op = { session_id: 'op-0000-1111', cwd: dir, harness: 'claude', status: 'idle', updated_at: t0, context: { used: 5000 } };
+  const sessions = [{ session_id: 'x', cwd: '/w' }, op];
+  const sent = [];
+  const operator = createOperator({
+    config,
+    fleet: { localHost: async () => ({ ok: true, sessions }) },
+    spawner: {},
+    backend: { send: async (s, text) => void sent.push([s.session_id, text]) },
+    now: () => t0,
+  });
+  await operator.prepare();
+  const stamped = operator.stamp({ name: 'laptop', sessions });
+  assert.deepEqual(stamped.sessions.map((s) => s.operator ?? false), [false, true]);
+  assert.equal(operator.stamp({ sessions: [sessions[0]] }).sessions[0].operator, undefined);
+
+  assert.equal(await operator.tick(), null, 'not idle long enough');
+  t0 += 61 * 60 * 1000;
+  op.status = 'busy';
+  assert.equal(await operator.tick(), null, 'busy');
+  op.status = 'idle';
+  op.context.used = 10;
+  assert.equal(await operator.tick(), null, 'small context');
+  op.context.used = 5000;
+  assert.equal(await operator.tick(), 'op-0000-1111');
+  assert.match(sent[0][1], /^\/compact /);
+  op.updated_at = t0 + 60 * 1000; // the compaction itself
+  t0 += 2 * 3600 * 1000;
+  assert.equal(await operator.tick(), null, 'compacted and unused since');
+  assert.equal(sent.length, 1);
+});
+
+test('/api/operator: the first answering host of web.operator.hosts', async (t) => {
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-operator-'));
+  t.after(() => fs.rmSync(state, { recursive: true, force: true }));
+  const config = normalizeConfig(
+    { self: 'officeshed', hosts: { laptop: { web: 'http://laptop:1' }, homeshed: { web: 'http://homeshed:1' } }, web: { operator: { hosts: ['laptop', 'homeshed', 'officeshed'] } } },
+    { env: { XDG_STATE_HOME: state }, home: '/home/tester' },
+  );
+  const calls = [];
+  const proxyToPeer = async (base, opts) => {
+    calls.push([base, opts.method, opts.pathname]);
+    if (base === 'http://laptop:1') return { status: 502, body: { error: 'unreachable' } };
+    return { status: 200, body: { host: 'homeshed', session: { session_id: 'h' } } };
+  };
+  const fleet = { localHost: async () => ({ ok: true, sessions: [] }), invalidate() {} };
+  const operator = createOperator({ config, fleet, spawner: {} });
+  const api = createApi({ config, fleet, backend: {}, transcripts: {}, spawner: {}, operator, proxyToPeer, warmFleet: false });
+  const req = (method) => Object.assign(Readable.from([]), { method, headers: {} });
+
+  const r = await api(req('GET'), new URL('http://x/api/operator'));
+  assert.equal(r.body.host, 'homeshed');
+  assert.deepEqual(calls.map((c) => c[0]), ['http://laptop:1', 'http://homeshed:1']);
+  const local = await api(req('GET'), new URL('http://x/api/operator?local=1'));
+  assert.equal(local.body.host, 'officeshed');
+  const s = await api(req('GET'), new URL('http://x/api/settings'));
+  assert.deepEqual(s.body.operator.hosts, ['laptop', 'homeshed', 'officeshed']);
 });

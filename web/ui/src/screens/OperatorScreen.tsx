@@ -88,9 +88,15 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
   usePoller(
     async (signal) => {
       if (!session) return
-      const r = await api.messages(session.host, session.session_id, 40, { signal })
-      setMessages(r.messages)
-      setOpStatus(r.status)
+      try {
+        const r = await api.messages(session.host, session.session_id, 40, { signal })
+        setMessages(r.messages)
+        setOpStatus(r.status)
+      } catch (err) {
+        // Gone (closed, host restarted): look for the operator again.
+        if (err instanceof ApiError && err.status === 404) setStatus(null)
+        else throw err
+      }
     },
     1500,
     { enabled: Boolean(session) },
@@ -369,6 +375,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
         >
           <h1 className="flex min-w-0 flex-1 items-center gap-1.5 text-[0.9375rem] leading-tight font-bold">
             <AudioLinesIcon className="size-4 text-muted-foreground" /> Operator
+            {status?.host ? <span className="font-normal text-muted-foreground">· {status.host}</span> : null}
           </h1>
           {toggles}
           <Button variant="ghost" size="icon" aria-label="Close operator" title="Close (Esc)" onClick={back} className="size-11 shrink-0 rounded-xl">
@@ -388,7 +395,9 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
           <Button variant="ghost" size="icon" aria-label="Back" onClick={back} className="-my-1.5 size-11 shrink-0 rounded-xl">
             <ChevronLeftIcon className="size-6" />
           </Button>
-          <h1 className="flex-1 text-xl font-bold tracking-tight">Operator</h1>
+          <h1 className="flex-1 text-xl font-bold tracking-tight">
+            Operator{status?.host ? <span className="ml-1.5 text-sm font-normal text-muted-foreground">{status.host}</span> : null}
+          </h1>
           {toggles}
         </div>
       </ScreenHeader>

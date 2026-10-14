@@ -446,10 +446,25 @@ export function normalizeConfig(
 
   // web.operator: the voice operator — a Claude session that watches the fleet (lib/operator.mjs).
   const wo = web.operator == null ? {} : web.operator;
-  if (!isObject(wo)) throw new Error('config.web.operator must be an object { model, voice }');
+  if (!isObject(wo)) throw new Error('config.web.operator must be an object { hosts, model, voice, compactIdleMinutes, compactMinTokens }');
+  if (wo.hosts != null && (!Array.isArray(wo.hosts) || !wo.hosts.length || wo.hosts.some((h) => typeof h !== 'string' || !h.trim()))) {
+    throw new Error('config.web.operator.hosts must be a non-empty array of host names (first reachable runs the operator)');
+  }
+  for (const key of ['compactIdleMinutes', 'compactMinTokens']) {
+    if (wo[key] != null && (!Number.isFinite(Number(wo[key])) || Number(wo[key]) < 0)) throw new Error(`config.web.operator.${key} must be a number >= 0: ${wo[key]}`);
+  }
   if (wo.model != null && (typeof wo.model !== 'string' || !MODEL_ID_RE.test(wo.model))) throw new Error('config.web.operator.model must be a model id (letters, digits and ._[]-)');
   if (wo.voice != null && (typeof wo.voice !== 'string' || !/^[a-z0-9_-]{1,40}$/i.test(wo.voice))) throw new Error('config.web.operator.voice must be an OpenAI voice name (e.g. "alloy")');
-  const operator = { model: wo.model ?? '', voice: wo.voice ?? null, dir: path.join(fleetStateDir(env, home), 'operator') };
+  const operator = {
+    // Where the operator runs: the first of these that answers (this machine when unset).
+    hosts: (wo.hosts ?? [self.trim()]).map((h) => h.trim()),
+    model: wo.model ?? '',
+    voice: wo.voice ?? null,
+    // Idle this long with at least this much context → /compact (0 minutes = never).
+    compactIdleMinutes: wo.compactIdleMinutes != null ? Number(wo.compactIdleMinutes) : 60,
+    compactMinTokens: wo.compactMinTokens != null ? Number(wo.compactMinTokens) : 30000,
+    dir: path.join(fleetStateDir(env, home), 'operator'),
+  };
 
   // restore.onBoot: at start, bring back what the last boot left dormant (lib/dormant.mjs).
   const rs = raw.restore == null ? {} : raw.restore;

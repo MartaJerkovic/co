@@ -191,9 +191,11 @@ export function createApi({
   const notesInfo = () => (notes ? { notes: { name: notes.name ?? null } } : {});
   // …and its session stacks, compact, so a peer can stamp the rows of their members on its side.
   const stacksInfo = () => (stacks ? { stacks: stacks.compact() } : {});
+  // …and marks its voice operator's row (`operator: true`), which the UI keeps out of session lists.
+  const stampOperator = (host) => (operator ? operator.stamp(host) : host);
 
   async function buildFleet({ force = false } = {}) {
-    const selfHost = { ...(await fleet.localHost({ force })), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() };
+    const selfHost = stampOperator({ ...(await fleet.localHost({ force })), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() });
     const peerNames = Object.keys(config.peers);
     const peerHosts = await Promise.all(
       peerNames.map((n) => fetchPeerHost(n, config.peers[n], { timeoutMs: peerFleetTimeoutMs })),
@@ -232,7 +234,7 @@ export function createApi({
     const withEditors = (body) => ({ ...body, hosts: body.hosts.map((h) => withSessionEditors(h, ec)) });
     if (url.searchParams.get('local') === '1') {
       // Peers poll this: the local host (2s TTL cache), never the merged snapshot.
-      const selfHost = { ...(await fleet.localHost()), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() };
+      const selfHost = stampOperator({ ...(await fleet.localHost()), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() });
       return { status: 200, body: withEditors({ self: config.self, hosts: [selfHost] }) };
     }
     if (snapshot) return { status: 200, body: withEditors(await snapshot.get()) };
@@ -499,6 +501,20 @@ export function createApi({
     return { status: proxied.status, body: proxied.body };
   }
 
+  /** This server's own operator: GET status, POST find-or-start. */
+  async function localOperator(req) {
+    if (!operator) throw new HttpError('the operator is not available on this server', 501);
+    if (req.method === 'GET') return { status: 200, body: await operator.status() };
+    try {
+      const r = await operator.ensure();
+      if (r.started) refreshFleet();
+      return { status: 200, body: r };
+    } catch (err) {
+      if (err?.status) throw new HttpError(err.message, err.status);
+      throw err;
+    }
+  }
+
   async function handleApi(req, url) {
     if (url.pathname === '/api/health') {
       return {
@@ -535,7 +551,7 @@ export function createApi({
           uploads: { maxMB: config.uploads?.maxMB ?? null },
           transcribe: { enabled: Boolean(await transcriber?.enabled()) },
           speak: { enabled: Boolean(await speaker?.enabled()), voice: speaker?.voice ?? null },
-          operator: { enabled: Boolean(operator) },
+          operator: { enabled: Boolean(operator), hosts: config.operator?.hosts ?? [config.self] },
           notes: notes ? { enabled: true, name: notes.name ?? null } : { enabled: false },
           // `generate`: whether creating a stack calls the model (the CLI's `stacks.enabled`).
           stacks: { enabled: Boolean(stacks), model: config.stacks?.model ?? DEFAULT_STACKS_MODEL, generate: config.stacks?.generate !== false },
@@ -564,19 +580,33 @@ export function createApi({
       };
     }
 
-    // The voice operator: this server's own (GET: is it running; POST: find or start it).
+    // The voice operator (GET: is it running; POST: find or start it) — on the first host of
+    // web.operator.hosts that answers: this server's own, or a peer's (proxied, ?local=1).
     if (url.pathname === '/api/operator') {
-      if (!operator) throw new HttpError('the operator is not available on this server', 501);
-      if (req.method === 'GET') return { status: 200, body: await operator.status() };
-      if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
-      try {
-        const r = await operator.ensure();
-        if (r.started) refreshFleet();
-        return { status: 200, body: r };
-      } catch (err) {
-        if (err?.status) throw new HttpError(err.message, err.status);
-        throw err;
+      if (req.method !== 'GET' && req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      if (url.searchParams.get('local') === '1') return localOperator(req);
+      const tried = [];
+      for (const h of config.operator?.hosts ?? [config.self]) {
+        if (h === config.self) return localOperator(req);
+        if (!config.peers[h]) {
+          tried.push(`${h}: not a peer with a web url`);
+          continue;
+        }
+        const r = await proxyToPeer(config.peers[h], {
+          method: req.method,
+          pathname: '/api/operator',
+          search: '',
+          body: req.method === 'POST' ? '{}' : null,
+          timeoutMs: req.method === 'POST' ? 45000 : 5000,
+        });
+        // Unreachable (or too old to have an operator): the next host takes over.
+        if (r.status === 502 || r.status === 504 || r.status === 404 || r.status === 501) {
+          tried.push(`${h}: ${r.body?.error ?? `HTTP ${r.status}`}`);
+          continue;
+        }
+        return r;
       }
+      throw new HttpError(`no operator host answered (${tried.join('; ')})`, 503);
     }
 
     if (url.pathname === '/api/fleet') {

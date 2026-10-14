@@ -52,10 +52,10 @@ export function findStatusFilter(id: string | null | undefined): StatusFilter {
   return STATUS_FILTERS.find((f) => f.id === id) ?? STATUS_FILTERS[0]
 }
 
-/** Every session across hosts (unreachable hosts contribute none). */
+/** Every session across hosts (unreachable hosts contribute none), voice operators left out (they live in #/operator). */
 export function allSessions(fleet: FleetResponse | null | undefined): Session[] {
   const out: Session[] = []
-  for (const host of fleet?.hosts ?? []) for (const s of host.sessions ?? []) out.push({ ...s, host: s.host ?? host.name })
+  for (const host of fleet?.hosts ?? []) for (const s of host.sessions ?? []) if (!s.operator) out.push({ ...s, host: s.host ?? host.name })
   return out
 }
 

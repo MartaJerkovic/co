@@ -53,3 +53,12 @@ describe('browser voice', () => {
     expect(speechLang('Two sessions are waiting.')).toBe('en-US')
   })
 })
+
+describe('session lists', () => {
+  it('leave the voice operators out', async () => {
+    const { allSessions, findSession } = await import('./sessions')
+    const fleet = { self: 'a', hosts: [{ name: 'a', ok: true, sessions: [ses('x', 'idle'), { ...ses('op', 'idle'), operator: true }] }] }
+    expect(allSessions(fleet as never).map((s) => s.session_id)).toEqual(['x'])
+    expect(findSession(fleet as never, 'a', 'op')?.session_id).toBe('op')
+  })
+})
