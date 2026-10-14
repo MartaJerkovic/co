@@ -302,3 +302,7 @@ export function shortcutEnv(): ShortcutEnv {
 export const APP_COMMAND_EVENT = 'fleet:command'
 /** Actions the app's menu may ask for. */
 export const APP_COMMANDS: readonly ShortcutAction[] = ['new']
+
+/** Opens the keyboard shortcuts dialog from anywhere (the Settings screen); the desktop shell listens. */
+export const SHOW_SHORTCUTS_EVENT = 'fleet:show-shortcuts'
+export const showShortcuts = () => window.dispatchEvent(new Event(SHOW_SHORTCUTS_EVENT))

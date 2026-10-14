@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeftIcon, MonitorIcon, MoonIcon, SunIcon, XIcon } from 'lucide-react'
+import { ChevronLeftIcon, KeyboardIcon, MonitorIcon, MoonIcon, SunIcon, XIcon } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { ReposEditor } from '@/components/ReposEditor'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { SpawnDirsEditor } from '@/components/SpawnDirsEditor'
 import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useNow } from '@/hooks/useNow'
 import { usePrefs } from '@/hooks/usePrefs'
 import { useSessionList } from '@/hooks/useSessionList'
@@ -16,6 +18,7 @@ import { useTheme, type ThemeChoice } from '@/hooks/useTheme'
 import { SEND_DELAYS, SEND_DELAY_LABELS } from '@/lib/outbox'
 import { PALETTES, parsePalette } from '@/lib/palettes'
 import { TERM_FONT_SIZES, TEXT_SIZES, TEXT_SIZE_LABELS } from '@/lib/prefs'
+import { shortcutHint, showShortcuts } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 
 const segItem =
@@ -31,6 +34,7 @@ export function SettingsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
   const pane = layout === 'pane'
   const [, navigate] = useLocation()
   const { theme, setTheme } = useTheme()
+  const desktop = useIsDesktop()
   const { textSize, setTextSize, termFont, setTermFont, hideNotes, setHideNotes, sendDelay, setSendDelay } = usePrefs()
 
   const back = () => {
@@ -125,6 +129,22 @@ export function SettingsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
           </ToggleGroup>
         </Stacked>
       </Section>
+
+      {desktop ? (
+        <Section title="Keyboard">
+          <div className="flex min-h-12 items-center justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <div className="text-sm">Keyboard shortcuts</div>
+              <div className="text-xs text-dimmer">
+                Jump to a session with <Kbd>{shortcutHint('palette')}</Kbd>, every shortcut with <Kbd>{shortcutHint('help')}</Kbd>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={showShortcuts}>
+              <KeyboardIcon /> Show
+            </Button>
+          </div>
+        </Section>
+      ) : null}
 
       <p className="pt-4 text-xs text-dimmer">Saved in this browser; every session uses them.</p>
       <Section title="Start directories">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { CommandIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, XIcon } from 'lucide-react'
+import { NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
@@ -37,15 +37,13 @@ export interface SidebarProps {
   onSearchNav: (action: 'next' | 'prev' | 'open') => void
   onNew: () => void
   onCollapse: () => void
-  onPalette: () => void
-  onHelp: () => void
   /** List | Board toggle (omitted → no toggle). */
   viewMode?: ViewMode
   onViewMode?: (v: ViewMode) => void
 }
 
 /** Desktop left column: header + summary, search, status/host filters, the session list. */
-export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearchNav, onNew, onCollapse, onPalette, onHelp, viewMode, onViewMode }: SidebarProps) {
+export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearchNav, onNew, onCollapse, viewMode, onViewMode }: SidebarProps) {
   const { fleet, error, query, setQuery, status, setStatus, setHostFilter, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } = list
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -217,20 +215,10 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
       </div>
 
       <div className="shrink-0 border-t px-2 py-1.5 text-xs text-dimmer">
-        {/* The modules get a row of their own, spread over the width: it fits the narrowest sidebar. */}
+        {/* The modules, spread over the width (fits the narrowest sidebar). Jump and the shortcuts live in ⌘K / ⌘? and Settings. */}
         <nav aria-label="Modules" className="flex items-center justify-between">
           <ModuleButtons size="icon-sm" />
         </nav>
-        <div className="mt-1 flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={onPalette} className="text-dimmer hover:text-foreground">
-            <CommandIcon /> Jump
-            <Kbd className="ml-1">{shortcutHint('palette')}</Kbd>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onHelp} aria-label="Keyboard shortcuts" title="Keyboard shortcuts" className="ml-auto text-dimmer hover:text-foreground">
-            <KeyboardIcon />
-            <Kbd className="ml-1">{shortcutHint('help')}</Kbd>
-          </Button>
-        </div>
       </div>
     </div>
   )
@@ -242,13 +230,11 @@ export function SidebarRail({
   onExpand,
   onNew,
   onPalette,
-  onHelp,
 }: {
   waiting: number
   onExpand: () => void
   onNew: () => void
   onPalette: () => void
-  onHelp: () => void
 }) {
   return (
     <div data-tauri-drag-region className="titlebar-rail flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r py-3">
@@ -271,10 +257,9 @@ export function SidebarRail({
           {waiting}
         </span>
       ) : null}
-      <Button variant="ghost" size="icon" aria-label="Keyboard shortcuts" title={withHint('Keyboard shortcuts', 'help')} onClick={onHelp} className="mt-auto">
-        <KeyboardIcon />
-      </Button>
-      <ModuleButtons />
+      <div className="mt-auto flex flex-col items-center gap-1">
+        <ModuleButtons />
+      </div>
     </div>
   )
 }

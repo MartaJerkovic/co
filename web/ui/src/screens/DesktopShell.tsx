@@ -72,6 +72,7 @@ import {
   isTypingTarget,
   matchShortcut,
   sessionKey,
+  SHOW_SHORTCUTS_EVENT,
   shortcutHint,
   stepCursor,
   type ShortcutAction,
@@ -143,6 +144,11 @@ export function DesktopShell() {
   const [newOpen, setNewOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  useEffect(() => {
+    const open = () => setHelpOpen(true)
+    window.addEventListener(SHOW_SHORTCUTS_EVENT, open)
+    return () => window.removeEventListener(SHOW_SHORTCUTS_EVENT, open)
+  }, [])
 
   // --- cursor (↑/↓) — follows the selection when it changes ------------------
   const [cursor, setCursor] = useState<string | null>(selectedKey)
@@ -656,8 +662,6 @@ export function DesktopShell() {
             onSearchNav={onSearchNav}
             onNew={() => setNewOpen(true)}
             onCollapse={toggleSidebar}
-            onPalette={() => setPaletteOpen(true)}
-            onHelp={() => setHelpOpen(true)}
             viewMode={mode}
             onViewMode={setMode}
           />
@@ -694,7 +698,6 @@ export function DesktopShell() {
           onExpand={toggleSidebar}
           onNew={() => setNewOpen(true)}
           onPalette={() => setPaletteOpen(true)}
-          onHelp={() => setHelpOpen(true)}
         />
       )}
 
