@@ -8,7 +8,6 @@ import {
   MicIcon,
   SendHorizontalIcon,
   SquareIcon,
-  SquareTerminalIcon,
   Volume2Icon,
   VolumeXIcon,
   XIcon,
@@ -29,7 +28,7 @@ import { hasBrowserVoice, useSpeech } from '@/hooks/useSpeech'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { useVoice } from '@/hooks/useVoice'
 import { conversation, newlyWaiting, replyToSpeak, sessionKey, waitingAnnouncement, waitingKeys } from '@/lib/operator'
-import { allSessions, sessionHref } from '@/lib/sessions'
+import { allSessions } from '@/lib/sessions'
 import { sessionTitle } from '@/lib/title'
 import { formatElapsed } from '@/lib/voice'
 import { cn } from '@/lib/utils'
@@ -235,13 +234,6 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
       >
         {announce && canSpeak ? <BellIcon className="size-5" /> : <BellOffIcon className="size-5" />}
       </Button>
-      {session ? (
-        <Button asChild variant="ghost" size="icon" className="size-11 shrink-0 rounded-xl">
-          <a href={sessionHref(session)} aria-label="Open the operator session" title="Open the operator session">
-            <SquareTerminalIcon className="size-5" />
-          </a>
-        </Button>
-      ) : null}
     </>
   )
 
