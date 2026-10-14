@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { AudioLinesIcon, CalendarClockIcon, CommandIcon, GaugeIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon, GitPullRequestIcon } from 'lucide-react'
+import { CommandIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
@@ -9,14 +9,13 @@ import { SessionListSkeleton } from '@/components/SessionListSkeleton'
 import { SessionRow } from '@/components/SessionRow'
 import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { ScratchpadButton } from '@/components/Scratchpad'
+import { ModuleButtons } from '@/components/ModuleNav'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
 import { useNotesHosts } from '@/hooks/useNotes'
-import { useSettings } from '@/hooks/useSettings'
 import { ALL_HOSTS, type SessionListState } from '@/hooks/useSessionList'
 import type { ViewMode } from '@/lib/groups'
 import { allSessions, visibleStatusFilters, type StatusFilterId } from '@/lib/sessions'
@@ -217,37 +216,21 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
         {fleet ? <ClosedSection now={now} host={host} query={query} desktop className="mt-3" /> : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 border-t px-2 py-1.5 text-xs text-dimmer">
-        <Button variant="ghost" size="sm" onClick={onPalette} className="text-dimmer hover:text-foreground">
-          <CommandIcon /> Jump
-          <Kbd className="ml-1">{shortcutHint('palette')}</Kbd>
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onHelp} aria-label="Keyboard shortcuts" title="Keyboard shortcuts" className="ml-auto text-dimmer hover:text-foreground">
-          <KeyboardIcon />
-          <Kbd className="ml-1">{shortcutHint('help')}</Kbd>
-        </Button>
-        <NotesLink size="icon-sm" />
-        <OperatorLink size="icon-sm" />
-        <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
-          <a href="#/prs" aria-label="Pull requests" title="Pull requests">
-            <GitPullRequestIcon />
-          </a>
-        </Button>
-        <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
-          <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
-            <CalendarClockIcon />
-          </a>
-        </Button>
-        <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
-          <a href="#/usage" aria-label="Usage limits" title="Usage limits">
-            <GaugeIcon />
-          </a>
-        </Button>
-        <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
-          <a href="#/settings" aria-label="Settings" title="Settings">
-            <Settings2Icon />
-          </a>
-        </Button>
+      <div className="shrink-0 border-t px-2 py-1.5 text-xs text-dimmer">
+        {/* The modules get a row of their own, spread over the width: it fits the narrowest sidebar. */}
+        <nav aria-label="Modules" className="flex items-center justify-between">
+          <ModuleButtons size="icon-sm" />
+        </nav>
+        <div className="mt-1 flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={onPalette} className="text-dimmer hover:text-foreground">
+            <CommandIcon /> Jump
+            <Kbd className="ml-1">{shortcutHint('palette')}</Kbd>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onHelp} aria-label="Keyboard shortcuts" title="Keyboard shortcuts" className="ml-auto text-dimmer hover:text-foreground">
+            <KeyboardIcon />
+            <Kbd className="ml-1">{shortcutHint('help')}</Kbd>
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -291,29 +274,7 @@ export function SidebarRail({
       <Button variant="ghost" size="icon" aria-label="Keyboard shortcuts" title={withHint('Keyboard shortcuts', 'help')} onClick={onHelp} className="mt-auto">
         <KeyboardIcon />
       </Button>
-      <ScratchpadButton />
-      <NotesLink />
-      <OperatorLink />
-      <Button asChild variant="ghost" size="icon">
-        <a href="#/prs" aria-label="Pull requests" title="Pull requests">
-          <GitPullRequestIcon />
-        </a>
-      </Button>
-      <Button asChild variant="ghost" size="icon">
-        <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
-          <CalendarClockIcon />
-        </a>
-      </Button>
-      <Button asChild variant="ghost" size="icon">
-        <a href="#/usage" aria-label="Usage limits" title="Usage limits">
-          <GaugeIcon />
-        </a>
-      </Button>
-      <Button asChild variant="ghost" size="icon">
-        <a href="#/settings" aria-label="Settings" title="Settings">
-          <Settings2Icon />
-        </a>
-      </Button>
+      <ModuleButtons />
     </div>
   )
 }
@@ -331,15 +292,3 @@ export function NotesLink({ className, size = 'icon' }: { className?: string; si
   )
 }
 
-/** The voice operator (#/operator), when this server runs one. */
-export function OperatorLink({ className, size = 'icon' }: { className?: string; size?: 'icon' | 'icon-sm' }) {
-  const { operator } = useSettings()
-  if (!operator) return null
-  return (
-    <Button asChild variant="ghost" size={size} className={cn('text-dimmer hover:text-foreground', className)}>
-      <a href="#/operator" aria-label="Operator" title="Operator — talk to the fleet">
-        <AudioLinesIcon />
-      </a>
-    </Button>
-  )
-}

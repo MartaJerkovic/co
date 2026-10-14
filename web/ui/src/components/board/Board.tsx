@@ -1,12 +1,11 @@
 import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { CalendarClockIcon, GaugeIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon } from 'lucide-react'
+import { PlusIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import type { Session } from '@/api/types'
 import { BoardColumns } from '@/components/board/BoardColumns'
 import { DormantSection } from '@/components/DormantSection'
 import { GroupsStatus } from '@/components/board/GroupsStatus'
-import { NotesLink } from '@/components/desktop/Sidebar'
-import { ScratchpadButton } from '@/components/Scratchpad'
+import { ModuleButtons } from '@/components/ModuleNav'
 import { HostDot } from '@/components/HostBadge'
 import { StatusFilterLabel } from '@/components/JobChip'
 import { StatusDot } from '@/components/StatusDot'
@@ -186,23 +185,7 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
         <div className="ml-auto flex min-w-0 items-center gap-2">
           <GroupsStatus state={groups} now={now} />
           <span className={cn('hidden truncate text-[0.6875rem] tabular-nums xl:inline', note.error ? 'text-destructive' : 'text-dimmer')}>{note.text}</span>
-          <ScratchpadButton className="shrink-0 text-muted-foreground" />
-          <NotesLink className="shrink-0 text-muted-foreground" />
-          <Button asChild variant="ghost" size="icon" className="shrink-0 text-muted-foreground">
-            <a href="#/jobs" aria-label="Scheduled jobs" title="Scheduled jobs">
-              <CalendarClockIcon />
-            </a>
-          </Button>
-          <Button asChild variant="ghost" size="icon" className="shrink-0 text-muted-foreground">
-            <a href="#/usage" aria-label="Usage limits" title="Usage limits">
-              <GaugeIcon />
-            </a>
-          </Button>
-          <Button asChild variant="ghost" size="icon" className="shrink-0 text-muted-foreground">
-            <a href="#/settings" aria-label="Settings" title="Settings">
-              <Settings2Icon />
-            </a>
-          </Button>
+          <ModuleButtons className="shrink-0 text-muted-foreground" />
           <Button size="icon" aria-label="New session" title={withHint('New session', 'new')} onClick={onNew} className="shrink-0 rounded-full">
             <PlusIcon />
           </Button>

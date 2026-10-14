@@ -1,5 +1,5 @@
 import { useRef, useState, type TouchEvent } from 'react'
-import { AudioLinesIcon, CalendarClockIcon, EllipsisIcon, GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
+import { EllipsisIcon, MicIcon, PlusIcon, SearchIcon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { GroupedList } from '@/components/board/GroupedList'
@@ -9,19 +9,18 @@ import { DormantSection } from '@/components/DormantSection'
 import { HostDot } from '@/components/HostBadge'
 import { StatusFilterLabel } from '@/components/JobChip'
 import { NewSessionDrawer } from '@/components/NewSessionDrawer'
-import { ScratchpadButton } from '@/components/Scratchpad'
+import { ModuleMenuItems } from '@/components/ModuleNav'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
 import { SessionRow } from '@/components/SessionRow'
 import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
 import { useBoardColumns, useGroups, useViewMode } from '@/hooks/useGroups'
-import { useNotesHosts } from '@/hooks/useNotes'
 import { useSettings } from '@/hooks/useSettings'
 import { useNow } from '@/hooks/useNow'
 import { ALL_HOSTS, useSessionList } from '@/hooks/useSessionList'
@@ -41,7 +40,6 @@ export function ListScreen() {
   const [newOpen, setNewOpen] = useState(false)
   const [, navigate] = useLocation()
   const [mode, setMode] = useViewMode()
-  const notesHosts = useNotesHosts()
   const settings = useSettings()
   const board = mode === 'board'
   const groups = useGroups(board)
@@ -70,7 +68,7 @@ export function ListScreen() {
   }
 
   return (
-    <div className="flex min-h-app flex-col">
+    <div className="flex min-h-app flex-col overflow-x-clip">
       <ScreenHeader>
         <div onTouchStart={onTouchStart} onTouchEnd={(e) => onTouchEnd(e, false)}>
         <div className="flex min-h-8 items-center gap-0.5 min-[400px]:gap-1 sm:gap-2.5">
@@ -107,14 +105,6 @@ export function ListScreen() {
               </a>
             </Button>
           ) : null}
-          <ScratchpadButton className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5" />
-          {settings.operator ? (
-            <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
-              <a href="#/operator" aria-label="Operator" title="Operator — talk to the fleet">
-                <AudioLinesIcon />
-              </a>
-            </Button>
-          ) : null}
           <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
             <a href="#/prs" aria-label="Pull requests" title="Pull requests">
               <GitPullRequestIcon />
@@ -134,32 +124,8 @@ export function ListScreen() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              {notesHosts.length ? (
-                <DropdownMenuItem asChild>
-                  <a href="#/notes">
-                    <NotebookTextIcon />
-                    Notes
-                  </a>
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuItem asChild>
-                <a href="#/jobs">
-                  <CalendarClockIcon />
-                  Scheduled jobs
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <a href="#/usage">
-                  <GaugeIcon />
-                  Usage limits
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <a href="#/settings">
-                  <Settings2Icon />
-                  Settings
-                </a>
-              </DropdownMenuItem>
+              {/* Pull requests stay in the header, the operator is the mic button. */}
+              <ModuleMenuItems exclude={['prs', 'operator']} />
             </DropdownMenuContent>
           </DropdownMenu>
           <Button
@@ -290,7 +256,7 @@ export function ListScreen() {
       </ScreenHeader>
 
       <main className="flex-1 pb-safe px-safe">
-        <div className="mx-auto w-full max-w-3xl px-3 pt-2 pb-8">
+        <div className={cn('mx-auto w-full max-w-3xl px-3 pt-2', settings.operator ? 'pb-28' : 'pb-8')}>
           {error ? (
             <Alert variant="destructive" className="my-2">
               <AlertDescription>
@@ -326,6 +292,17 @@ export function ListScreen() {
         </div>
       </main>
 
+      {/* The operator: one tap from the list to talking with the fleet. */}
+      {settings.operator ? (
+        <a
+          href="#/operator"
+          aria-label="Talk to the operator"
+          title="Operator — talk to the fleet"
+          className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-30 grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
+        >
+          <MicIcon className="size-6" />
+        </a>
+      ) : null}
       <NewSessionDrawer open={newOpen} onOpenChange={setNewOpen} onOpenSession={(href) => navigate(href)} />
     </div>
   )
