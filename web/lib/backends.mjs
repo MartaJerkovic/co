@@ -5,6 +5,30 @@ import path from 'node:path';
 import { tailLines, sleep as defaultSleep } from './util.mjs';
 
 /** Error with an HTTP status attached. */
+// Largest piece of text one `send-keys -l` types. Claude Code takes a burst of more than ~800
+// bytes as a paste (collapsed into `[Pasted text]`), and from one write of more than ~1 KB it keeps
+// only what follows the first 1 KB.
+export const TYPE_CHUNK = 512;
+
+/** Split `text` into pieces of at most `max` UTF-8 bytes, never inside a character. */
+export function typeChunks(text, max = TYPE_CHUNK) {
+  const out = [];
+  let cur = '';
+  let bytes = 0;
+  for (const ch of text) {
+    const n = Buffer.byteLength(ch);
+    if (bytes + n > max && cur) {
+      out.push(cur);
+      cur = '';
+      bytes = 0;
+    }
+    cur += ch;
+    bytes += n;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 export class BackendError extends Error {
   constructor(message, status = 500) {
     super(message);
@@ -125,6 +149,15 @@ export function createBackend({
     return b;
   }
 
+  /** Type `text` literally, a TYPE_CHUNK at a time, so a long line reaches the TUI whole. */
+  async function typeText(handle, text) {
+    const chunks = typeChunks(text);
+    for (const [i, chunk] of chunks.entries()) {
+      if (i > 0) await sleep(20);
+      await run(tmux, ['send-keys', '-t', handle, '-l', '--', chunk], { timeout: 8000 });
+    }
+  }
+
   async function peek(session, lines) {
     const backend = backendOf(session);
     const handle = requireHandle(session);
@@ -149,7 +182,7 @@ export function createBackend({
         await run(tmux, ['load-buffer', '-b', buf, '-'], { input: text, timeout: 8000 });
         await run(tmux, ['paste-buffer', '-p', '-r', '-d', '-b', buf, '-t', handle], { timeout: 8000 });
       } else {
-        await run(tmux, ['send-keys', '-t', handle, '-l', '--', text], { timeout: 8000 });
+        await typeText(handle, text);
       }
       await sleep(enterDelayMs);
       await run(tmux, ['send-keys', '-t', handle, 'Enter'], { timeout: 8000 });
@@ -174,7 +207,7 @@ export function createBackend({
     const backend = backendOf(session);
     const handle = requireHandle(session);
     if (backend === 'tmux') {
-      await run(tmux, ['send-keys', '-t', handle, '-l', '--', text], { timeout: 8000 });
+      await typeText(handle, text);
       return;
     }
     await run(osascript, [scriptPath(), 'type', handle, text], { timeout: 15000 });

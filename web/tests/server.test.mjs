@@ -16,7 +16,7 @@ import {
   validateSendText,
 } from '../lib/util.mjs';
 import { resolveStaticPath, readJsonBody, contentTypeFor, HttpError } from '../lib/http.mjs';
-import { createBackend, BackendError, createScriptProvider, ITERM_SCRIPT } from '../lib/backends.mjs';
+import { createBackend, BackendError, createScriptProvider, ITERM_SCRIPT, TYPE_CHUNK, typeChunks } from '../lib/backends.mjs';
 import { createFleet, trimTitle, TITLE_MAX } from '../lib/fleet.mjs';
 import { createFleetCli } from '../lib/fleet-cli.mjs';
 import { ensurePath, ensureUtf8Locale } from '../lib/config.mjs';
@@ -275,6 +275,26 @@ test('tmux send writes literal text (with --) then Enter separately', async () =
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[0].args, ['send-keys', '-t', '%1', '-l', '--', '-starts-with-dash']);
   assert.deepEqual(calls[1].args, ['send-keys', '-t', '%1', 'Enter']);
+});
+
+test('tmux send types a long line in pieces so Claude keeps all of it', async () => {
+  const { calls, run } = recorder();
+  const backend = createBackend({ run, tmux: 'tmux', scriptPath: script, sleep: noSleep });
+  const text = 'tok-0123456789 é '.repeat(120);
+  await backend.send({ backend: 'tmux', handle: '%1' }, text);
+  const typed = calls.slice(0, -1);
+  assert.ok(typed.length > 1);
+  for (const c of typed) {
+    assert.deepEqual(c.args.slice(0, 5), ['send-keys', '-t', '%1', '-l', '--']);
+    assert.ok(Buffer.byteLength(c.args[5]) <= TYPE_CHUNK);
+  }
+  assert.equal(typed.map((c) => c.args[5]).join(''), text);
+  assert.deepEqual(calls.at(-1).args, ['send-keys', '-t', '%1', 'Enter']);
+});
+
+test('typeChunks never splits a character', () => {
+  assert.deepEqual(typeChunks('', 4), []);
+  assert.deepEqual(typeChunks('abcé-fg', 4), ['abc', 'é-f', 'g']);
 });
 
 test('tmux send pastes a multi-line message so its newlines survive', async () => {

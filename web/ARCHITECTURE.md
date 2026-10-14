@@ -149,7 +149,9 @@ Peek/send/keys do **not** go through `fleet peek/send` (those truncate to termin
 add a header). `lib/backends.mjs` drives the backends directly, mirroring the CLI:
 
 - **tmux** (handle = pane id): peek `capture-pane -p -J -t <h> -S -<n>`; send
-  `send-keys -t <h> -l -- <text>` then `send-keys -t <h> Enter`; keys `send-keys -t <h> <Key>`.
+  `send-keys -t <h> -l -- <text>` in pieces of at most 512 bytes (a longer burst reaches
+  Claude as a paste, or loses its first ~1 KB), then `send-keys -t <h> Enter` (multi-line text:
+  `load-buffer` + `paste-buffer -p`); keys `send-keys -t <h> <Key>`.
 - **iterm** (handle = iTerm session id): one AppleScript written to a temp file, values passed
   as argv (never interpolated). Send = `write text … without newline`, 0.2s, `write text ""`
   (bracketed paste would swallow a trailing newline).

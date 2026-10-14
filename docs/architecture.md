@@ -32,7 +32,7 @@ Pure logic plus thin process wrappers; no printing. Everything a future front-en
 
 - **discovery** — builds the list of live sessions (see [below](#session-discovery)).
 - **backend** — per-backend control: read the screen, type text, press keys, focus, spawn.
-  - tmux: `capture-pane -p -J`, `send-keys -l <text>` + `Enter` (multi-line text: `load-buffer` + `paste-buffer -p`, since `send-keys -l` drops newlines), `new-session` / `new-window`.
+  - tmux: `capture-pane -p -J`, `send-keys -l -- <text>` in pieces of at most 512 bytes + `Enter` (Claude Code takes a bigger burst as a paste and drops the first ~1 KB of a write longer than that; multi-line text: `load-buffer` + `paste-buffer -p`, since `send-keys -l` drops newlines), `new-session` / `new-window`.
   - iTerm: AppleScript via `osascript`; values are passed as argv, never interpolated into the
     script. Text is written without a newline, then an empty write submits it (a trailing newline
     would be swallowed by bracketed paste).

@@ -98,6 +98,42 @@ fn send_keys(handle: &str, rest: &[&str]) -> Result<()> {
     tmux_ok(cmd.output()?, &format!("tmux send-keys -t {handle}"))
 }
 
+/// Largest piece of text one `send-keys -l` types. Claude Code takes a burst of more than
+/// ~800 bytes as a paste (collapsed into `[Pasted text]`), and from one write of more than
+/// ~1 KB it keeps only what follows the first 1 KB.
+const TYPE_CHUNK: usize = 512;
+
+/// Split `text` into pieces of at most `max` bytes, never inside a UTF-8 character.
+fn type_chunks(text: &str, max: usize) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while rest.len() > max {
+        let mut cut = max;
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let (head, tail) = rest.split_at(cut);
+        out.push(head);
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        out.push(rest);
+    }
+    out
+}
+
+/// Type `text` into `handle` literally, a [`TYPE_CHUNK`] at a time, so a long line reaches
+/// the TUI whole and as typed text rather than a paste.
+fn type_text(handle: &str, text: &str) -> Result<()> {
+    for (i, chunk) in type_chunks(text, TYPE_CHUNK).into_iter().enumerate() {
+        if i > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        send_keys(handle, &["-l", "--", chunk])?;
+    }
+    Ok(())
+}
+
 /// Paste `text` into `handle` as a bracketed paste: tmux (3.6) drops newlines typed by
 /// `send-keys -l`, while a paste keeps them, so a multi-line message stays multi-line.
 fn paste_text(handle: &str, text: &str) -> Result<()> {
@@ -169,7 +205,7 @@ end run"#
                 // Let the TUI finish taking the paste, or Enter can land inside it.
                 std::thread::sleep(std::time::Duration::from_millis(150));
             } else {
-                send_keys(handle, &["-l", text])?;
+                type_text(handle, text)?;
                 // Codex and pi take keys arriving in one burst as a paste, and an Enter
                 // inside it never submits (Codex's slash-command popup also needs a beat).
                 if s.harness != Harness::Claude {
@@ -1015,6 +1051,19 @@ mod tests {
     fn send_keys_reports_what_tmux_says_went_wrong() {
         let e = send_keys("%999999", &["-l", "hi"]).unwrap_err();
         assert!(e.to_string().contains("send-keys"), "{e}");
+    }
+
+    #[test]
+    fn long_text_is_typed_in_pieces_that_keep_characters_whole() {
+        assert!(type_chunks("", 4).is_empty());
+        assert_eq!(type_chunks("abcd", 4), ["abcd"]);
+        assert_eq!(type_chunks("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+        // "é" is two bytes: a cut at byte 4 would split it, so it moves before it.
+        assert_eq!(type_chunks("abcé-fg", 4), ["abc", "é-f", "g"]);
+        let long = "tok-0123456789 ".repeat(150);
+        let pieces = type_chunks(&long, TYPE_CHUNK);
+        assert!(pieces.iter().all(|p| p.len() <= TYPE_CHUNK));
+        assert_eq!(pieces.concat(), long);
     }
 
     #[test]
