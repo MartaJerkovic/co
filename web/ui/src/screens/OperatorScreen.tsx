@@ -262,17 +262,17 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
       )}
     </Empty>
   ) : (
-    <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-4">
         {messages && !turns.length ? <p className="py-10 text-center text-sm text-muted-foreground">Ask what the fleet is doing, who is waiting on you, what is next.</p> : null}
         {turns.map((t) =>
           t.role === 'user' ? (
-            <div key={t.key} className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[0.9375rem] text-primary-foreground">
+            <div key={t.key} className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[0.9375rem] [overflow-wrap:anywhere] text-primary-foreground">
               {t.text}
             </div>
           ) : (
             <div key={t.key} className="group mr-auto flex max-w-[92%] items-start gap-1.5">
-              <div className="min-w-0 rounded-2xl rounded-bl-md bg-muted px-3.5 py-2 text-[0.9375rem]">
+              <div className="min-w-0 overflow-hidden rounded-2xl rounded-bl-md bg-muted px-3.5 py-2 text-[0.9375rem] [overflow-wrap:anywhere]">
                 <Markdown text={t.text} />
               </div>
               {canSpeak ? (
@@ -336,7 +336,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Or type…"
               aria-label="Message the operator"
-              className="h-10 min-w-0 flex-1 bg-transparent text-[0.9375rem] outline-none"
+              className="h-10 min-w-0 flex-1 bg-transparent text-base outline-none"
             />
             <Button type="submit" variant="ghost" size="icon" aria-label="Send" disabled={!draft.trim()} className="rounded-full">
               <SendHorizontalIcon />
@@ -389,13 +389,13 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
   }
 
   return (
-    <div ref={screenRef} className="flex h-app flex-col bg-background">
+    <div ref={screenRef} className="flex h-app flex-col overflow-x-clip bg-background">
       <ScreenHeader>
         <div className="-ml-2 flex min-h-8 items-center gap-1">
           <Button variant="ghost" size="icon" aria-label="Back" onClick={back} className="-my-1.5 size-11 shrink-0 rounded-xl">
             <ChevronLeftIcon className="size-6" />
           </Button>
-          <h1 className="flex-1 text-xl font-bold tracking-tight">
+          <h1 className="min-w-0 flex-1 truncate text-xl font-bold tracking-tight">
             Operator{status?.host ? <span className="ml-1.5 text-sm font-normal text-muted-foreground">{status.host}</span> : null}
           </h1>
           {toggles}
