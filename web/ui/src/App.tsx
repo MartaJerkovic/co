@@ -10,6 +10,7 @@ import { FleetProvider } from '@/providers/FleetProvider'
 import { PrefsProvider } from '@/providers/PrefsProvider'
 import { PrsProvider } from '@/providers/PrsProvider'
 import { SettingsProvider } from '@/providers/SettingsProvider'
+import { SpeechProvider } from '@/providers/SpeechProvider'
 import { usePreventFileNavigation } from '@/hooks/useAttach'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { ThemeProvider } from '@/providers/ThemeProvider'
@@ -39,6 +40,7 @@ export default function App() {
     <ThemeProvider>
       <PrefsProvider>
       <SettingsProvider>
+      <SpeechProvider>
         <FleetProvider>
         <DormantProvider>
         <PrsProvider>
@@ -87,6 +89,7 @@ export default function App() {
         </PrsProvider>
         </DormantProvider>
         </FleetProvider>
+      </SpeechProvider>
       </SettingsProvider>
       </PrefsProvider>
     </ThemeProvider>

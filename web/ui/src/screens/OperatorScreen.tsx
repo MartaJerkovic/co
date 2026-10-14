@@ -18,16 +18,17 @@ import { useLocation } from 'wouter'
 import { ApiError, api, sendErrorMessage } from '@/api/client'
 import type { Message, OperatorStatus } from '@/api/types'
 import { Markdown } from '@/components/Markdown'
+import { SpeakButton } from '@/components/SpeakButton'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Button } from '@/components/ui/button'
 import { useFleet } from '@/hooks/useFleet'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { usePoller } from '@/hooks/usePoller'
 import { useSettings } from '@/hooks/useSettings'
-import { hasBrowserVoice, useSpeech } from '@/hooks/useSpeech'
+import { useSpeechPlayer } from '@/hooks/useSpeechPlayer'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { useVoice } from '@/hooks/useVoice'
-import { conversation, newlyWaiting, nextRate, parseRate, replyToSpeak, sessionKey, waitingAnnouncement, waitingKeys } from '@/lib/operator'
+import { conversation, newlyWaiting, nextRate, replyToSpeak, sessionKey, waitingAnnouncement, waitingKeys } from '@/lib/operator'
 import { allSessions } from '@/lib/sessions'
 import { sessionTitle } from '@/lib/title'
 import { formatElapsed } from '@/lib/voice'
@@ -54,10 +55,10 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
   const [draft, setDraft] = useState('')
   const [autoSpeak, setAutoSpeak] = usePersistentState<boolean>('fleet.operator.speak', true, parseBool)
   const [announce, setAnnounce] = usePersistentState<boolean>('fleet.operator.announce', true, parseBool)
-  const [rate, setRate] = usePersistentState<number>('fleet.operator.rate', 1, parseRate)
-  const speech = useSpeech({ server: settings.speak, rate })
+  const speech = useSpeechPlayer()
+  const { rate, setRate } = speech
   // Replies can be read aloud: by the server (OpenAI voice) or, failing that, by this device.
-  const canSpeak = settings.speak || hasBrowserVoice()
+  const canSpeak = speech.available
   const { speak, state: speechState } = speech
   const session = status?.session ?? null
   const opKey = session ? sessionKey(session) : null
@@ -116,7 +117,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
     if (!reply) return
     spoken.current = reply.key
     setAwaiting(false)
-    if (autoSpeak) void speak(reply.text)
+    if (autoSpeak) void speak(reply.text, `operator:${reply.key}`)
   }, [messages, turns, opStatus, autoSpeak, speak])
 
   // Announce sessions that start waiting on you.
@@ -279,18 +280,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
               <div className="min-w-0 overflow-hidden rounded-2xl rounded-bl-md bg-muted px-3.5 py-2 text-[0.9375rem] [overflow-wrap:anywhere]">
                 <Markdown text={t.text} />
               </div>
-              {canSpeak ? (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Read aloud"
-                  title="Read aloud"
-                  className="mt-1 shrink-0 text-muted-foreground"
-                  onClick={() => void speech.speak(t.text)}
-                >
-                  <Volume2Icon />
-                </Button>
-              ) : null}
+              <SpeakButton text={t.text} id={`operator:${t.key}`} className="mt-1 shrink-0" />
             </div>
           ),
         )}

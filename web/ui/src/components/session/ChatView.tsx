@@ -10,6 +10,7 @@ import { FileLinksContext, type FileStats } from '@/hooks/useFileLinks'
 import { useFollowScroll } from '@/hooks/useFollowScroll'
 import { useNow } from '@/hooks/useNow'
 import { clockTime } from '@/lib/format'
+import { SpeakButton } from '@/components/SpeakButton'
 import { msgKind, sameGroup, splitPasted, visibleMessages } from '@/lib/chat'
 import { pendingQuestion } from '@/lib/questions'
 import { pathCandidates } from '@/lib/paths'
@@ -151,11 +152,19 @@ const Bubble = memo(function Bubble({ m, caption, actions }: { m: Message; capti
       </div>
     )
   }
+  // Agent text: the caption row carries a read-aloud button.
+  const speakId = `${m.ts ?? ''}:${text.length}:${text.slice(0, 24)}`
+  const agentCap = (
+    <div className="flex items-center gap-1 px-1 pt-0.5 text-[0.625rem] text-dimmer tabular-nums">
+      {caption ? <span>{caption}</span> : null}
+      <SpeakButton text={text} id={speakId} className="-my-1" />
+    </div>
+  )
   if (m.final === false) {
     return (
       <div className="flex w-full flex-col items-start">
         <Markdown text={text} className="border-l-2 border-border pl-2.5 text-[0.86em] leading-normal text-muted-foreground" />
-        {cap}
+        {agentCap}
       </div>
     )
   }
@@ -164,7 +173,7 @@ const Bubble = memo(function Bubble({ m, caption, actions }: { m: Message; capti
       <div className="w-full rounded-2xl rounded-bl-md border border-border/70 bg-card px-3 py-2 text-card-foreground">
         <Markdown text={text} />
       </div>
-      {cap}
+      {agentCap}
     </div>
   )
 })
