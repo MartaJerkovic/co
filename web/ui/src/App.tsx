@@ -17,6 +17,7 @@ import { DesktopShell } from '@/screens/DesktopShell'
 import { JobsScreen } from '@/screens/JobsScreen'
 import { ListScreen } from '@/screens/ListScreen'
 import { NotesScreen } from '@/screens/NotesScreen'
+import { OperatorScreen } from '@/screens/OperatorScreen'
 import { PrsScreen } from '@/screens/PrsScreen'
 import { SessionScreen } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
@@ -24,7 +25,7 @@ import { UsageScreen } from '@/screens/UsageScreen'
 
 /**
  * Hash routing: `#/` (list), `#/s/<host>/<session_id>` (detail),
- * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/prs` (the GitHub PRs that need you) and `#/notes[/<host>[/<path>]]` (the notes explorer).
+ * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you) and `#/notes[/<host>[/<path>]]` (the notes explorer).
  * No server-side SPA fallback needed; the PWA start_url is `/#/`. Desktop and mobile use the
  * same routes, so links work across both.
  */
@@ -58,6 +59,9 @@ export default function App() {
                   </Route>
                   <Route path="/jobs">
                     <JobsScreen />
+                  </Route>
+                  <Route path="/operator">
+                    <OperatorScreen />
                   </Route>
                   <Route path={/^\/prs(?:\/.*)?$/}>
                     <PrsScreen />

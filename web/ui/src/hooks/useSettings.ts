@@ -16,6 +16,9 @@ export interface SettingsState {
   models: ModelOption[]
   /** This server transcribes voice prompts (the composer's mic). */
   voice: boolean
+  /** This server reads replies aloud (POST /api/speak) and runs the voice operator. */
+  speak: boolean
+  operator: boolean
   loaded: boolean
 }
 
@@ -35,7 +38,7 @@ export const QUICK_KEYS: { label: string; key: SessionKey }[] = [
   { label: '↓', key: 'Down' },
 ]
 
-export const DEFAULT_SETTINGS: SettingsState = { self: null, hosts: [], quickReplies: DEFAULT_QUICK_REPLIES, uploadMaxMB: null, models: DEFAULT_MODELS, voice: false, loaded: false }
+export const DEFAULT_SETTINGS: SettingsState = { self: null, hosts: [], quickReplies: DEFAULT_QUICK_REPLIES, uploadMaxMB: null, models: DEFAULT_MODELS, voice: false, speak: false, operator: false, loaded: false }
 
 export const SettingsContext = createContext<SettingsState>(DEFAULT_SETTINGS)
 

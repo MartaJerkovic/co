@@ -1,5 +1,5 @@
 import { useRef, useState, type TouchEvent } from 'react'
-import { CalendarClockIcon, EllipsisIcon, GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
+import { AudioLinesIcon, CalendarClockIcon, EllipsisIcon, GaugeIcon, NotebookTextIcon, PlusIcon, SearchIcon, Settings2Icon, TriangleAlertIcon, XIcon, GitPullRequestIcon } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { GroupedList } from '@/components/board/GroupedList'
@@ -22,6 +22,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
 import { useBoardColumns, useGroups, useViewMode } from '@/hooks/useGroups'
 import { useNotesHosts } from '@/hooks/useNotes'
+import { useSettings } from '@/hooks/useSettings'
 import { useNow } from '@/hooks/useNow'
 import { ALL_HOSTS, useSessionList } from '@/hooks/useSessionList'
 import { pullIntent } from '@/lib/gestures'
@@ -41,6 +42,7 @@ export function ListScreen() {
   const [, navigate] = useLocation()
   const [mode, setMode] = useViewMode()
   const notesHosts = useNotesHosts()
+  const settings = useSettings()
   const board = mode === 'board'
   const groups = useGroups(board)
   const { columns } = useBoardColumns(board, view.sessions, groups.groups, fleet, host, query)
@@ -106,6 +108,13 @@ export function ListScreen() {
             </Button>
           ) : null}
           <ScratchpadButton className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5" />
+          {settings.operator ? (
+            <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
+              <a href="#/operator" aria-label="Operator" title="Operator — talk to the fleet">
+                <AudioLinesIcon />
+              </a>
+            </Button>
+          ) : null}
           <Button asChild variant="ghost" size="icon" className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 text-muted-foreground [&_svg:not([class*='size-'])]:size-5">
             <a href="#/prs" aria-label="Pull requests" title="Pull requests">
               <GitPullRequestIcon />

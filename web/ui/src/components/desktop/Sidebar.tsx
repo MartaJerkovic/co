@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { CalendarClockIcon, CommandIcon, GaugeIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon, GitPullRequestIcon } from 'lucide-react'
+import { AudioLinesIcon, CalendarClockIcon, CommandIcon, GaugeIcon, KeyboardIcon, NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon, GitPullRequestIcon } from 'lucide-react'
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
@@ -16,6 +16,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
 import { useNotesHosts } from '@/hooks/useNotes'
+import { useSettings } from '@/hooks/useSettings'
 import { ALL_HOSTS, type SessionListState } from '@/hooks/useSessionList'
 import type { ViewMode } from '@/lib/groups'
 import { allSessions, visibleStatusFilters, type StatusFilterId } from '@/lib/sessions'
@@ -226,6 +227,7 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
           <Kbd className="ml-1">{shortcutHint('help')}</Kbd>
         </Button>
         <NotesLink size="icon-sm" />
+        <OperatorLink size="icon-sm" />
         <Button asChild variant="ghost" size="icon-sm" className="text-dimmer hover:text-foreground">
           <a href="#/prs" aria-label="Pull requests" title="Pull requests">
             <GitPullRequestIcon />
@@ -291,6 +293,7 @@ export function SidebarRail({
       </Button>
       <ScratchpadButton />
       <NotesLink />
+      <OperatorLink />
       <Button asChild variant="ghost" size="icon">
         <a href="#/prs" aria-label="Pull requests" title="Pull requests">
           <GitPullRequestIcon />
@@ -323,6 +326,19 @@ export function NotesLink({ className, size = 'icon' }: { className?: string; si
     <Button asChild variant="ghost" size={size} className={cn('text-dimmer hover:text-foreground', className)}>
       <a href="#/notes" aria-label="Notes" title={withHint('Notes', 'notes')}>
         <NotebookTextIcon />
+      </a>
+    </Button>
+  )
+}
+
+/** The voice operator (#/operator), when this server runs one. */
+export function OperatorLink({ className, size = 'icon' }: { className?: string; size?: 'icon' | 'icon-sm' }) {
+  const { operator } = useSettings()
+  if (!operator) return null
+  return (
+    <Button asChild variant="ghost" size={size} className={cn('text-dimmer hover:text-foreground', className)}>
+      <a href="#/operator" aria-label="Operator" title="Operator — talk to the fleet">
+        <AudioLinesIcon />
       </a>
     </Button>
   )

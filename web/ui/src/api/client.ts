@@ -42,6 +42,7 @@ import type {
   StacksResponse,
   StackView,
   TranscribeResponse,
+  OperatorStatus,
   UploadResponse,
   PrSpawnResponse,
   PrWorktree,
@@ -169,6 +170,23 @@ export const api = {
   /** A voice recording as text (always this server); `hint` = words to expect (session name, repo). */
   transcribe: (audio: Blob, hint: string, o: Opts = {}) =>
     request<TranscribeResponse>(`/api/transcribe?hint=${enc(hint)}`, { ...o, method: 'POST', file: audio }),
+  /** Text → spoken mp3 (the voice operator's replies). */
+  speak: async (text: string, o: Opts = {}): Promise<Blob> => {
+    let res: Response
+    try {
+      res = await fetch('/api/speak', { method: 'POST', signal: o.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
+    } catch (err) {
+      if (isAbortError(err)) throw err
+      throw new ApiError('network unreachable', 0)
+    }
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new ApiError(data?.error || `HTTP ${res.status}`, res.status, data)
+    }
+    return res.blob()
+  },
+  operator: (o: Opts = {}) => request<OperatorStatus>('/api/operator', o),
+  startOperator: (o: Opts = {}) => request<OperatorStatus>('/api/operator', { ...o, method: 'POST', body: {} }),
 
   /** Store a file on `host`; the response carries its absolute path there. */
   upload: (host: string, file: Blob, name: string, o: Opts = {}) =>

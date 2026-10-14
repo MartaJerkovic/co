@@ -2,6 +2,7 @@
 // static UI; tests mount it on an ephemeral port with fake dependencies.
 // Endpoint reference: ARCHITECTURE.md → "HTTP API".
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { HttpError, readJsonBody } from './http.mjs';
 import { clampLines, findSession, resolveHost, sleep as defaultSleep, validateKey, validateSendText, validateTitle } from './util.mjs';
 import { answerSteps, screenShowsPrompt, validateAnswer } from './questions.mjs';
@@ -125,6 +126,8 @@ export const DEFAULT_QUICK_REPLIES = [
  *               spawn with a first prompt (only when web.autoName is enabled; absent → none)
  *   uploader    lib/uploads.mjs instance (uploads route; absent → 501)
  *   transcriber lib/transcribe.mjs instance (POST /api/transcribe, settings.transcribe; absent → off)
+ *   speaker     lib/transcribe.mjs#createSpeaker (POST /api/speak, settings.speak; absent → off)
+ *   operator    lib/operator.mjs instance (GET/POST /api/operator; absent → 501)
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
  *   completer   lib/complete.mjs instance (…/complete: composer autocomplete; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
@@ -154,6 +157,8 @@ export function createApi({
   spawnNamer = null,
   uploader = null,
   transcriber = null,
+  speaker = null,
+  operator = null,
   files = null,
   completer = null,
   briefs = null,
@@ -529,6 +534,8 @@ export function createApi({
           models: config.models ?? DEFAULT_MODELS,
           uploads: { maxMB: config.uploads?.maxMB ?? null },
           transcribe: { enabled: Boolean(await transcriber?.enabled()) },
+          speak: { enabled: Boolean(await speaker?.enabled()), voice: speaker?.voice ?? null },
+          operator: { enabled: Boolean(operator) },
           notes: notes ? { enabled: true, name: notes.name ?? null } : { enabled: false },
           // `generate`: whether creating a stack calls the model (the CLI's `stacks.enabled`).
           stacks: { enabled: Boolean(stacks), model: config.stacks?.model ?? DEFAULT_STACKS_MODEL, generate: config.stacks?.generate !== false },
@@ -541,6 +548,35 @@ export function createApi({
       if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
       if (!transcriber) throw new HttpError('voice input is not available on this server', 501);
       return { status: 200, body: await transcriber.transcribe(req, url.searchParams.get('hint')) };
+    }
+
+    // Spoken replies (the voice operator): always this server, like /api/transcribe.
+    if (url.pathname === '/api/speak') {
+      if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      if (!speaker) throw new HttpError('spoken replies are not available on this server', 501);
+      const body = await readJsonBody(req);
+      if (typeof body?.text !== 'string' || !body.text.trim()) throw new HttpError('text is required', 400);
+      const audio = await speaker.speak(body.text);
+      return {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg', 'content-length': audio.length, 'cache-control': 'no-store' },
+        stream: Readable.from([audio]),
+      };
+    }
+
+    // The voice operator: this server's own (GET: is it running; POST: find or start it).
+    if (url.pathname === '/api/operator') {
+      if (!operator) throw new HttpError('the operator is not available on this server', 501);
+      if (req.method === 'GET') return { status: 200, body: await operator.status() };
+      if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      try {
+        const r = await operator.ensure();
+        if (r.started) refreshFleet();
+        return { status: 200, body: r };
+      } catch (err) {
+        if (err?.status) throw new HttpError(err.message, err.status);
+        throw err;
+      }
     }
 
     if (url.pathname === '/api/fleet') {

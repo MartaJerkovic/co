@@ -85,6 +85,7 @@ import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
 import { JobsScreen } from '@/screens/JobsScreen'
+import { OperatorScreen } from '@/screens/OperatorScreen'
 
 const parseBool01 = (raw: string) => (raw === '1' ? true : raw === '0' ? false : undefined)
 
@@ -104,6 +105,7 @@ export function DesktopShell() {
   const [settingsOpen] = useRoute('/settings')
   const [usageOpen] = useRoute('/usage')
   const [jobsOpen] = useRoute('/jobs')
+  const [operatorOpen] = useRoute('/operator')
   // `#/prs`: the pull requests board takes the whole window too.
   const prsOpen = isPrsLocation(location)
   // `#/notes…`: the notes explorer takes the whole window (no sidebar / board).
@@ -271,7 +273,7 @@ export function DesktopShell() {
         setNewOpen(true)
         return true
       case 'back':
-        if (selectedKey || settingsOpen || usageOpen || jobsOpen || notesOpen || prsOpen) {
+        if (selectedKey || settingsOpen || usageOpen || jobsOpen || operatorOpen || notesOpen || prsOpen) {
           navigate('/')
           return true
         }
@@ -533,7 +535,7 @@ export function DesktopShell() {
   ]
 
   // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/prs`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
+  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -561,6 +563,8 @@ export function DesktopShell() {
     <UsageScreen layout="pane" />
   ) : jobsOpen ? (
     <JobsScreen layout="pane" />
+  ) : operatorOpen ? (
+    <OperatorScreen layout="pane" />
   ) : null
 
   return (

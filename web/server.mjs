@@ -18,7 +18,8 @@ import { createKiller } from './lib/kill.mjs';
 import { createAutoNamer, createSpawnNamer } from './lib/autoname.mjs';
 import { createGrouper } from './lib/grouping.mjs';
 import { createUploader } from './lib/uploads.mjs';
-import { createKeySource, createTranscriber } from './lib/transcribe.mjs';
+import { SPEECH_KEY_NAME, createKeySource, createSpeaker, createTranscriber } from './lib/transcribe.mjs';
+import { createOperator } from './lib/operator.mjs';
 import { createCompleter } from './lib/complete.mjs';
 import { createFiles } from './lib/files.mjs';
 import { createNotes } from './lib/notes.mjs';
@@ -127,18 +128,27 @@ const stacks = createStacks({
 });
 // Session recovery: dormant sessions after a reboot (`fleet --local restore … --json`).
 const dormant = createDormant({ cli, log });
+// Voice: an OpenAI key for speech-to-text (voice prompts) and one for text-to-speech (the
+// operator's replies) — OPENAI_TEXT_TO_SPEECH_API_KEY, else the transcription key.
+const transcribeKey = createKeySource({ run });
+const ttsKey = createKeySource({ name: SPEECH_KEY_NAME, run });
+const speechKey = async () => (await ttsKey()) ?? (await transcribeKey());
+const operator = createOperator({ config, fleet, spawner });
+const spawner = createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers });
 const handleApi = createApi({
   config,
   fleet,
   backend,
   transcripts: createTranscriptReader(),
-  spawner: createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers }),
+  spawner,
   killer: createKiller({ run, tmux: config.tmux, closeIterm: (s) => backend.closeIterm(s) }),
   cli,
   autoNamer,
   spawnNamer,
   uploader,
-  transcriber: createTranscriber({ getKey: createKeySource({ run }), log }),
+  transcriber: createTranscriber({ getKey: transcribeKey, log }),
+  speaker: createSpeaker({ getKey: speechKey, voice: config.operator.voice ?? undefined, log }),
+  operator,
   files: createFiles({ home: os.homedir(), run, touched: createTouchedIndex(), roots: config.files.roots }),
   completer: createCompleter({ home: os.homedir(), run }),
   notes: createNotes({ config: config.notes, home: os.homedir(), run }),
@@ -177,6 +187,8 @@ server.listen(config.port, config.bind, () => {
     log('[fleet-web] autoname off (web.autoName.enabled = false)');
   }
   uploader.start();
+  // A running operator keeps its workspace current (its ./api helper names this server's port).
+  operator.prepare().catch((err) => logError(err, 'operator workspace'));
   log(`[fleet-web] uploads ${config.uploads.dir} (max ${config.uploads.maxMB} MB, kept ${config.uploads.retentionDays || '∞'} days)`);
   if (grouper) {
     grouper.start();

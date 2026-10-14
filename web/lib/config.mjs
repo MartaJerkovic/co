@@ -444,6 +444,13 @@ export function normalizeConfig(
   const stacksModel = typeof st.model === 'string' && MODEL_ID_RE.test(st.model) ? st.model : DEFAULT_STACKS_MODEL;
   const stacks = { sync: stacksSync, syncMinutes, generate: st.enabled !== false, model: stacksModel };
 
+  // web.operator: the voice operator — a Claude session that watches the fleet (lib/operator.mjs).
+  const wo = web.operator == null ? {} : web.operator;
+  if (!isObject(wo)) throw new Error('config.web.operator must be an object { model, voice }');
+  if (wo.model != null && (typeof wo.model !== 'string' || !MODEL_ID_RE.test(wo.model))) throw new Error('config.web.operator.model must be a model id (letters, digits and ._[]-)');
+  if (wo.voice != null && (typeof wo.voice !== 'string' || !/^[a-z0-9_-]{1,40}$/i.test(wo.voice))) throw new Error('config.web.operator.voice must be an OpenAI voice name (e.g. "alloy")');
+  const operator = { model: wo.model ?? '', voice: wo.voice ?? null, dir: path.join(fleetStateDir(env, home), 'operator') };
+
   // restore.onBoot: at start, bring back what the last boot left dormant (lib/dormant.mjs).
   const rs = raw.restore == null ? {} : raw.restore;
   if (!isObject(rs)) throw new Error('config.restore must be an object { onBoot }');
@@ -481,6 +488,7 @@ export function normalizeConfig(
     briefs,
     stacks,
     restore,
+    operator,
   };
 }
 

@@ -61,7 +61,8 @@ fleet config set desktop.url https://workstation.<tailnet>.ts.net:7443   # on th
 The server takes the browser's address from `X-Forwarded-For` when the request comes from this
 machine's proxy, so "Open in editor" links still know which machine you are on. The first
 recording asks for microphone access (`NSMicrophoneUsageDescription`); the server needs a
-transcription key (see `POST /api/transcribe` in [architecture](architecture.md)).
+transcription key (see `POST /api/transcribe` in [architecture](architecture.md)). The same
+microphone drives the [voice operator](architecture.md#voice-operator) (`#/operator`).
 
 On launch a small start page checks `GET /api/health`. If the server answers, the window loads
 it. If not and the URL is this machine's (3, 4, or a loopback 1/2), the app starts

@@ -187,6 +187,20 @@ export interface Settings {
   notes?: { enabled: boolean; name?: string | null }
   /** Session stacks on this server (older servers: absent); `generate` = creating one calls `model`. */
   stacks?: { enabled: boolean; model?: string; generate?: boolean }
+  /** Spoken replies (POST /api/speak): this server has the key (older servers: absent). */
+  speak?: { enabled: boolean; voice?: string | null }
+  /** The voice operator (GET/POST /api/operator) is available on this server (older servers: absent). */
+  operator?: { enabled: boolean }
+}
+
+/** GET/POST /api/operator — this server's operator session (null until it shows in the fleet). */
+export interface OperatorStatus {
+  host: string
+  dir: string
+  session: Session | null
+  /** POST: a new operator was started just now. */
+  started?: boolean
+  tmuxSession?: string | null
 }
 
 /** POST /api/transcribe — the recording as text. */
