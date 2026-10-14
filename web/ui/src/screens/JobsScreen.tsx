@@ -260,11 +260,12 @@ function JobCard({
                 </dd>
               </>
             ) : null}
-            <dt className="text-dimmer">runs as</dt>
-            <dd className="truncate font-mono">
-              {j.command || j.harness}
-              {j.model ? ` · ${j.model}` : ''}
-            </dd>
+            {j.model ? (
+              <>
+                <dt className="text-dimmer">model</dt>
+                <dd className="truncate font-mono">{j.model}</dd>
+              </>
+            ) : null}
             <dt className="text-dimmer">sessions</dt>
             <dd>{keepLabel(j.keep)} (when idle)</dd>
           </dl>
