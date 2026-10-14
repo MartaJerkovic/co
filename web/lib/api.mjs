@@ -642,6 +642,12 @@ export function createApi({
       });
       // A run started a session: show it in the next /api/fleet without waiting a poll.
       if (action === 'run' && r.status === 200) refreshFleet();
+      // Prompt-file editor links are built by the server the browser asked, like the notes'.
+      if (!action && r.status === 200 && r.body) {
+        const viewer = editorViewer(config, req);
+        const withLink = (j) => (typeof j?.prompt?.abs === 'string' ? { ...j, prompt: { ...j.prompt, editorUrl: editorUrl(viewer, host, j.prompt.abs) } } : j);
+        return { ...r, body: jobName == null && Array.isArray(r.body.jobs) ? { ...r.body, jobs: r.body.jobs.map(withLink) } : withLink(r.body) };
+      }
       return r;
     }
 

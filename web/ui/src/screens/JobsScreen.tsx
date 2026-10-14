@@ -244,7 +244,15 @@ function JobCard({
             {prompt ? (
               <>
                 <dt className="text-dimmer">prompt</dt>
-                <dd className="line-clamp-2 break-words">{prompt}</dd>
+                <dd className="line-clamp-2 break-words">
+                  {j.prompt && 'file' in j.prompt && j.prompt.editorUrl ? (
+                    <a href={j.prompt.editorUrl} title={`Open ${j.prompt.abs ?? j.prompt.file} in the editor`} className="underline decoration-dimmer underline-offset-2 hover:text-foreground">
+                      {prompt}
+                    </a>
+                  ) : (
+                    prompt
+                  )}
+                </dd>
               </>
             ) : null}
             <dt className="text-dimmer">runs as</dt>

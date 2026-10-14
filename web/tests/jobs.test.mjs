@@ -57,7 +57,7 @@ function fakeRun(h) {
     if (args[0] === '--local' && args[1] === 'jobs') {
       if (h.old) throw fail("error: unrecognized subcommand 'jobs'\n");
       const name = args.at(-1);
-      if (args[2] === '--json') return { stdout: JSON.stringify([JOB]), stderr: '' };
+      if (args[2] === '--json') return { stdout: JSON.stringify(h.jobs ?? [JOB]), stderr: '' };
       if (name !== 'triage') throw fail(`Error: no job \`${name}\` — configured: triage\n`);
       if (args[2] === 'show') return { stdout: JSON.stringify({ ...JOB, enabled: h.enabled }), stderr: '' };
       if (args[2] === 'run') {
@@ -93,7 +93,7 @@ async function startPair(t) {
       backend: {},
       transcripts: {},
       spawner: {},
-      jobs: createJobs({ cli, self: name }),
+      jobs: createJobs({ cli, self: name, home: `/home/${name}` }),
       fleetRefreshMs: 60_000,
     });
     t.after(() => api.stop());
@@ -131,6 +131,28 @@ test('GET jobs and jobs/:name, here and through a peer', async (t) => {
   assert.equal((await call(`${urls.laptop}/api/hosts/nowhere/jobs`)).status, 404);
   assert.equal((await call(`${urls.laptop}/api/hosts/laptop/jobs`, 'POST', {})).status, 405);
   assert.equal((await call(`${urls.laptop}/api/hosts/laptop/jobs/triage/run`)).status, 405);
+});
+
+test('GET jobs: a prompt file gets its absolute path and an editor link', async (t) => {
+  const { hosts, urls } = await startPair(t);
+  hosts.workstation.jobs = [
+    { ...JOB, prompt: { file: '~/notes/triage.md' } },
+    { ...JOB, name: 'abs', prompt: { file: '/srv/prompt.md' } },
+    { ...JOB, name: 'rel', prompt: { file: 'prompt.md' } },
+  ];
+  const list = await call(`${urls.laptop}/api/hosts/workstation/jobs`);
+  assert.equal(list.status, 200);
+  assert.deepEqual(
+    list.body.jobs.map((j) => j.prompt),
+    [
+      { file: '~/notes/triage.md', abs: '/home/workstation/notes/triage.md', editorUrl: 'vscode://vscode-remote/ssh-remote+workstation/home/workstation/notes/triage.md' },
+      { file: '/srv/prompt.md', abs: '/srv/prompt.md', editorUrl: 'vscode://vscode-remote/ssh-remote+workstation/srv/prompt.md' },
+      { file: 'prompt.md' },
+    ],
+  );
+  hosts.laptop.jobs = [{ ...JOB, prompt: { file: '~/p.md' } }];
+  const local = await call(`${urls.laptop}/api/hosts/laptop/jobs`);
+  assert.deepEqual(local.body.jobs[0].prompt, { file: '~/p.md', abs: '/home/laptop/p.md', editorUrl: 'vscode://file/home/laptop/p.md' });
 });
 
 test('POST jobs/:name/run: refuses while busy unless forced, proxies to a peer', async (t) => {

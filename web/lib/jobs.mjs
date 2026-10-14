@@ -2,7 +2,10 @@
 // POST …/jobs/:name/enabled. The CLI owns everything (docs/cli.md → Jobs): the list is
 // `fleet --local jobs --json`, one job with its runs `fleet --local jobs show <name> --json`, a run
 // now `fleet --local jobs run [--force] <name>`, pause / resume `fleet --local jobs enable|disable`.
-// Each host has its own jobs (its config's `jobs`); the UI asks every host.
+// Each host has its own jobs (its config's `jobs`); the UI asks every host. A prompt file gets
+// `prompt.abs` (`~` expanded on the job's host); the API layer adds its `prompt.editorUrl`.
+
+import os from 'node:os';
 
 /** A job name as the UI may send it (config keys are free-form; the web only passes these). */
 export const JOB_NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
@@ -21,14 +24,23 @@ function failure(err) {
   return { status: err?.timedOut ? 504 : 502, body: { error: String(err?.message ?? err) } };
 }
 
+/** A job with `prompt.abs` for a `~/…` or absolute prompt file. */
+function withPromptAbs(job, home) {
+  const file = job?.prompt?.file;
+  if (typeof file !== 'string') return job;
+  const abs = file === '~' || file.startsWith('~/') ? home + file.slice(1) : file;
+  return abs.startsWith('/') ? { ...job, prompt: { ...job.prompt, abs } } : job;
+}
+
 /**
  * @param cli   lib/fleet-cli.mjs instance (`jobs`, `jobShow`, `jobRunNow`, `jobSetEnabled`)
  * @param self  this host's name
+ * @param home  this host's home directory (expands a `~/…` prompt file)
  */
-export function createJobs({ cli, self }) {
+export function createJobs({ cli, self, home = os.homedir() }) {
   async function list() {
     try {
-      return { status: 200, body: { host: self, jobs: await cli.jobs() } };
+      return { status: 200, body: { host: self, jobs: (await cli.jobs()).map((j) => withPromptAbs(j, home)) } };
     } catch (err) {
       return failure(err);
     }
@@ -37,7 +49,7 @@ export function createJobs({ cli, self }) {
   async function show(name) {
     if (!validJobName(name)) return { status: 400, body: { error: 'bad job name' } };
     try {
-      return { status: 200, body: { host: self, ...(await cli.jobShow(name)) } };
+      return { status: 200, body: { host: self, ...withPromptAbs(await cli.jobShow(name), home) } };
     } catch (err) {
       return failure(err);
     }
