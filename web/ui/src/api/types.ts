@@ -1028,10 +1028,14 @@ export interface Job {
   /** Seconds; null = never. */
   keep: number | null
   /**
-   * A file prompt's `abs`: the path on the job's host (`~` expanded); `editorUrl` opens it in the
-   * editor (null without one or an ssh alias). Both absent from older servers.
+   * A file prompt's `abs`: the path on the job's host (`~` expanded); `root`: its git checkout,
+   * else its directory. `editorUrl` opens the file in the editor, `rootEditorUrl` the root (null
+   * without an editor or an ssh alias). All absent from older servers.
    */
-  prompt: { inline: string } | { file: string; abs?: string; editorUrl?: string | null } | null
+  prompt:
+    | { inline: string }
+    | { file: string; abs?: string; root?: string; editorUrl?: string | null; rootEditorUrl?: string | null }
+    | null
   /** Epoch ms; null when paused (or the schedule never fires). */
   nextRun: number | null
   lastSlot: number | null

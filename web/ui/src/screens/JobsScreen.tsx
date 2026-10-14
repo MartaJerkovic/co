@@ -246,7 +246,12 @@ function JobCard({
                 <dt className="text-dimmer">prompt</dt>
                 <dd className="line-clamp-2 break-words">
                   {j.prompt && 'file' in j.prompt && j.prompt.editorUrl ? (
-                    <a href={j.prompt.editorUrl} title={`Open ${j.prompt.abs ?? j.prompt.file} in the editor`} className="underline decoration-dimmer underline-offset-2 hover:text-foreground">
+                    <a
+                      href={j.prompt.rootEditorUrl ?? j.prompt.editorUrl}
+                      onClick={() => openPromptFile(j.prompt)}
+                      title={`Open ${j.prompt.root ?? j.prompt.abs ?? j.prompt.file} in the editor`}
+                      className="underline decoration-dimmer underline-offset-2 hover:text-foreground"
+                    >
                       {prompt}
                     </a>
                   ) : (
@@ -268,6 +273,16 @@ function JobCard({
       ) : null}
     </section>
   )
+}
+
+/**
+ * After the link opens the prompt's folder (its git checkout), open the file itself: the editor
+ * puts it in the window whose folder holds it. A second URL, because one URL opens one or the other.
+ */
+function openPromptFile(prompt: Job['prompt']) {
+  if (!prompt || !('file' in prompt) || !prompt.rootEditorUrl || !prompt.editorUrl) return
+  const url = prompt.editorUrl
+  window.setTimeout(() => window.location.assign(url), 1500)
 }
 
 function JobRuns({ host, name, now, fleet, runEpoch }: { host: string; name: string; now: number; fleet: FleetResponse | null; runEpoch: number }) {

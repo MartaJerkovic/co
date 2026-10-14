@@ -24,14 +24,17 @@ function encodePath(p) {
 /**
  * → the editor URL for `absPath` on `host`, or null (no editor, relative path, or a remote host
  * without a usable ssh alias). `config` = normalized config ({ self, editor, sshHosts }).
+ * `line` opens `absPath` as a file at that line: VS Code opens a remote path as a folder unless
+ * it ends in `:<line>`.
  */
-export function editorUrl(config, host, absPath) {
+export function editorUrl(config, host, absPath, { line = null } = {}) {
   const editor = config?.editor ?? null;
   if (!EDITORS.includes(editor) || typeof absPath !== 'string' || !absPath.startsWith('/')) return null;
-  if (host === config.self) return `${editor}://file${encodePath(absPath)}`;
+  const at = Number.isInteger(line) && line > 0 ? `:${line}` : '';
+  if (host === config.self) return `${editor}://file${encodePath(absPath)}${at}`;
   const alias = config.sshHosts?.[host] ?? null;
   if (typeof alias !== 'string' || !SSH_ALIAS_RE.test(alias)) return null;
-  return `${editor}://vscode-remote/ssh-remote+${alias}${encodePath(absPath)}`;
+  return `${editor}://vscode-remote/ssh-remote+${alias}${encodePath(absPath)}${at}`;
 }
 
 const LOOPBACK_RE = /^(?:127\.\d+\.\d+\.\d+|::1)$/;

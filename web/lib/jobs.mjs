@@ -3,9 +3,12 @@
 // `fleet --local jobs --json`, one job with its runs `fleet --local jobs show <name> --json`, a run
 // now `fleet --local jobs run [--force] <name>`, pause / resume `fleet --local jobs enable|disable`.
 // Each host has its own jobs (its config's `jobs`); the UI asks every host. A prompt file gets
-// `prompt.abs` (`~` expanded on the job's host); the API layer adds its `prompt.editorUrl`.
+// `prompt.abs` (`~` expanded on the job's host) and `prompt.root` (its git checkout, else its
+// directory); the API layer adds their editor links.
 
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
 /** A job name as the UI may send it (config keys are free-form; the web only passes these). */
 export const JOB_NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
@@ -24,23 +27,33 @@ function failure(err) {
   return { status: err?.timedOut ? 504 : 502, body: { error: String(err?.message ?? err) } };
 }
 
-/** A job with `prompt.abs` for a `~/…` or absolute prompt file. */
-function withPromptAbs(job, home) {
+/** The git checkout containing `file` (a `.git` above it), else its directory. */
+function rootOf(file, exists) {
+  const dir = path.dirname(file);
+  for (let d = dir; ; d = path.dirname(d)) {
+    if (exists(path.join(d, '.git'))) return d;
+    if (path.dirname(d) === d) return dir;
+  }
+}
+
+/** A job with `prompt.abs` and `prompt.root` for a `~/…` or absolute prompt file. */
+function withPromptAbs(job, home, exists) {
   const file = job?.prompt?.file;
   if (typeof file !== 'string') return job;
   const abs = file === '~' || file.startsWith('~/') ? home + file.slice(1) : file;
-  return abs.startsWith('/') ? { ...job, prompt: { ...job.prompt, abs } } : job;
+  return abs.startsWith('/') ? { ...job, prompt: { ...job.prompt, abs, root: rootOf(abs, exists) } } : job;
 }
 
 /**
  * @param cli   lib/fleet-cli.mjs instance (`jobs`, `jobShow`, `jobRunNow`, `jobSetEnabled`)
  * @param self  this host's name
  * @param home  this host's home directory (expands a `~/…` prompt file)
+ * @param exists  path → whether it exists (finds a prompt file's git checkout)
  */
-export function createJobs({ cli, self, home = os.homedir() }) {
+export function createJobs({ cli, self, home = os.homedir(), exists = fs.existsSync }) {
   async function list() {
     try {
-      return { status: 200, body: { host: self, jobs: (await cli.jobs()).map((j) => withPromptAbs(j, home)) } };
+      return { status: 200, body: { host: self, jobs: (await cli.jobs()).map((j) => withPromptAbs(j, home, exists)) } };
     } catch (err) {
       return failure(err);
     }
@@ -49,7 +62,7 @@ export function createJobs({ cli, self, home = os.homedir() }) {
   async function show(name) {
     if (!validJobName(name)) return { status: 400, body: { error: 'bad job name' } };
     try {
-      return { status: 200, body: { host: self, ...withPromptAbs(await cli.jobShow(name), home) } };
+      return { status: 200, body: { host: self, ...withPromptAbs(await cli.jobShow(name), home, exists) } };
     } catch (err) {
       return failure(err);
     }

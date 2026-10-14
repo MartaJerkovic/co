@@ -93,7 +93,7 @@ async function startPair(t) {
       backend: {},
       transcripts: {},
       spawner: {},
-      jobs: createJobs({ cli, self: name, home: `/home/${name}` }),
+      jobs: createJobs({ cli, self: name, home: `/home/${name}`, exists: (p) => p === `/home/${name}/notes/.git` }),
       fleetRefreshMs: 60_000,
     });
     t.after(() => api.stop());
@@ -142,17 +142,30 @@ test('GET jobs: a prompt file gets its absolute path and an editor link', async 
   ];
   const list = await call(`${urls.laptop}/api/hosts/workstation/jobs`);
   assert.equal(list.status, 200);
+  const remote = 'vscode://vscode-remote/ssh-remote+workstation';
   assert.deepEqual(
     list.body.jobs.map((j) => j.prompt),
     [
-      { file: '~/notes/triage.md', abs: '/home/workstation/notes/triage.md', editorUrl: 'vscode://vscode-remote/ssh-remote+workstation/home/workstation/notes/triage.md' },
-      { file: '/srv/prompt.md', abs: '/srv/prompt.md', editorUrl: 'vscode://vscode-remote/ssh-remote+workstation/srv/prompt.md' },
+      {
+        file: '~/notes/triage.md',
+        abs: '/home/workstation/notes/triage.md',
+        root: '/home/workstation/notes',
+        editorUrl: `${remote}/home/workstation/notes/triage.md:1`,
+        rootEditorUrl: `${remote}/home/workstation/notes`,
+      },
+      { file: '/srv/prompt.md', abs: '/srv/prompt.md', root: '/srv', editorUrl: `${remote}/srv/prompt.md:1`, rootEditorUrl: `${remote}/srv` },
       { file: 'prompt.md' },
     ],
   );
   hosts.laptop.jobs = [{ ...JOB, prompt: { file: '~/p.md' } }];
   const local = await call(`${urls.laptop}/api/hosts/laptop/jobs`);
-  assert.deepEqual(local.body.jobs[0].prompt, { file: '~/p.md', abs: '/home/laptop/p.md', editorUrl: 'vscode://file/home/laptop/p.md' });
+  assert.deepEqual(local.body.jobs[0].prompt, {
+    file: '~/p.md',
+    abs: '/home/laptop/p.md',
+    root: '/home/laptop',
+    editorUrl: 'vscode://file/home/laptop/p.md:1',
+    rootEditorUrl: 'vscode://file/home/laptop',
+  });
 });
 
 test('POST jobs/:name/run: refuses while busy unless forced, proxies to a peer', async (t) => {
