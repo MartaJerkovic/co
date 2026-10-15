@@ -6,6 +6,7 @@
 //     web: { port, bind, dir, ui, editor, editorSsh, quickReplies, models: [ { id, label } ],
 //            autoName: { enabled, intervalMinutes },
 //            grouping: { enabled, intervalMinutes }, uploads: { dir, maxMB, retentionDays },
+//            memos: { dir, audioDir, model },
 //            briefs: { enabled, model, idleMs, minIntervalMs, maxDeltaChars, maxCallsPerHour, … },
 //            stacks: { syncMinutes } },
 //     stacks: { enabled, model },         (read by the CLI; the server only reports them)
@@ -27,6 +28,8 @@ export const DEFAULT_AUTONAME_MINUTES = 5;
 export const DEFAULT_GROUPING_MINUTES = 10;
 export const DEFAULT_UPLOADS_DIR = '~/.local/share/fleet/uploads';
 export const DEFAULT_UPLOAD_MAX_MB = 100;
+export const DEFAULT_MEMOS_DIR = '~/.local/share/fleet/memos';
+export const DEFAULT_MEMO_AUDIO_DIR = '~/.local/share/fleet/memo-audio';
 export const DEFAULT_UPLOAD_RETENTION_DAYS = 14;
 export const DEFAULT_STACKS_SYNC_MINUTES = 2;
 export const DEFAULT_STACKS_MODEL = 'sonnet';
@@ -409,6 +412,19 @@ export function normalizeConfig(
     };
   }
 
+  // web.memos: voice memos (lib/memos.mjs) — transcripts as markdown in `dir` (a notes folder,
+  // say), segment audio in `audioDir`; `model` names their titles.
+  const wm = web.memos == null ? {} : web.memos;
+  if (!isObject(wm)) throw new Error('config.web.memos must be an object { dir, audioDir, model }');
+  const memoDir = (key, fallback) => {
+    if (wm[key] != null && (typeof wm[key] !== 'string' || !wm[key].trim())) throw new Error(`config.web.memos.${key} must be a non-empty string`);
+    const d = expandHome(wm[key]?.trim() ?? fallback, home);
+    if (!path.isAbsolute(d)) throw new Error(`config.web.memos.${key} must be absolute or start with ~: ${wm[key]}`);
+    return path.normalize(d);
+  };
+  if (wm.model != null && (typeof wm.model !== 'string' || !MODEL_ID_RE.test(wm.model))) throw new Error('config.web.memos.model must be a model id (letters, digits and ._[]-)');
+  const memos = { dir: memoDir('dir', DEFAULT_MEMOS_DIR), audioDir: memoDir('audioDir', DEFAULT_MEMO_AUDIO_DIR), model: wm.model ?? 'haiku' };
+
   // web.briefs: per-session briefs (lib/briefs.mjs) — the budget knobs for its model calls.
   const wb = web.briefs == null ? {} : web.briefs;
   if (!isObject(wb)) throw new Error('config.web.briefs must be an object { enabled, model, idleMs, minIntervalMs, maxDeltaChars, maxCallsPerHour }');
@@ -499,6 +515,7 @@ export function normalizeConfig(
     uploads,
     files,
     notes,
+    memos,
     briefs,
     stacks,
     restore,

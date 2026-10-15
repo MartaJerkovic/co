@@ -19,6 +19,8 @@ export interface SettingsState {
   /** This server reads replies aloud (POST /api/speak) and runs the voice operator. */
   speak: boolean
   operator: boolean
+  /** This server keeps voice memos (/api/memos). */
+  memos: boolean
   loaded: boolean
 }
 
@@ -38,7 +40,7 @@ export const QUICK_KEYS: { label: string; key: SessionKey }[] = [
   { label: '↓', key: 'Down' },
 ]
 
-export const DEFAULT_SETTINGS: SettingsState = { self: null, hosts: [], quickReplies: DEFAULT_QUICK_REPLIES, uploadMaxMB: null, models: DEFAULT_MODELS, voice: false, speak: false, operator: false, loaded: false }
+export const DEFAULT_SETTINGS: SettingsState = { self: null, hosts: [], quickReplies: DEFAULT_QUICK_REPLIES, uploadMaxMB: null, models: DEFAULT_MODELS, voice: false, speak: false, operator: false, memos: false, loaded: false }
 
 export const SettingsContext = createContext<SettingsState>(DEFAULT_SETTINGS)
 

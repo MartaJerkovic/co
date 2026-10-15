@@ -76,6 +76,9 @@ const FILES_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/files\/(stat|raw
 const COMPLETE_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/complete$/;
 const COMPLETE_KINDS = new Set(['skills', 'files', 'brain']);
 const BRIEF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/brief(\/regenerate)?$/;
+const MEMO_SEGMENT_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/segments\/(\d{1,3})$/;
+const MEMO_FINISH_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/finish$/;
+const MEMO_ROUTE = /^\/api\/memos\/([^/]+)(\/retry)?$/;
 const NOTES_ROUTE = /^\/api\/hosts\/([^/]+)\/notes\/(tree|search|file|raw)$/;
 const SPAWN_DIRS_ROUTE = /^\/api\/hosts\/([^/]+)\/spawn-dirs$/;
 const STACKS_ROUTE = /^\/api\/hosts\/([^/]+)\/stacks(\/sync)?$/;
@@ -127,6 +130,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   uploader    lib/uploads.mjs instance (uploads route; absent → 501)
  *   transcriber lib/transcribe.mjs instance (POST /api/transcribe, settings.transcribe; absent → off)
  *   speaker     lib/transcribe.mjs#createSpeaker (POST /api/speak, settings.speak; absent → off)
+ *   memos       lib/memos.mjs#createMemos (/api/memos…, settings.memos; needs the transcriber's key)
  *   operator    lib/operator.mjs instance (GET/POST /api/operator; absent → 501)
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
  *   completer   lib/complete.mjs instance (…/complete: composer autocomplete; absent → 501)
@@ -157,6 +161,7 @@ export function createApi({
   spawnNamer = null,
   uploader = null,
   transcriber = null,
+  memos = null,
   speaker = null,
   operator = null,
   files = null,
@@ -515,6 +520,38 @@ export function createApi({
     }
   }
 
+  async function handleMemos(req, url) {
+    if (!memos) throw new HttpError('voice memos are not available on this server', 501);
+    const method = req.method;
+    if (url.pathname === '/api/memos') {
+      if (method !== 'GET') throw new HttpError('method not allowed', 405);
+      return { status: 200, body: await memos.list() };
+    }
+    let m = MEMO_SEGMENT_ROUTE.exec(url.pathname);
+    if (m) {
+      if (method !== 'PUT') throw new HttpError('method not allowed', 405);
+      if (!(await transcriber?.enabled())) throw new HttpError('voice memos are off: no transcription key on this server', 501);
+      return { status: 200, body: await memos.putSegment(decodeURIComponent(m[1]), Number(m[2]), req) };
+    }
+    m = MEMO_FINISH_ROUTE.exec(url.pathname);
+    if (m) {
+      if (method !== 'POST') throw new HttpError('method not allowed', 405);
+      const body = await readJsonBody(req);
+      return { status: 200, body: await memos.finish(decodeURIComponent(m[1]), body ?? {}) };
+    }
+    m = MEMO_ROUTE.exec(url.pathname);
+    if (!m) throw new HttpError('not found', 404);
+    const id = decodeURIComponent(m[1]);
+    if (m[2]) {
+      if (method !== 'POST') throw new HttpError('method not allowed', 405);
+      return { status: 200, body: await memos.retry(id) };
+    }
+    if (method === 'GET') return { status: 200, body: await memos.get(id) };
+    if (method === 'PUT') return { status: 200, body: await memos.rename(id, (await readJsonBody(req))?.title) };
+    if (method === 'DELETE') return { status: 200, body: await memos.remove(id) };
+    throw new HttpError('method not allowed', 405);
+  }
+
   async function handleApi(req, url) {
     if (url.pathname === '/api/health') {
       return {
@@ -551,6 +588,7 @@ export function createApi({
           uploads: { maxMB: config.uploads?.maxMB ?? null },
           transcribe: { enabled: Boolean(await transcriber?.enabled()) },
           speak: { enabled: Boolean(await speaker?.enabled()), voice: speaker?.voice ?? null },
+          memos: { enabled: Boolean(memos && (await transcriber?.enabled())) },
           operator: { enabled: Boolean(operator), hosts: config.operator?.hosts ?? [config.self] },
           notes: notes ? { enabled: true, name: notes.name ?? null } : { enabled: false },
           // `generate`: whether creating a stack calls the model (the CLI's `stacks.enabled`).
@@ -565,6 +603,9 @@ export function createApi({
       if (!transcriber) throw new HttpError('voice input is not available on this server', 501);
       return { status: 200, body: await transcriber.transcribe(req, url.searchParams.get('hint')) };
     }
+
+    // Voice memos: always this server, like /api/transcribe.
+    if (url.pathname === '/api/memos' || url.pathname.startsWith('/api/memos/')) return handleMemos(req, url);
 
     // Spoken replies (the voice operator): always this server, like /api/transcribe.
     if (url.pathname === '/api/speak') {

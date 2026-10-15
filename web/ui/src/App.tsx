@@ -1,6 +1,7 @@
 import { Redirect, Route, Router, Switch } from 'wouter'
 import { useHashLocation } from 'wouter/use-hash-location'
 
+import { MemoRecorderHost } from '@/components/MemoRecorder'
 import { Scratchpad } from '@/components/Scratchpad'
 import { StackUi } from '@/components/stack/StackUi'
 import { Toaster } from '@/components/ui/sonner'
@@ -16,6 +17,7 @@ import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { DesktopShell } from '@/screens/DesktopShell'
 import { JobsScreen } from '@/screens/JobsScreen'
+import { MemosScreen } from '@/screens/MemosScreen'
 import { ListScreen } from '@/screens/ListScreen'
 import { NotesScreen } from '@/screens/NotesScreen'
 import { OperatorScreen } from '@/screens/OperatorScreen'
@@ -26,7 +28,7 @@ import { UsageScreen } from '@/screens/UsageScreen'
 
 /**
  * Hash routing: `#/` (list), `#/s/<host>/<session_id>` (detail),
- * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you) and `#/notes[/<host>[/<path>]]` (the notes explorer).
+ * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer).
  * No server-side SPA fallback needed; the PWA start_url is `/#/`. Desktop and mobile use the
  * same routes, so links work across both.
  */
@@ -65,6 +67,9 @@ export default function App() {
                   <Route path="/operator">
                     <OperatorScreen />
                   </Route>
+                  <Route path={/^\/memos(?:\/.*)?$/}>
+                    <MemosScreen />
+                  </Route>
                   <Route path={/^\/prs(?:\/.*)?$/}>
                     <PrsScreen />
                   </Route>
@@ -83,6 +88,8 @@ export default function App() {
               <StackUi />
               {/* ⌘⇧S / header buttons: the floating (desktop) or drawer (mobile) scratchpad. */}
               <Scratchpad />
+              {/* Voice memos: recover unsaved recordings, announce saved ones. */}
+              <MemoRecorderHost />
             </Router>
             <Toaster position={desktop ? 'bottom-right' : 'top-center'} offset={desktop ? { bottom: 112, right: 16 } : undefined} />
           </TooltipProvider>

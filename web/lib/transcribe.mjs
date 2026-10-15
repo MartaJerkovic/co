@@ -18,23 +18,28 @@ const MISS_TTL_MS = 60 * 1000;
 // Steers the model: Latin script for Croatian (it otherwise drifts to Cyrillic), and the
 // vocabulary of a coding session. The UI adds the session's own words (name, repo).
 const BASE_PROMPT = 'Glasovna poruka za AI coding agenta, hrvatski ili engleski, latinica. Pojmovi: Claude, fleet, tmux, commit, PR, branch.';
+// Voice memos: a conversation between people, not a prompt.
+export const MEMO_PROMPT = 'Razgovor kolega o poslu i idejama, hrvatski ili engleski, latinica.';
 
 const EXT = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
 
 /** `audio/webm;codecs=opus` → `audio/webm`; null for anything that is not audio we know. */
+/** File extension of an audioType. */
+export const audioExt = (type) => EXT[type] ?? null;
+
 export function audioType(contentType) {
   const base = String(contentType ?? '').split(';')[0].trim().toLowerCase();
   return EXT[base] ? base : null;
 }
 
 /** The transcription prompt: the base vocabulary + the UI's hint (trimmed, one line, capped). */
-export function buildPrompt(hint) {
+export function buildPrompt(hint, base = BASE_PROMPT) {
   const extra = String(hint ?? '').replace(/\s+/g, ' ').trim().slice(0, HINT_MAX);
-  return extra ? `${BASE_PROMPT} ${extra}` : BASE_PROMPT;
+  return extra ? `${base} ${extra}` : base;
 }
 
 /** The request body as a Buffer, refusing more than `limit` bytes. */
-function readAudio(req, limit) {
+export function readAudio(req, limit = TRANSCRIBE_MAX_BYTES) {
   const declared = Number(req.headers?.['content-length']);
   if (Number.isFinite(declared) && declared > limit) return Promise.reject(tooLarge(limit));
   return new Promise((resolve, reject) => {
@@ -95,7 +100,7 @@ export function createKeySource({ name = KEY_NAME, env = process.env, platform =
  *   getKey    async () => key | null (createKeySource)
  *   model     OpenAI transcription model
  *   fetch     injectable for tests
- * @returns {{ enabled(): Promise<boolean>, transcribe(req, hint): Promise<{ text, model }> }}
+ * @returns {{ enabled(), transcribe(req, hint): Promise<{ text, model }>, transcribeAudio(audio, type, prompt): Promise<{ text, model }> }}
  */
 export function createTranscriber({ getKey, model = DEFAULT_TRANSCRIBE_MODEL, maxBytes = TRANSCRIBE_MAX_BYTES, fetch = globalThis.fetch, timeoutMs = 60 * 1000, log = () => {} }) {
   async function enabled() {
@@ -103,16 +108,21 @@ export function createTranscriber({ getKey, model = DEFAULT_TRANSCRIBE_MODEL, ma
   }
 
   async function transcribe(req, hint) {
-    const key = await getKey();
-    if (!key) throw new HttpError(`voice input is off: no ${KEY_NAME} on this server`, 501);
+    if (!(await getKey())) throw new HttpError(`voice input is off: no ${KEY_NAME} on this server`, 501);
     const type = audioType(req.headers?.['content-type']);
     if (!type) throw new HttpError('expected an audio body (webm, ogg, mp4, mp3 or wav)', 415);
     const audio = await readAudio(req, maxBytes);
     if (!audio.length) throw new HttpError('empty recording', 400);
+    return transcribeAudio(audio, type, buildPrompt(hint));
+  }
 
+  /** Audio bytes of a known `type` (audioType) → text; `prompt` steers the model. */
+  async function transcribeAudio(audio, type, prompt = BASE_PROMPT) {
+    const key = await getKey();
+    if (!key) throw new HttpError(`voice input is off: no ${KEY_NAME} on this server`, 501);
     const form = new FormData();
     form.append('model', model);
-    form.append('prompt', buildPrompt(hint));
+    form.append('prompt', prompt);
     form.append('response_format', 'json');
     form.append('file', new Blob([audio], { type }), `voice.${EXT[type]}`);
 
@@ -138,7 +148,7 @@ export function createTranscriber({ getKey, model = DEFAULT_TRANSCRIBE_MODEL, ma
     return { text: String(data?.text ?? '').trim(), model };
   }
 
-  return { enabled, transcribe };
+  return { enabled, transcribe, transcribeAudio };
 }
 
 // Spoken replies (the voice operator): text → mp3 via OpenAI's speech endpoint, same key.

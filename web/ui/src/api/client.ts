@@ -1,6 +1,9 @@
 // Typed client for the fleet web HTTP API. Same origin (the server serves this UI);
 // in dev, Vite proxies /api to a running server (see vite.config.ts).
 import type {
+  Memo,
+  MemoSegmentResponse,
+  MemosResponse,
   AutoNameRun,
   Brief,
   BriefRegenerateResponse,
@@ -171,6 +174,15 @@ export const api = {
   transcribe: (audio: Blob, hint: string, o: Opts = {}) =>
     request<TranscribeResponse>(`/api/transcribe?hint=${enc(hint)}`, { ...o, method: 'POST', file: audio }),
   /** Text → spoken mp3 (the voice operator's replies). */
+  memos: (o: Opts = {}) => request<MemosResponse>('/api/memos', o),
+  memo: (id: string, o: Opts = {}) => request<Memo>(`/api/memos/${enc(id)}`, o),
+  putMemoSegment: (rec: string, n: number, audio: Blob, o: Opts = {}) =>
+    request<MemoSegmentResponse>(`/api/memos/recordings/${enc(rec)}/segments/${n}`, { ...o, method: 'PUT', file: audio }),
+  finishMemo: (rec: string, body: { segments: number; startedAt: number; durationMs: number }, o: Opts = {}) =>
+    request<Memo>(`/api/memos/recordings/${enc(rec)}/finish`, { ...o, method: 'POST', body }),
+  renameMemo: (id: string, title: string, o: Opts = {}) => request<Memo>(`/api/memos/${enc(id)}`, { ...o, method: 'PUT', body: { title } }),
+  deleteMemo: (id: string, o: Opts = {}) => request<{ deleted: string }>(`/api/memos/${enc(id)}`, { ...o, method: 'DELETE' }),
+  retryMemo: (id: string, o: Opts = {}) => request<Memo>(`/api/memos/${enc(id)}/retry`, { ...o, method: 'POST', body: {} }),
   speak: async (text: string, o: Opts = {}): Promise<Blob> => {
     let res: Response
     try {

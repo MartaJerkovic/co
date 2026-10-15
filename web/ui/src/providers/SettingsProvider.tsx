@@ -25,6 +25,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           voice: data?.transcribe?.enabled === true,
           speak: data?.speak?.enabled === true,
           operator: data?.operator?.enabled === true,
+          memos: data?.memos?.enabled === true,
           loaded: true,
         })
       })

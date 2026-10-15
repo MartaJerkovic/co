@@ -183,6 +183,8 @@ export interface Settings {
   uploads?: { maxMB: number | null }
   /** Voice prompts (POST /api/transcribe): this server has a transcription key (older servers: absent). */
   transcribe?: { enabled: boolean }
+  /** Voice memos (/api/memos): stored on this server, transcribed with its key (older servers: absent). */
+  memos?: { enabled: boolean }
   /** The New session model picker (older servers: absent → lib/models.ts defaults). */
   models?: ModelOption[]
   /** This server's notes explorer (older servers: absent). */
@@ -1080,4 +1082,39 @@ export interface JobEnabledResponse {
   enabled: boolean
   output: string
   job: Job | null
+}
+
+/** One voice memo in GET /api/memos (newest first). */
+export interface MemoSummary {
+  /** The markdown file's name without `.md`. */
+  id: string
+  title: string
+  /** ISO with offset, when recording started. */
+  created: string | null
+  durationSec: number | null
+  /** `partial`: a segment is not transcribed yet (POST …/retry). */
+  status: 'done' | 'partial'
+  words: number
+  preview: string
+}
+
+export interface MemosResponse {
+  /** Where the markdown files live on the server. */
+  dir: string
+  memos: MemoSummary[]
+}
+
+/** GET/PUT /api/memos/:id, POST …/finish, POST …/retry. */
+export interface Memo extends MemoSummary {
+  /** The markdown body (the transcript, plus anything added to the file since). */
+  transcript: string
+  /** Absolute path of the file on the server. */
+  path: string
+}
+
+/** PUT /api/memos/recordings/:rec/segments/:n — the audio is stored even when transcription failed. */
+export interface MemoSegmentResponse {
+  stored: true
+  transcribed: boolean
+  error?: string
 }

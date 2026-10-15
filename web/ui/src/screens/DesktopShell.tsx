@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   CalendarClockIcon,
+  CircleDotIcon,
   CodeXmlIcon,
   CopyIcon,
   FileTextIcon,
@@ -45,11 +46,13 @@ import { WIDE_QUERY } from '@/hooks/useMediaQuery'
 import { useNow } from '@/hooks/useNow'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { useSessionList } from '@/hooks/useSessionList'
+import { useSettings } from '@/hooks/useSettings'
 import { useTheme } from '@/hooks/useTheme'
 import { openTitleEditor, startEditing, useSessionTitle } from '@/hooks/useTitles'
 import { editorLabel } from '@/lib/brief'
 import { canAttachInApp, copyWithToast, sessionAttachCommand, sessionAttachLink } from '@/lib/clipboard'
 import { boardOrder } from '@/lib/groups'
+import { parseMemosLocation } from '@/lib/memos'
 import { notesHref, parseNotesLocation } from '@/lib/notes'
 import { scratchpad } from '@/lib/scratchpad'
 import { PALETTES } from '@/lib/palettes'
@@ -86,6 +89,7 @@ import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
 import { JobsScreen } from '@/screens/JobsScreen'
+import { MemosScreen } from '@/screens/MemosScreen'
 import { OperatorScreen } from '@/screens/OperatorScreen'
 
 const parseBool01 = (raw: string) => (raw === '1' ? true : raw === '0' ? false : undefined)
@@ -107,6 +111,8 @@ export function DesktopShell() {
   const [usageOpen] = useRoute('/usage')
   const [jobsOpen] = useRoute('/jobs')
   const [operatorOpen] = useRoute('/operator')
+  const memosOpen = parseMemosLocation(location) !== null
+  const settings = useSettings()
   // `#/prs`: the pull requests board takes the whole window too.
   const prsOpen = isPrsLocation(location)
   // `#/notes…`: the notes explorer takes the whole window (no sidebar / board).
@@ -279,7 +285,7 @@ export function DesktopShell() {
         setNewOpen(true)
         return true
       case 'back':
-        if (selectedKey || settingsOpen || usageOpen || jobsOpen || operatorOpen || notesOpen || prsOpen) {
+        if (selectedKey || settingsOpen || usageOpen || jobsOpen || operatorOpen || memosOpen || notesOpen || prsOpen) {
           navigate('/')
           return true
         }
@@ -312,6 +318,9 @@ export function DesktopShell() {
         return true
       case 'operator':
         navigate(operatorOpen ? '/' : '/operator')
+        return true
+      case 'memos':
+        navigate(memosOpen ? '/' : '/memos')
         return true
       case 'prs':
         navigate(prsOpen ? '/' : '/prs')
@@ -502,6 +511,9 @@ export function DesktopShell() {
           keywords: ['pull requests', 'prs', 'github', 'review', 'code review', 'drafts'],
           run: () => navigate('/prs'),
         },
+        ...(settings.memos
+          ? [{ id: 'memos', label: 'Voice memos…', icon: <CircleDotIcon />, shortcut: shortcutHint('memos'), keywords: ['memo', 'record', 'voice', 'transcribe', 'conversation', 'meeting'], run: () => navigate('/memos') }]
+          : []),
         {
           id: 'jobs',
           label: 'Scheduled jobs…',
@@ -556,7 +568,7 @@ export function DesktopShell() {
   ]
 
   // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/prs`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
+  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -586,6 +598,8 @@ export function DesktopShell() {
     <JobsScreen layout="pane" />
   ) : operatorOpen ? (
     <OperatorScreen layout="pane" />
+  ) : memosOpen ? (
+    <MemosScreen layout="pane" />
   ) : null
 
   return (

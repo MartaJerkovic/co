@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AudioLinesIcon, CalendarClockIcon, GaugeIcon, GitPullRequestIcon, NotebookPenIcon, NotebookTextIcon, Settings2Icon } from 'lucide-react'
+import { AudioLinesIcon, CalendarClockIcon, CircleDotIcon, GaugeIcon, GitPullRequestIcon, NotebookPenIcon, NotebookTextIcon, Settings2Icon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -10,7 +10,7 @@ import { scratchpad } from '@/lib/scratchpad'
 import { withHint, type ShortcutAction } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 
-export type ModuleId = 'scratchpad' | 'operator' | 'prs' | 'notes' | 'jobs' | 'usage' | 'settings'
+export type ModuleId = 'scratchpad' | 'memos' | 'operator' | 'prs' | 'notes' | 'jobs' | 'usage' | 'settings'
 
 export interface Module {
   id: ModuleId
@@ -35,6 +35,7 @@ function useModules(): Module[] {
   const all: (Module | null)[] = [
     settings.operator ? { id: 'operator', label: 'Operator', icon: <AudioLinesIcon />, href: '#/operator', hint: 'operator', group: 'work' } : null,
     { id: 'prs', label: 'Pull requests', icon: <GitPullRequestIcon />, href: '#/prs', hint: 'prs', group: 'work' },
+    settings.memos ? { id: 'memos', label: 'Voice memos', icon: <CircleDotIcon />, href: '#/memos', hint: 'memos', group: 'work' } : null,
     { id: 'scratchpad', label: 'Scratchpad', icon: <NotebookPenIcon />, run: () => (scratchpad.isOpen() ? scratchpad.hide() : scratchpad.show()), hint: 'scratchpad', group: 'work' },
     notesHosts.length ? { id: 'notes', label: 'Notes', icon: <NotebookTextIcon />, href: '#/notes', hint: 'notes', group: 'work' } : null,
     { id: 'jobs', label: 'Scheduled jobs', icon: <CalendarClockIcon />, href: '#/jobs', hint: 'jobs', group: 'work' },

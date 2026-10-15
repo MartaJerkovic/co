@@ -32,6 +32,7 @@ import { createBriefStore, createBriefs, createClaudeAsk, gitInfo } from './lib/
 import { createStacks } from './lib/stacks.mjs';
 import { fetchPeerHost } from './lib/peers.mjs';
 import { createDormant } from './lib/dormant.mjs';
+import { createMemos } from './lib/memos.mjs';
 import { createApi } from './lib/api.mjs';
 import { createHttpServer } from './lib/app.mjs';
 
@@ -91,6 +92,7 @@ const grouper = config.grouping.enabled
       log,
     })
   : null;
+const claudeBin = resolveBinary('claude', { extraDirs: [path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.claude', 'local')] });
 // Session briefs: GET/PUT always work; background generation only with web.briefs.enabled.
 const briefs = createBriefs({
   settings: config.briefs,
@@ -101,10 +103,7 @@ const briefs = createBriefs({
     const host = await fleet.localHost();
     return host.ok ? host.sessions : null;
   },
-  ask: createClaudeAsk({
-    bin: resolveBinary('claude', { extraDirs: [path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.claude', 'local')] }),
-    run,
-  }),
+  ask: createClaudeAsk({ bin: claudeBin, run }),
   git: (cwd) => gitInfo(cwd, { run }),
   log,
 });
@@ -133,6 +132,9 @@ const dormant = createDormant({ cli, log });
 const transcribeKey = createKeySource({ run });
 const ttsKey = createKeySource({ name: SPEECH_KEY_NAME, run });
 const speechKey = async () => (await ttsKey()) ?? (await transcribeKey());
+const transcriber = createTranscriber({ getKey: transcribeKey, log });
+// Voice memos: segments transcribed with the same key, titled by `claude -p`.
+const memos = createMemos({ ...config.memos, transcriber, ask: createClaudeAsk({ bin: claudeBin, run }), log });
 const spawner = createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers });
 const operator = createOperator({ config, fleet, spawner, backend, log });
 const handleApi = createApi({
@@ -146,7 +148,8 @@ const handleApi = createApi({
   autoNamer,
   spawnNamer,
   uploader,
-  transcriber: createTranscriber({ getKey: transcribeKey, log }),
+  transcriber,
+  memos,
   speaker: createSpeaker({ getKey: speechKey, voice: config.operator.voice ?? undefined, log }),
   operator,
   files: createFiles({ home: os.homedir(), run, touched: createTouchedIndex(), roots: config.files.roots }),
@@ -191,6 +194,7 @@ server.listen(config.port, config.bind, () => {
   operator.prepare().catch((err) => logError(err, 'operator workspace'));
   operator.start();
   if (config.operator.clearIdleMinutes) log(`[fleet-web] operator: /clear after ${config.operator.clearIdleMinutes}m idle`);
+  log(`[fleet-web] memos ${config.memos.dir} (audio ${config.memos.audioDir})`);
   log(`[fleet-web] uploads ${config.uploads.dir} (max ${config.uploads.maxMB} MB, kept ${config.uploads.retentionDays || '∞'} days)`);
   if (grouper) {
     grouper.start();

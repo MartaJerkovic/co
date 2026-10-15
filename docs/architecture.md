@@ -136,6 +136,7 @@ server. Path: `$FLEET_CONFIG`, else `${XDG_CONFIG_HOME:-~/.config}/fleet/config.
 | `web.uploads` | `{ dir, maxMB, retentionDays }` (default `~/.local/share/fleet/uploads`, 100, 14): files dropped / pasted / picked in the web UI are stored there on the session's host as `YYYY-MM-DD/<rand>-<name>`, and their absolute path goes into the prompt; day dirs older than `retentionDays` are removed (`0` keeps them) |
 | `web.briefs` | `{ enabled, model, idleMs, minIntervalMs, maxDeltaChars, maxCallsPerHour, minNewTurns, minNewChars, maxBriefChars }` (default off, `haiku`, 60 s, 15 min, 12000, 12, 2, 2000, 3000): background generation of [session briefs](#session-briefs) on this host; reading and editing briefs (and a manual regenerate) work either way |
 | `web.stacks` | `{ syncMinutes }` (default 2): how often this host's web server runs `fleet stack sync` while any of its sessions is in a [stack](#session-stacks) |
+| `web.memos` | `{ dir, audioDir, model }` (default `~/.local/share/fleet/memos`, `~/.local/share/fleet/memo-audio`, `haiku`): voice memos (`#/memos`). Each memo is `dir/<date>-<slug>.md` (frontmatter `title`, `created`, `duration`, `recording`, `status`; the transcript as the body), so `dir` can be a folder in a notes repo; segment audio stays in `audioDir`. `model` titles them via `claude -p`. Needs the transcription key |
 | `web.notes` | `{ root, name?, searchCmd?, exclude? }` (default off): the web UI's notes explorer (`#/notes`) over the markdown notes under `root` on this host — browse, full-text search (built in, or an external `searchCmd` such as `rg -n -i -F {query}`), preview with `[[wiki]]` / relative links between notes; hidden entries, `node_modules`, `.gitignore`d paths and age-encrypted blocks are never served (web/ARCHITECTURE.md → notes). Peers browse each other's notes through the usual proxy |
 | `web.operator` | `{ hosts?, model?, voice?, clearIdleMinutes? }` (default `[self]`, Claude's default model, `alloy`, 60): the [voice operator](#voice-operator) — `hosts`: where it runs, the first that answers (set the same list on every machine so all talk to one operator); the model its Claude session runs; the OpenAI voice that reads its replies; `/clear` after that many idle minutes (0 = never) |
 | `web.files.roots` | array of dirs (`~` expanded, default `[]`): extra roots a relative file path in chat may be under. A relative path missing under the session cwd first matches files the session touched (from its transcript), then ancestors of those, then these roots; the sandbox stays `$HOME` + cwd |
@@ -403,6 +404,11 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | POST | `/api/groups/edit` | `{ op: "rename", id, label }` or `{ op: "move", host, session, to }` / `{ op: "move", host, session, label }` (a new group) / `{ op: "create", label }` / `{ op: "delete", id }` (empty groups) → `fleet group --rename/--move/--create/--delete` on the grouping host (proxied there) → the same shape; 400 bad body, 409 refused (unknown id, taken label), 501 when grouping is off |
 | POST | `/api/hosts/:host/uploads?name=<file>` | raw file body → stored under that host's `web.uploads.dir` → `{ host, path, name, size }` (absolute `path`; 413 over `web.uploads.maxMB`); streamed through to a peer |
 | POST | `/api/transcribe?hint=<words>` | raw audio body (webm / ogg / mp4 / mp3 / wav, ≤ 25 MB) → `{ text, model }` via OpenAI `gpt-4o-transcribe`; always this server, never proxied. `hint` (≤ 400 chars: session name, repo) steers spelling. Key: `$OPENAI_SPEECH_TO_TEXT_API_KEY`, else the macOS Keychain item of that name (never the config file). 501 without a key, 415 non-audio, 413 too large, 502 upstream errors (including a bad key), 429 rate limit |
+| PUT | `/api/memos/recordings/:rec/segments/:n` | voice memos, always this server: one segment's raw audio (≤ 25 MB) is stored under `web.memos.audioDir`, then transcribed → `{ stored: true, transcribed, error? }` (a failed transcription keeps the audio; `finish` retries it). `:rec` is the client's recording id (`[a-z0-9-]`, 8–64), `:n` 0-based. 501 without a transcription key |
+| POST | `/api/memos/recordings/:rec/finish` | `{ segments, startedAt, durationMs }` → transcribes what is missing, titles it (`claude -p`, else `Memo <date> <time>`), writes `web.memos.dir/<date>-<slug>.md` → the memo (below). Idempotent: again updates the same file. 409 a segment was never uploaded |
+| GET | `/api/memos` | `{ dir, memos: [{ id, title, created, durationSec, status: done\|partial, words, preview }] }`, newest first (only files with a `recording` frontmatter key) |
+| GET / PUT / DELETE | `/api/memos/:id` | one memo (`+ transcript, path`); PUT `{ title }` renames (the body is kept); DELETE removes the file and its audio |
+| POST | `/api/memos/:id/retry` | transcribe the segments that failed and rewrite the memo |
 | POST | `/api/speak` | `{ text }` (markdown is fine: code, tables, URLs and ids are dropped, at most ~4000 chars) → `audio/mpeg` via OpenAI `gpt-4o-mini-tts`; always this server. Key: `$OPENAI_TEXT_TO_SPEECH_API_KEY` (env, else Keychain), else the transcription key (which needs the audio scope). 400 nothing to say, 501 without a key, 502 upstream errors, 429 rate limit |
 | GET/POST | `/api/operator` | the [voice operator](#voice-operator): `{ host, dir, session }` (`session`: its `fleet list` row, null when not running); POST finds it or starts it → `+ { started, tmuxSession }` (409 when a tmux session `operator` exists without it). Served by the first host of `web.operator.hosts` that answers (proxied with `?local=1`; an unreachable peer, or one without an operator, passes to the next); 503 when none does |
 | POST | `/api/hosts/:host/autoname` | `{}` → run the naming pass on that host now → `{ renamed: [{ from, to }], tmux, held, errors }` |
@@ -457,6 +463,22 @@ for every device: each server sends `/api/operator` to the first host of the lis
 gets `/clear`. Claude Code then starts a new session (a new session id, an empty transcript), so
 the next conversation starts fresh and the app shows no history. A cleared session has no context
 until it is used, which keeps it from being cleared again.
+
+## Voice memos
+
+`#/memos` (and the red record button on the phone's session list) records a conversation and
+saves it as a titled transcript (`web.memos`). One recorder serves the whole app, so recording
+continues while you look at other screens. The mic is cut into 5-minute segments — a fresh
+`MediaRecorder` on the same stream, so each is a file the transcriber takes on its own — and every
+finished segment is uploaded and transcribed while recording goes on; stopping only waits for the
+last one, then `finish` titles and writes the memo. There is no length limit.
+
+Nothing is lost on the way: audio chunks (5 s) go to IndexedDB as they are recorded and are
+dropped only once the server has stored the segment. A failed upload is retried with backoff,
+when the network comes back and when the app is shown again; a recording whose tab died (no
+heartbeat for 30 s) is stopped where it ended and saved by the next app start. The screen is
+kept awake while recording (Wake Lock) — a phone that locks or backgrounds the app may end the
+mic, and what was recorded is saved.
 
 ## Smart grouping
 

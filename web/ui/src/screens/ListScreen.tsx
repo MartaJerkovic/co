@@ -9,6 +9,7 @@ import { DormantSection } from '@/components/DormantSection'
 import { HostDot } from '@/components/HostBadge'
 import { StatusFilterLabel } from '@/components/JobChip'
 import { NewSessionDrawer } from '@/components/NewSessionDrawer'
+import { MemoRecordFab } from '@/components/MemoRecorder'
 import { ModuleMenuItems } from '@/components/ModuleNav'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
@@ -256,7 +257,7 @@ export function ListScreen() {
       </ScreenHeader>
 
       <main className="flex-1 pb-safe px-safe">
-        <div className={cn('mx-auto w-full max-w-3xl px-3 pt-2', settings.operator ? 'pb-28' : 'pb-8')}>
+        <div className={cn('mx-auto w-full max-w-3xl px-3 pt-2', settings.operator && settings.memos ? 'pb-44' : settings.operator || settings.memos ? 'pb-28' : 'pb-8')}>
           {error ? (
             <Alert variant="destructive" className="my-2">
               <AlertDescription>
@@ -303,6 +304,7 @@ export function ListScreen() {
           <MicIcon className="size-6" />
         </a>
       ) : null}
+      <MemoRecordFab raised={settings.operator} />
       <NewSessionDrawer open={newOpen} onOpenChange={setNewOpen} onOpenSession={(href) => navigate(href)} />
     </div>
   )
