@@ -1,0 +1,461 @@
+<title>Fleet Field Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: švicarski grid kao u Shed vodiču; lijevo labela područja, desno sadržaj; desktop shot + mobitel jedan do drugog */
+:root {
+  --paper: #FBFCFE; --ink: #0B1220; --muted: #586174; --rule: rgba(11,18,32,.12); --rule-strong: rgba(11,18,32,.24);
+  --accent: #1F5BFF; --on-accent: #FFFFFF; --warn: #B76E00; --ok: #17803D;
+  --code-bg: #EEF1F7; --shot-bg: #E8ECF3;
+  --f-sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #0A0E16; --ink: #E9EDF5; --muted: #98A2B6; --rule: rgba(233,237,245,.12); --rule-strong: rgba(233,237,245,.24);
+  --accent: #6E95FF; --on-accent: #0A0E16; --warn: #E3A33B; --ok: #4CC27A;
+  --code-bg: #151B27; --shot-bg: #121824; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #0A0E16; --ink: #E9EDF5; --muted: #98A2B6; --rule: rgba(233,237,245,.12); --rule-strong: rgba(233,237,245,.24);
+  --accent: #6E95FF; --on-accent: #0A0E16; --warn: #E3A33B; --ok: #4CC27A;
+  --code-bg: #151B27; --shot-bg: #121824; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 400 16px/1.6 var(--f-sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+@media (min-width: 1024px) { body { padding-left: max(48px, env(safe-area-inset-left, 0px)); padding-right: max(48px, env(safe-area-inset-right, 0px)); } }
+.wrap { max-width: 1240px; margin: 0 auto; }
+
+header.hero { padding-block: 48px 36px; border-bottom: 2px solid var(--ink); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); margin-bottom: 26px; align-items: center; }
+.badge { background: var(--accent); color: var(--on-accent); font-weight: 700; padding: 2px 8px; text-transform: uppercase; font-size: 12px; letter-spacing: .8px; }
+.tag { border: 1px solid var(--rule-strong); padding: 1px 8px; font-family: var(--f-mono); font-size: 12px; }
+h1 { font-weight: 800; font-size: clamp(56px, 12vw, 140px); line-height: .92; letter-spacing: -0.05em; margin: 0; }
+h1 .dot { color: var(--accent); }
+.lead { font-size: clamp(19px, 2.3vw, 25px); line-height: 1.35; letter-spacing: -0.01em; max-width: 32em; margin: 22px 0 0; text-wrap: balance; }
+.hero-links { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 24px; font-weight: 600; }
+a { color: var(--ink); text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+a:hover { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+nav.index { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 24px; padding-block: 24px 28px; border-bottom: 1px solid var(--rule-strong); }
+nav.index a { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); text-decoration: none; font-weight: 600; font-size: 15px; min-width: 0; }
+nav.index a span { font-family: var(--f-mono); font-size: 12px; color: var(--accent); padding-top: 2px; min-width: 2.2em; }
+
+section.row { display: grid; grid-template-columns: 1fr; gap: 12px 32px; padding-block: 44px; border-bottom: 1px solid var(--rule-strong); scroll-margin-top: 12px; }
+@media (min-width: 960px) { section.row { grid-template-columns: 220px 1fr; } }
+.label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; color: var(--accent); padding-top: 8px; }
+.label b { display: block; color: var(--muted); font-weight: 500; letter-spacing: .4px; margin-top: 2px; text-transform: none; font-size: 13px; }
+.label code { display: inline-block; margin-top: 8px; text-transform: none; letter-spacing: 0; }
+.body { min-width: 0; }
+h2 { font-weight: 800; font-size: clamp(28px, 4.2vw, 44px); line-height: 1.06; letter-spacing: -0.035em; margin: 0 0 16px; text-wrap: balance; }
+h3 { font-weight: 700; font-size: 18px; line-height: 1.3; margin: 22px 0 6px; }
+p { margin: 0 0 14px; }
+.prose { max-width: 68ch; }
+ul { padding-left: 20px; margin: 0 0 14px; }
+li { margin: 4px 0; }
+li::marker { color: var(--accent); }
+code { font-family: var(--f-mono); font-size: .84em; background: var(--code-bg); padding: 1px 5px; overflow-wrap: anywhere; }
+pre { font-family: var(--f-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); padding: 16px 18px; overflow-x: auto; margin: 10px 0 18px; border-left: 3px solid var(--accent); }
+pre code { background: none; padding: 0; }
+kbd { font-family: var(--f-mono); font-size: 12px; border: 1px solid var(--rule-strong); border-bottom-width: 2px; padding: 0 5px; white-space: nowrap; background: var(--paper); }
+
+figure { margin: 0; min-width: 0; }
+figure img { display: block; width: 100%; height: auto; background: var(--shot-bg); border: 1px solid var(--rule-strong); }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; display: flex; gap: 10px; line-height: 1.45; }
+figcaption::before { content: ""; width: 14px; height: 2px; background: var(--accent); margin-top: 9px; flex: none; }
+.shots { display: grid; gap: 24px; grid-template-columns: 1fr; align-items: start; margin: 22px 0; }
+@media (min-width: 720px) {
+  .shots.two { grid-template-columns: 1fr 1fr; }
+  .shots.pair { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); }
+  .shots.phones { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .shots.phones4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.shots.phones, .shots.phones4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 720px) { .shots.phones { grid-template-columns: repeat(3, minmax(0, 1fr)); } .shots.phones4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.phone img { border-radius: 18px; max-width: 300px; margin-inline: auto; }
+.phone figcaption { max-width: 300px; margin-inline: auto; }
+
+.cols { display: grid; grid-template-columns: 1fr; border-top: 2px solid var(--ink); margin: 10px 0 20px; }
+@media (min-width: 700px) { .cols.c2 { grid-template-columns: 1fr 1fr; } .cols.c3 { grid-template-columns: repeat(3, 1fr); } }
+.cell { padding: 14px 24px 16px 0; border-bottom: 1px solid var(--rule-strong); min-width: 0; }
+.cell .k { font-family: var(--f-mono); font-size: 12px; color: var(--accent); margin-bottom: 4px; display: block; }
+.cell p { font-size: 15px; color: var(--muted); margin: 0; }
+.cell p code, .cell p kbd { color: var(--ink); }
+
+.tw { overflow-x: auto; margin: 8px 0 20px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule-strong); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); border-bottom: 2px solid var(--ink); font-weight: 700; }
+td:first-child { white-space: nowrap; }
+.callout { border-left: 3px solid var(--warn); padding: 10px 16px; background: var(--code-bg); margin: 10px 0 18px; max-width: 68ch; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; }
+.status i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+@media (prefers-reduced-motion: no-preference) { a { transition: color .15s; } }
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="meta">
+    <span class="badge">Interno</span>
+    <span>listopad 2026 · za AI tim</span>
+    <span class="tag">web</span><span class="tag">mobitel</span><span class="tag">Fleet.app</span><span class="tag">CLI</span><span class="tag">TUI</span><span class="tag">MCP</span>
+  </div>
+  <h1>Fleet<span class="dot">.</span></h1>
+  <p class="lead">Svaka mogućnost Fleeta, ekran po ekran: kako vidiš, voziš i otvaraš Claude, Codex i pi sesije na svim mašinama, s desktopa i s mobitela.</p>
+  <div class="hero-links">
+    <a href="{{SETUP_URL}}">Setup i arhitektura ↗</a>
+    <a href="https://github.com/ilucin/fleet">github.com/ilucin/fleet ↗</a>
+  </div>
+</header>
+
+<nav class="index" aria-label="Sadržaj">
+  <a href="#sesije"><span>01</span>Sesije</a>
+  <a href="#chat"><span>02</span>Chat i composer</a>
+  <a href="#pitanja"><span>03</span>Pitanja i terminal</a>
+  <a href="#brief"><span>04</span>Brief i detalji</a>
+  <a href="#board"><span>05</span>Board</a>
+  <a href="#stackovi"><span>06</span>Stackovi</a>
+  <a href="#nova"><span>07</span>Nova sesija</a>
+  <a href="#tipkovnica"><span>08</span>Tipkovnica</a>
+  <a href="#operator"><span>09</span>Glasovni operator</a>
+  <a href="#memos"><span>10</span>Voice memos</a>
+  <a href="#prs"><span>11</span>Pull requests</a>
+  <a href="#jobs"><span>12</span>Scheduled jobs</a>
+  <a href="#notes"><span>13</span>Notes</a>
+  <a href="#usage"><span>14</span>Usage</a>
+  <a href="#oporavak"><span>15</span>Oporavak</a>
+  <a href="#postavke"><span>16</span>Postavke i teme</a>
+  <a href="#terminal"><span>17</span>CLI i TUI</a>
+  <a href="#agenti"><span>18</span>Agenti i MCP</a>
+</nav>
+
+<section class="row" id="ukratko">
+  <div class="label">Ukratko<b>Što je Fleet</b></div>
+  <div class="body">
+    <h2>Jedna flota, pet sučelja</h2>
+    <p class="prose">Fleet nađe svaku živu sesiju coding agenta na svakoj mašini (tmux pane ili iTerm tab), pokaže što radi i pusti te da joj pišeš, odgovaraš, preimenuješ je, otvoriš novu ili posao prebaciš drugdje. Svaka mašina vrti isti mali web server, koji spaja sesije svojih peerova, pa bilo koji URL pokazuje cijelu flotu.</p>
+    <div class="cols c3">
+      <div class="cell"><span class="k">web UI · desktop</span><p>Keyboard-first master–detail od 1024 px naviše: sidebar, chat, details panel, board.</p></div>
+      <div class="cell"><span class="k">PWA · mobitel</span><p>Add to Home Screen preko Tailscalea. Swipe geste, quick replyji, mic za operatora.</p></div>
+      <div class="cell"><span class="k">Fleet.app</span><p>Tauri ljuska oko istog UI-ja: Dock, ⌘-Tab, pravi meniji, <kbd>⌘N</kbd>, Attach u iTerm.</p></div>
+      <div class="cell"><span class="k">fleet · CLI</span><p><code>list</code>, <code>peek</code>, <code>send</code>, <code>spawn</code>, <code>handoff</code>… s <code>-H &lt;host&gt;</code> na bilo kojoj mašini.</p></div>
+      <div class="cell"><span class="k">fleet watch · TUI</span><p>Živi dashboard u terminalu; javi kad sesija završi ili zapne.</p></div>
+      <div class="cell"><span class="k">fleet mcp · skill</span><p>Cijeli CLI kao MCP alati, pa agenti sami upravljaju flotom.</p></div>
+    </div>
+    <p class="prose">Tri harnessa: <b>Claude Code</b>, <b>Codex</b> i <b>pi</b>. Svi se nađu, prikazuju i voze isto; harness i model biraš kod spawna. Svi screenshotovi u ovom vodiču su s izmišljenim demo podacima (firma „Acme”, hostovi <code>laptop</code>, <code>workstation</code>, <code>devbox</code>).</p>
+  </div>
+</section>
+
+<section class="row" id="sesije">
+  <div class="label">01 · Sesije<b>Lista, filteri, status</b><code>#/</code></div>
+  <div class="body">
+    <h2>Sve sesije sa svih mašina na jednoj listi</h2>
+    <div class="shots pair">
+      <figure><img src="img/d-session.webp" alt="Desktop: sidebar s listom sesija, chat otvorene sesije i details panel s briefom" width="1600" height="1000" loading="lazy"><figcaption>Desktop: sidebar s listom, otvorena sesija u sredini, details panel desno (otvoren po defaultu od 1440 px)</figcaption></figure>
+      <figure class="phone"><img src="img/m-list.webp" alt="Mobitel: lista sesija s host badgeovima i statusom" width="640" height="1385" loading="lazy"><figcaption>Mobitel: ista lista; crveni gumb snima memo, plavi mic zove operatora</figcaption></figure>
+    </div>
+    <div class="prose">
+      <p>Svaki red: status, naslov, host, cwd, backend (tmux/iTerm), harness chip (Codex, pi), context meter u postotku i koliko je prošlo od zadnje aktivnosti. Sesije koje čekaju tebe imaju narančasti okvir i razlog: <i>permission: Bash(…)</i>, <i>question: …</i>.</p>
+      <ul>
+        <li><span class="status"><i style="background:var(--warn)"></i>Needs you</span>, <span class="status"><i style="background:var(--ok)"></i>Busy</span>, <span class="status"><i style="background:var(--muted)"></i>Idle</span> i <b>Scheduled</b> (samo sesije koje je pokrenuo job) kao filteri, plus filter po hostu. Brojači u headeru broje sve.</li>
+        <li>Pretraga <kbd>⌘F</kbd> po imenu, naslovu i cwd-u; filtrira i Dormant i Recently closed.</li>
+        <li>Naslov se uređuje na licu mjesta (klik, <kbd>⌘E</kbd>, <kbd>F2</kbd>, long press na mobitelu). Claudeov <code>/rename</code> je izvor istine, tmux ime ga prati. Bez imena, haiku sam smisli kratki naslov nakon prvog odgovora.</li>
+        <li>Sesija u stacku nosi chip sa slojevima; sesija koju je pokrenuo job nosi chip sa satom.</li>
+        <li>Banner kad je neki host nedostupan. Tab title je <code>(3) Invoice rounding fix · Fleet</code>.</li>
+      </ul>
+    </div>
+    <div class="shots phones">
+      <figure class="phone"><img src="img/m-filters.webp" alt="Mobitel: ladica s filterima otvorena ispod pretrage" width="640" height="1385" loading="lazy"><figcaption>Swipe dolje po headeru otvara filtere; aktivni filteri ostaju na ručki</figcaption></figure>
+      <figure class="phone"><img src="img/m-more.webp" alt="Mobitel: More meni s modulima" width="640" height="1385" loading="lazy"><figcaption>⋯ More: memos, scratchpad, notes, jobs, usage, settings</figcaption></figure>
+      <figure class="phone"><img src="img/m-earth-dark.webp" alt="Mobitel: lista u Earth temi, tamni mod" width="640" height="1385" loading="lazy"><figcaption>Earth tema u tamnom modu</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="chat">
+  <div class="label">02 · Chat<b>Čitanje i pisanje</b><code>#/s/&lt;host&gt;/&lt;id&gt;</code></div>
+  <div class="body">
+    <h2>Chat čita transcript, composer tipka u tmux</h2>
+    <div class="prose">
+      <p>Chat se čita ravno iz Claudeovog transcripta i osvježava svake 3 s. Odgovori su renderirani markdown (tablice, liste, kod), skillovi i slash komande su chip na vrhu poruke, shell komande (<code>!</code>) su mono blok, a zalijepljeni tekst je zaseban blok. Narracija između tool callova su tihe „progress notes” koje se mogu sakriti. Svaka poruka agenta ima gumb za čitanje naglas.</p>
+    </div>
+    <div class="shots two">
+      <figure><img src="img/d-undo.webp" alt="Poruka čeka slanje s odbrojavanjem i Undo gumbom" width="1600" height="1000" loading="lazy"><figcaption>Send with undo: poruka ide van nakon 3 s; <kbd>⌫</kbd> ili Undo je vraća u composer</figcaption></figure>
+      <figure><img src="img/d-complete.webp" alt="Autocomplete popup sa skillovima nakon kose crte" width="1600" height="1000" loading="lazy"><figcaption>Autocomplete: <code>/skill</code>, <code>@datoteka.md</code> i <code>brain:</code> bilješke s hosta sesije</figcaption></figure>
+    </div>
+    <div class="cols c2">
+      <div class="cell"><span class="k">draftovi</span><p>Neposlani tekst se čuva po sesiji, kroz prebacivanje i restart.</p></div>
+      <div class="cell"><span class="k">quick replyji i tipke</span><p>Continue, Yes, „Run the tests”, „Commit &amp; push” (iz configa) plus Esc, Enter, ↑, ↓.</p></div>
+      <div class="cell"><span class="k">prilozi</span><p>Drag, paste ili spajalica: file se uploada na host sesije, a u poruku ide njegova apsolutna putanja.</p></div>
+      <div class="cell"><span class="k">glasovni unos</span><p>Mic snimi, transkribira i doda tekst; nikad ne šalje sam. Treba HTTPS origin (npr. <code>tailscale serve</code>).</p></div>
+      <div class="cell"><span class="k">linkovi na fileove</span><p>Putanje koje agent spomene postaju linkovi s previewom (vidi dolje).</p></div>
+      <div class="cell"><span class="k">greške</span><p>Neposlana poruka ostaje kao „Not sent: …” s Retry i Edit.</p></div>
+    </div>
+    <div class="shots phones">
+      <figure class="phone"><img src="img/m-chat.webp" alt="Mobitel: chat sa shell blokom, odgovorom i /code-review skillom" width="640" height="1385" loading="lazy"><figcaption>Chat na mobitelu; swipe desno je natrag, i u instaliranoj PWA</figcaption></figure>
+      <figure class="phone"><img src="img/m-chips.webp" alt="Mobitel: ladica s quick replyjima iznad inputa" width="640" height="1385" loading="lazy"><figcaption>Swipe gore po composeru: spajalica, mic, quick replyji, tipke</figcaption></figure>
+      <figure class="phone"><img src="img/m-term.webp" alt="Mobitel: terminal view sesije" width="640" height="1385" loading="lazy"><figcaption>Term view na mobitelu</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="pitanja">
+  <div class="label">03 · Pitanja<b>AskUserQuestion i terminal</b></div>
+  <div class="body">
+    <h2>Odgovori na Claudeovo pitanje jednim klikom</h2>
+    <p class="prose">Kad Claude postavi pitanje s opcijama (AskUserQuestion), chat ga prikaže kao karticu: opcije, preporučena označena, polje „Something else…” za slobodan odgovor, Dismiss i Answer. Odgovor ide direktno u sesiju. Za sve ostalo postoji <b>Chat | Term</b> (<kbd>⌘J</kbd>): živi tmux pane, osvježen svake 2 s, s klikabilnim URL-ovima.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-question.webp" alt="Kartica s pitanjem i tri opcije u chatu" width="1600" height="1000" loading="lazy"><figcaption>Pitanje s tri opcije; preporučena je označena</figcaption></figure>
+      <figure class="phone"><img src="img/m-question.webp" alt="Mobitel: ista kartica s pitanjem" width="640" height="1385" loading="lazy"><figcaption>Isto na mobitelu</figcaption></figure>
+    </div>
+    <figure style="margin-top:24px"><img src="img/d-term.webp" alt="Term view: sirovi Claude Code output s testovima i diffom" width="1600" height="1000" loading="lazy"><figcaption>Term view: sirovi ekran kad ti treba (diff, testovi, prompt)</figcaption></figure>
+  </div>
+</section>
+
+<section class="row" id="brief">
+  <div class="label">04 · Brief<b>Details panel, file preview</b><code>⌘I</code></div>
+  <div class="body">
+    <h2>Handover bilješka koja se piše sama</h2>
+    <div class="prose">
+      <p>Svaka sesija ima <b>brief</b>: sažetak u 1–2 rečenice, todoe s checkboxovima i napretkom (<code>3/5</code>) i resurse izvučene iz transcripta (git branch i worktree, PR-ovi, issueji, specovi, fileovi, linkovi). Generira ga haiku tek nakon 60 s mirovanja; ručne izmjene uvijek pobjeđuju. <b>Continue in new session</b> otvori New session formu s briefom kao prvim promptom (CLI: <code>fleet spawn --from</code>).</p>
+    </div>
+    <div class="shots pair">
+      <figure><img src="img/d-details-bottom.webp" alt="Donji dio details panela: Continue in new session, view, Spawn sibling, attach command, auto-name, close" width="1600" height="1000" loading="lazy"><figcaption>Donji dio panela: Continue, Spawn sibling, attach komanda, auto-name, tmux/pid/id, Close session (dva klika)</figcaption></figure>
+      <figure class="phone"><img src="img/m-details.webp" alt="Mobitel: Details drawer s briefom i todoima" width="640" height="1385" loading="lazy"><figcaption>Na mobitelu: ⋯ → Details</figcaption></figure>
+    </div>
+    <ul class="prose">
+      <li><b>Open in VS Code / Cursor</b> za cwd i svaki worktree; za drugi host otvara Remote SSH.</li>
+      <li><b>Attach command</b> (<code>fleet -H workstation enter …</code>) za copy; u Fleet.app gumb Attach otvara iTerm tab.</li>
+      <li><b>Auto-name → Run now</b> i zadnji run naminga.</li>
+    </ul>
+    <h3>File preview</h3>
+    <p class="prose">Putanja koju agent spomene (<code>docs/billing/rounding.md</code>, <code>src/x.ts:42</code>) postaje link. Klik otvori preview: markdown renderiran, kod s brojevima linija i istaknutom linijom, slike, PDF. Download, <b>Open on &lt;host&gt;</b> (otvori na toj mašini) i Copy path. Servira samo fileove unutar <code>$HOME</code> ili cwd-a, nikad <code>~/.ssh</code> ni <code>.env</code>.</p>
+    <figure><img src="img/d-file.webp" alt="Preview markdown spec dokumenta preko chata" width="1600" height="1000" loading="lazy"><figcaption>Preview speca koji je sesija napisala</figcaption></figure>
+  </div>
+</section>
+
+<section class="row" id="board">
+  <div class="label">05 · Board<b>Smart grouping</b><code>⌘B</code></div>
+  <div class="body">
+    <h2>Sesije složene po poslu, ne po mašini</h2>
+    <p class="prose">Board je Kanban u kojem je svaka kolona jedan work stream. Grupe slaže haiku pass svakih 10 minuta (jedan host za cijelu flotu, model call samo za nove sesije). Bez modela grupira po repou. Kartica pokazuje status, host, razlog čekanja, context i starost; sesije koje čekaju idu na vrh kolone.</p>
+    <figure><img src="img/d-board-wide.webp" alt="Board s kolonama: stack Onboarding redesign, API platform, Checkout reliability, Docs, Billing, Maintenance" width="1600" height="462" loading="lazy"><figcaption>Šest kolona; prva je stack, dormant sesija ima Resume ravno na kartici</figcaption></figure>
+    <div class="shots pair">
+      <figure><img src="img/d-board-flyout.webp" alt="Board s otvorenim flyoutom sesije preko desnog ruba" width="1600" height="1000" loading="lazy"><figcaption>Klik na karticu otvori sesiju kao flyout; board ostaje klikabilan, rub flyouta mijenja širinu</figcaption></figure>
+      <figure class="phone"><img src="img/m-board.webp" alt="Mobitel: grupirana lista sa sklopivim sekcijama" width="640" height="1385" loading="lazy"><figcaption>Na mobitelu board je grupirana lista</figcaption></figure>
+    </div>
+    <ul class="prose">
+      <li>Klik na ime kolone = preimenuj. Drag kartice u drugu kolonu = premjesti. „Drop here for a new group” i „+ New group” = nova grupa. Drag headera = novi redoslijed.</li>
+      <li>Ručne izmjene su zaključane: grouping pass ih nikad ne poništi.</li>
+      <li><b>Regroup</b> pokrene pass odmah; header kaže „grouped 3m ago · 1 model call”.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="row" id="stackovi">
+  <div class="label">06 · Stackovi<b>Više sesija, jedan kontekst</b></div>
+  <div class="body">
+    <h2>Stack: N sesija dijeli jedan StackBrief</h2>
+    <p class="prose">Kad je posao prevelik za jednu sesiju, napraviš stack: sesije na jednom ili više hostova dijele jedan markdown s kontekstom (sažetak, resursi, bilješke). <b>Spawn sibling</b> pokrene novu sesiju u stacku, i na drugoj mašini; njen prvi prompt počne linijom koja joj kaže gdje je zajednički kontekst. Stack ima svoju kolonu na boardu i traku na vrhu sesije.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-stack.webp" alt="Stack sheet: sesije stacka na dva hosta i StackBrief" width="1600" height="1000" loading="lazy"><figcaption>Stack sheet: 3 žive sesije na dva hosta, jedna zatvorena, StackBrief s resursima</figcaption></figure>
+      <figure class="phone"><img src="img/m-stack.webp" alt="Mobitel: stack sheet preko cijelog ekrana" width="640" height="1385" loading="lazy"><figcaption>Isto na mobitelu</figcaption></figure>
+    </div>
+    <p class="prose">StackBrief se uređuje cijeli (s konfliktom ako ga je netko drugi promijenio u međuvremenu), stack se preimenuje klikom na labelu, a Delete stack ostavlja sesije da rade. CLI: <code>fleet stack spawn --on devbox</code>.</p>
+  </div>
+</section>
+
+<section class="row" id="nova">
+  <div class="label">07 · Nova sesija<b>Spawn s bilo kojeg uređaja</b><code>⌘⇧O · ⌘N</code></div>
+  <div class="body">
+    <h2>Nova sesija na bilo kojem hostu</h2>
+    <p class="prose">Biraš host, direktorij (Start directories iz postavki), agenta (Claude Code, Codex, pi), model i opcionalni prvi prompt, s prilozima i glasovnim unosom. <kbd>⌘Enter</kbd> pokreće. Ime ne upisuješ: sesija dobije naslov nakon prvog odgovora. Neposlani prompt ostaje kao draft tjedan dana. Kad sesija krene, Fleet je sam otvori.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-new.webp" alt="Dijalog New session: host, directory, agent, model, first prompt" width="1600" height="1000" loading="lazy"><figcaption>Dijalog na desktopu</figcaption></figure>
+      <figure class="phone"><img src="img/m-new.webp" alt="Mobitel: forma za novu sesiju" width="640" height="1385" loading="lazy"><figcaption>Forma na mobitelu</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="tipkovnica">
+  <div class="label">08 · Tipkovnica<b>Paleta, prečaci, scratchpad</b></div>
+  <div class="body">
+    <h2>Sve je na tipkovnici</h2>
+    <div class="shots two">
+      <figure><img src="img/d-palette.webp" alt="Paleta naredbi filtrira sesije i bilješke po upitu onb" width="1600" height="1000" loading="lazy"><figcaption><kbd>⌘K</kbd>: bilo koja sesija na bilo kojem hostu, akcije, filteri, teme i bilješke</figcaption></figure>
+      <figure><img src="img/d-help.webp" alt="Dijalog s popisom svih prečaca" width="1600" height="1000" loading="lazy"><figcaption><kbd>⌘?</kbd>: svi prečaci, generirani iz iste tablice kao tooltipovi</figcaption></figure>
+    </div>
+    <div class="tw"><table>
+      <thead><tr><th>Prečac</th><th>Što radi</th></tr></thead>
+      <tbody>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd> · <kbd>Enter</kbd></td><td>Kursor po listi ili boardu · otvori sesiju i fokusiraj composer</td></tr>
+        <tr><td><kbd>⌘K</kbd> · <kbd>⌘F</kbd></td><td>Paleta · pretraga</td></tr>
+        <tr><td><kbd>⌘⇧O</kbd> (app: <kbd>⌘N</kbd>)</td><td>Nova sesija</td></tr>
+        <tr><td><kbd>⌘E</kbd> · <kbd>⌘J</kbd> · <kbd>⌘I</kbd></td><td>Preimenuj · Chat/Term · details panel</td></tr>
+        <tr><td><kbd>⌘B</kbd> · <kbd>⌘\</kbd></td><td>List/Board · sakrij sidebar</td></tr>
+        <tr><td><kbd>⌘⌫</kbd> ×2</td><td>Zatvori sesiju (drugi pritisak unutar 3 s)</td></tr>
+        <tr><td><kbd>⌫</kbd> · <kbd>Esc</kbd></td><td>Poništi poruku koja čeka slanje · zatvori pane</td></tr>
+        <tr><td><kbd>⌘⇧K</kbd> <kbd>⌘⇧M</kbd> <kbd>⌘⇧P</kbd> <kbd>⌘⇧L</kbd> <kbd>⌘⇧U</kbd> <kbd>⌘,</kbd></td><td>Operator · memos · pull requests · jobs · usage · settings</td></tr>
+        <tr><td><kbd>⌘⇧E</kbd> · <kbd>⌘⇧S</kbd></td><td>Notes explorer · scratchpad</td></tr>
+      </tbody>
+    </table></div>
+    <div class="shots pair">
+      <figure><img src="img/d-scratch.webp" alt="Plutajući scratchpad preko chata" width="1600" height="1000" loading="lazy"><figcaption>Scratchpad: plutajući tekst koji se sam sprema; app ispod ostaje upotrebljiv</figcaption></figure>
+      <div class="prose">
+        <h3 style="margin-top:0">Fleet.app</h3>
+        <p>Isti UI kao macOS app (Tauri 2, system WebKit, ~10 MB). Pravi meniji, <kbd>⌘N</kbd> kao <i>File → New Session</i>, nativni title bar, Attach otvara iTerm tab s <code>fleet -H &lt;host&gt; enter</code>. Otvara lokalni server ili <code>desktop.url</code> (npr. onaj na workstationu); svaki server pokazuje cijelu flotu.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="operator">
+  <div class="label">09 · Operator<b>Razgovaraj s flotom</b><code>#/operator</code></div>
+  <div class="body">
+    <h2>Glasovni operator</h2>
+    <p class="prose">Operator je Claude sesija koju server pokrene na zahtjev, s briefom dispečera: odgovara kratko i glasom, uvijek prvo pogleda stanje, djeluje samo na nedvosmislen cilj, a zatvaranje ili prekid traži izričito „da”. Tapneš mic, kažeš što trebaš, odgovor se pročita naglas (OpenAI glas ili glas uređaja, brzina 1×–2×). Dok je ekran otvoren, najavi sesije koje te počnu trebati. Jedan operator za sve uređaje; nakon sat vremena mirovanja dobije <code>/clear</code> i kreće ispočetka.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-operator.webp" alt="Operator razgovor: pitanje o stanju workstationa i odobrenje testova" width="1600" height="1000" loading="lazy"><figcaption>„Allow the checkout one to run the tests.” Operator odobri permission u drugoj sesiji</figcaption></figure>
+      <figure class="phone"><img src="img/m-operator.webp" alt="Mobitel: operator ekran s velikim mic gumbom" width="640" height="1385" loading="lazy"><figcaption>Na mobitelu je to plavi mic na listi</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="memos">
+  <div class="label">10 · Memos<b>Snimi razgovor</b><code>#/memos</code></div>
+  <div class="body">
+    <h2>Voice memos: sastanak postaje transcript</h2>
+    <p class="prose">Jedan gumb snima razgovor bez limita trajanja. Audio se reže u segmente od 5 minuta koji se transkribiraju dok snimanje traje, a na kraju memo dobije naslov i sprema se kao markdown. Ništa se ne gubi: chunkovi idu u IndexedDB dok ih server ne potvrdi, prekinuto snimanje se spasi kod sljedećeg otvaranja. Iz memoa jednim klikom <b>Start session</b>; vokabular (imena ljudi, domenski pojmovi) poboljšava transkripciju.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-memo.webp" alt="Otvoren memo s transcriptom i action itemima" width="1600" height="1000" loading="lazy"><figcaption>Memo s transcriptom; Start session, Copy text, Copy path</figcaption></figure>
+      <figure class="phone"><img src="img/m-memos.webp" alt="Mobitel: ekran s gumbom za snimanje i listom memoa" width="640" height="1385" loading="lazy"><figcaption>Lista memoa; djelomični (netranskribiran segment) ima upozorenje i Retry</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="prs">
+  <div class="label">11 · Pull requests<b>Što čeka tebe</b><code>#/prs · fleet prs</code></div>
+  <div class="body">
+    <h2>PR-ovi koji te trebaju, po kolonama</h2>
+    <p class="prose">Preko <code>gh</code> na odabranom hostu: <b>Unseen mentions</b>, <b>Waiting on me</b>, moji u reviewu, spremni za merge, moji draftovi i <b>Waiting on author</b>. Rub kartice ide od zelenog do crvenog kako PR stari („rotting”). Checks, review status, veličina, komentari. PR jednim klikom ide u worktree i dobije sesiju s promptom koji kaže o čemu je PR; sesije i PR-ovi su povezani u oba smjera.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-prs.webp" alt="PR board sa šest kolona" width="1600" height="1000" loading="lazy"><figcaption>Mention s excerptom i „Seen”, worktree oznaka, failed checks, stari PR-ovi crveni</figcaption></figure>
+      <figure class="phone"><img src="img/m-prs.webp" alt="Mobitel: kolone PR-ova jedna ispod druge" width="640" height="1385" loading="lazy"><figcaption>Na mobitelu kolone idu jedna ispod druge</figcaption></figure>
+    </div>
+    <p class="prose">CLI: <code>fleet prs</code>, <code>fleet pr checkout</code>, <code>fleet pr spawn</code>, <code>fleet pr seen</code>, <code>fleet pr cleanup-worktrees</code> (makne worktreeje gotovih PR-ova).</p>
+  </div>
+</section>
+
+<section class="row" id="jobs">
+  <div class="label">12 · Jobs<b>Agenti po rasporedu</b><code>#/jobs · fleet jobs</code></div>
+  <div class="body">
+    <h2>Scheduled jobs: routines na tvojim mašinama</h2>
+    <p class="prose">Cron raspored u configu hosta, prompt inline ili iz filea, harness i model po jobu. Raspored je napisan ljudski („Weekdays at 07:00”). Svaki run se pamti s outcomeom (spawned, skipped, missed, failed), a sve sesije koje job sesija pokrene pripadaju istom runu, prikazane kao stablo. Prekidač za pauzu, <b>Run now</b> (s „Run anyway” ako prethodni još radi), prompt file otvoriš u editoru.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-jobs.webp" alt="Jobs ekran s raširenim dependency-audit jobom i stablom sesija" width="1600" height="1000" loading="lazy"><figcaption>dependency-audit: run od jutros je pokrenuo i drugu sesiju (Fix lodash advisory)</figcaption></figure>
+      <figure class="phone"><img src="img/m-jobs.webp" alt="Mobitel: lista jobova s prekidačima" width="640" height="1385" loading="lazy"><figcaption>Jobs na mobitelu</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="notes">
+  <div class="label">13 · Notes<b>Markdown explorer</b><code>#/notes · ⌘⇧E</code></div>
+  <div class="body">
+    <h2>Bilješke bilo kojeg hosta</h2>
+    <p class="prose">Ako host ima <code>web.notes.root</code>, Fleet pokazuje stablo foldera, nedavno mijenjane bilješke i pretragu (riječi, <code>"fraze"</code>, <code>#tag</code>) s istaknutim pogocima. Bilješka se prikazuje renderirana s frontmatterom kao tablicom i <code>[[wiki]]</code> linkovima. <b>Send to session</b> stavi putanju bilješke u composer odabrane sesije. Paleta <kbd>⌘K</kbd> pretražuje i bilješke.</p>
+    <div class="shots two">
+      <figure><img src="img/d-notes.webp" alt="Notes explorer: stablo, recent, otvorena bilješka Billing" width="1600" height="1000" loading="lazy"><figcaption>Stablo, nedavno mijenjano i bilješka s frontmatterom</figcaption></figure>
+      <figure><img src="img/d-notes-search.webp" alt="Pretraga bilješki za rounding s istaknutim pogocima" width="1600" height="1000" loading="lazy"><figcaption>Pretraga s istaknutim pogocima i brojem linije</figcaption></figure>
+    </div>
+    <div class="shots phones">
+      <figure class="phone"><img src="img/m-notes.webp" alt="Mobitel: bilješka Billing" width="640" height="1385" loading="lazy"><figcaption>Bilješka na mobitelu</figcaption></figure>
+      <figure class="phone"><img src="img/m-usage.webp" alt="Mobitel: usage limiti" width="640" height="1385" loading="lazy"><figcaption>Usage na mobitelu (sljedeća sekcija)</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="usage">
+  <div class="label">14 · Usage<b>Limiti pretplate</b><code>#/usage · fleet usage</code></div>
+  <div class="body">
+    <h2>Koliko je još ostalo do limita</h2>
+    <p class="prose">Isti brojevi kao Claude Codeov <code>/usage</code>, za svaki account logiran na nekoj mašini (hostovi na istom accountu dijele karticu): trenutna sesija, tjedni limit za sve modele, tjedni po modelu, extra usage. Limit koji trenutno veže je označen kao <i>binding</i>, a reset piše kad.</p>
+    <figure><img src="img/d-usage.webp" alt="Usage kartica s tri limita i extra usageom" width="1600" height="1000" loading="lazy"><figcaption>Opus tjedni limit na 81 % je onaj koji veže</figcaption></figure>
+  </div>
+</section>
+
+<section class="row" id="oporavak">
+  <div class="label">15 · Oporavak<b>Nakon reboota</b><code>fleet restore</code></div>
+  <div class="body">
+    <h2>Dormant i Recently closed</h2>
+    <p class="prose">Fleet stalno sprema snapshot tmux layouta. Nakon reboota sesije postanu <b>dormant</b>: vide se ispod liste i na boardu, s tmux imenom, Claude naslovima, brojem windowa i paneova. <b>Resume</b> vrati isti layout i svaki Claude pane s <code>--resume</code>, pa grupe, stackovi i briefovi ostaju. <b>Recently closed</b> čuva zatvorene sesije 7 dana, za slučaj da si zatvorio krivu.</p>
+    <div class="shots pair">
+      <figure><img src="img/d-dormant.webp" alt="Dno sidebara: Dormant sekcija s Resume i Forget, Recently closed" width="1600" height="1000" loading="lazy"><figcaption>Dormant <code>legacy-import</code> (2 windowa, 3 panea) s Resume i Forget; ispod Recently closed</figcaption></figure>
+      <div class="prose"><pre><code>fleet restore              # lista dormant sesija
+fleet restore legacy-import
+fleet restore --all
+fleet restore --closed     # nedavno zatvorene</code></pre></div>
+    </div>
+  </div>
+</section>
+
+<section class="row" id="postavke">
+  <div class="label">16 · Postavke<b>Izgled, repoi, direktoriji</b><code>#/settings · ⌘,</code></div>
+  <div class="body">
+    <h2>Teme, veličina teksta i postavke flote</h2>
+    <div class="prose">
+      <p>Po pregledniku: veličina teksta za cijeli UI, tema (Default, Earth, Dusk), light/dark/system, font terminala, progress notes i send delay (Off, 3 s, 5 s). Za cijelu flotu, spremljeno u config svakog hosta:</p>
+      <ul>
+        <li><b>Start directories</b>: jedna lista labela s putanjom po hostu; svaka ćelija pokaže postoji li direktorij na tom hostu, Save piše na sve hostove.</li>
+        <li><b>Git repos</b>: auto-sync (launchd timer), interval, skenirani direktoriji i svaki repo s branchom, ↓↑, zadnjim syncom i ishodom (updated, ahead, blocked zbog uncommitted promjena). Sync now po repou ili Sync all.</li>
+      </ul>
+    </div>
+    <div class="shots two">
+      <figure><img src="img/d-settings.webp" alt="Settings: izgled i chat" width="1600" height="1000" loading="lazy"><figcaption>Izgled i chat</figcaption></figure>
+      <figure><img src="img/d-settings-repos.webp" alt="Settings: Git repos s listom repoa" width="1600" height="1000" loading="lazy"><figcaption>Git repos po hostu</figcaption></figure>
+      <figure><img src="img/d-settings-dirs.webp" alt="Settings: Start directories mreža po hostovima" width="1600" height="1000" loading="lazy"><figcaption>Start directories za cijelu flotu</figcaption></figure>
+      <figure><img src="img/d-dusk.webp" alt="Dusk tema u tamnom modu" width="1600" height="1000" loading="lazy"><figcaption>Dusk, tamni mod</figcaption></figure>
+    </div>
+    <figure><img src="img/d-earth.webp" alt="Board u Earth temi" width="1600" height="1000" loading="lazy"><figcaption>Earth tema na boardu</figcaption></figure>
+  </div>
+</section>
+
+<section class="row" id="terminal">
+  <div class="label">17 · Terminal<b>CLI i TUI</b><code>fleet</code></div>
+  <div class="body">
+    <h2>Isto, iz terminala</h2>
+    <p class="prose">Goli <code>fleet</code> je živi dashboard: sesije sortirane da one koje te trebaju budu gore, prompt i repo ispod naslova, događaji (pojavila se, završila, zapela dulje od 300 s) u donjem panelu. Brojevi 1–0 skaču na sesiju.</p>
+    <figure><img src="img/tui.webp" alt="fleet watch TUI: lista sesija i panel s događajima" width="1600" height="940" loading="lazy"><figcaption><code>fleet watch</code> s demo flotom</figcaption></figure>
+<pre><code>fleet list -a                          # sve sesije, svi hostovi (--json: jedan array)
+fleet peek invoice                     # što sesija trenutno pokazuje
+fleet send invoice "run the tests"     # utipkaj i stisni Enter
+fleet -H workstation spawn "migrate the index" --dir ~/Code/acme-api --harness codex
+fleet spawn --from invoice             # nova sesija iz briefa
+fleet handoff --dir ~/Code/acme-api     # prebaci ovaj posao u novu sesiju, s briefom
+fleet pr spawn acme-web#1310           # PR u worktree + sesija na njemu
+fleet name --apply                     # daj svim sesijama prava imena
+fleet enter invoice · fleet last       # uđi u tmux sesiju bilo gdje · natrag na prethodnu
+fleet tmux stale                       # idle shellovi koje nitko ne koristi
+fleet brief invoice · fleet stack …    # briefovi i stackovi
+fleet repos sync · fleet jobs run dependency-audit
+fleet doctor                           # dostupnost hostova, verzije, config</code></pre>
+    <p class="prose">Target se resolva po naslovu, imenu, prefiksu session id-ja ili pidu. Komande koje tipkaju u živog agenta nikad ne pogađaju: ako dvije sesije jednako odgovaraju, dobiješ grešku s kandidatima.</p>
+  </div>
+</section>
+
+<section class="row" id="agenti">
+  <div class="label">18 · Agenti<b>MCP, skill, sigurnost</b></div>
+  <div class="body">
+    <h2>Agenti upravljaju flotom sami</h2>
+    <div class="cols c2">
+      <div class="cell"><span class="k">fleet mcp</span><p>Svaka CLI komanda kao MCP tool, generiran iz CLI definicija. stdio za Claude Code, <code>--http</code> sa bearer tokenom za ostale.</p></div>
+      <div class="cell"><span class="k">fleet skill install</span><p>Skill koji uči Claudea kad i kako koristiti fleet: „what's my fleet doing”, „spawn a session to…”, „take this to another terminal”.</p></div>
+      <div class="cell"><span class="k">tailnet je granica</span><p>Web app nema autentikacije: tko dođe do porta 7777 može tipkati u sesije. Zato radi samo preko Tailscalea, nikad javno.</p></div>
+      <div class="cell"><span class="k">više u setup vodiču</span><p>Topologija, arhitektura, recept za always-on Mac i gotche: <a href="{{SETUP_URL}}">setup vodiču</a>.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer><span>Fleet · interni vodič kroz mogućnosti</span><span>Svi screenshotovi s izmišljenim demo podacima</span></footer>
+</div>

@@ -17,6 +17,7 @@ crates/fleet-desktop/  Fleet.app: Tauri 2 shell around the web UI (not a default
 web/                   web server (server.mjs, lib/), Node >= 22, no npm deps
   ui/                  React + shadcn/ui PWA (npm, Vite build → ui/dist, gitignored) — see web/ui/README.md
 docs/                  setup, architecture, CLI reference, migration
+scripts/guide/         feature guide: demo API + headless-Chrome screenshots → one HTML page
 ```
 
 Keep logic in `core`; the CLI, the TUI and any future UI (a second web UI, another TUI) are views
