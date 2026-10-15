@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeftIcon, CloudUploadIcon, CopyIcon, FolderIcon, Loader2Icon, MicIcon, RefreshCwIcon, SquareIcon, Trash2Icon, TriangleAlertIcon, XIcon } from 'lucide-react'
+import { BotIcon, ChevronLeftIcon, CloudUploadIcon, CopyIcon, FolderIcon, Loader2Icon, MicIcon, RefreshCwIcon, SquareIcon, Trash2Icon, TriangleAlertIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
 
@@ -7,10 +7,12 @@ import type { Memo, MemoSummary } from '@/api/types'
 import { api } from '@/api/client'
 import { InlineEdit } from '@/components/InlineEdit'
 import { Markdown } from '@/components/Markdown'
+import { NewSessionDialog, NewSessionDrawer } from '@/components/NewSessionDrawer'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useMemoDetail, useMemoList, useMemoRecorder } from '@/hooks/useMemos'
 import { useNow } from '@/hooks/useNow'
 import { useSettings } from '@/hooks/useSettings'
@@ -18,7 +20,7 @@ import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { copyWithToast } from '@/lib/clipboard'
 import { discardPending, drain, inputLevel, startRecording, stopRecording } from '@/lib/memoRecorder'
 import type { PendingRecording } from '@/lib/memoStore'
-import { formatDuration, memoHref, memoWhen, parseMemosLocation } from '@/lib/memos'
+import { formatDuration, memoHref, memoSessionPrompt, memoWhen, parseMemosLocation } from '@/lib/memos'
 import { cn } from '@/lib/utils'
 
 /**
@@ -270,6 +272,10 @@ function MemoDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState<'retry' | 'delete' | null>(null)
   const [confirm, setConfirm] = useState(false)
+  const [spawnOpen, setSpawnOpen] = useState(false)
+  const { self } = useSettings()
+  const desktop = useIsDesktop()
+  const [, navigate] = useLocation()
 
   if (error) return <p className={cn(wrap, 'text-sm text-destructive')}>{error}</p>
   if (!memo) {
@@ -320,6 +326,8 @@ function MemoDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) {
     }
   }
 
+  // The memo is a file on this server: start there, next to it (the form can change both).
+  const SpawnForm = desktop ? NewSessionDialog : NewSessionDrawer
   const meta = [memoWhen(memo.created), formatDuration(memo.durationSec), memo.words ? `${memo.words} words` : null].filter(Boolean).join(' · ')
   return (
     <article className={cn(wrap, 'space-y-3')}>
@@ -335,6 +343,11 @@ function MemoDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) {
       />
       <div className="text-xs text-muted-foreground tabular-nums">{meta}</div>
       <div className="flex flex-wrap gap-1.5">
+        {self ? (
+          <Button size="sm" onClick={() => setSpawnOpen(true)}>
+            <BotIcon /> Start session
+          </Button>
+        ) : null}
         <Button variant="outline" size="sm" onClick={() => void copyWithToast(memo.transcript)}>
           <CopyIcon /> Copy text
         </Button>
@@ -353,6 +366,7 @@ function MemoDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) {
       <div className="border-t pt-3">
         {memo.transcript ? <Markdown text={memo.transcript} /> : <p className="text-sm text-muted-foreground">No speech was recognized.</p>}
       </div>
+      {self ? <SpawnForm open={spawnOpen} onOpenChange={setSpawnOpen} onOpenSession={(href) => navigate(href)} prefill={{ host: self, dir: memo.path.replace(/\/[^/]*$/, '') || null, prompt: memoSessionPrompt(memo) }} /> : null}
       {confirm ? (
         <Dialog open onOpenChange={(o) => (o || busy ? null : setConfirm(false))}>
           <DialogContent>

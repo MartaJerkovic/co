@@ -20,6 +20,8 @@ const TITLE_MAX = 100;
 const PREVIEW_CHARS = 160;
 // The transcript fed to the title model.
 const TITLE_INPUT_CHARS = 12000;
+// The vocabulary appended to the transcription prompt (web.memos.vocabulary).
+const VOCABULARY_MAX = 800;
 // The previous segment's tail, as context for the next one (words cut at the boundary).
 const CONTEXT_CHARS = 200;
 
@@ -79,6 +81,19 @@ export function cleanTitle(raw) {
     .replace(/^["'„“”*_`]+|["'„“”*_`.]+$/g, '')
     .trim()
     .slice(0, TITLE_MAX);
+}
+
+/** The transcription prompt's base: MEMO_PROMPT + `Pojmovi: a, b, c.` (capped). */
+export function memoPrompt(vocabulary = []) {
+  const terms = [];
+  let len = 0;
+  for (const t of vocabulary) {
+    const term = String(t ?? '').replace(/\s+/g, ' ').trim();
+    if (!term || len + term.length + 2 > VOCABULARY_MAX) continue;
+    terms.push(term);
+    len += term.length + 2;
+  }
+  return terms.length ? `${MEMO_PROMPT} Pojmovi: ${terms.join(', ')}.` : MEMO_PROMPT;
 }
 
 export function titlePrompt(transcript) {
@@ -176,9 +191,11 @@ const readOr = (file, fallback = null) => fsp.readFile(file, 'utf8').catch(() =>
  *   transcriber  lib/transcribe.mjs createTranscriber (transcribeAudio)
  *   ask          ({ prompt, model }) => Promise<string> — briefs.mjs createClaudeAsk; absent → a date title
  *   model        title model
+ *   vocabulary   names and terms the transcriber should expect (people, projects, tools)
  */
-export function createMemos({ dir, audioDir, transcriber, ask = null, model = 'haiku', now = Date.now, log = () => {} }) {
+export function createMemos({ dir, audioDir, transcriber, ask = null, model = 'haiku', vocabulary = [], now = Date.now, log = () => {} }) {
   if (!dir || !audioDir) throw new TypeError('dir and audioDir are required');
+  const basePrompt = memoPrompt(vocabulary);
   // One finish/retry per recording at a time.
   const locks = new Map();
   const locked = (key, fn) => {
@@ -218,7 +235,7 @@ export function createMemos({ dir, audioDir, transcriber, ask = null, model = 'h
   async function transcribeSegment(rec, n, file, context = '') {
     const audio = await fsp.readFile(path.join(recDir(rec), file));
     const ext = path.extname(file).slice(1);
-    const { text } = await transcriber.transcribeAudio(audio, TYPE_OF[ext], buildPrompt(context, MEMO_PROMPT));
+    const { text } = await transcriber.transcribeAudio(audio, TYPE_OF[ext], buildPrompt(context, basePrompt));
     await writeAtomic(path.join(recDir(rec), `${pad(n)}.txt`), `${text}\n`);
     return text;
   }

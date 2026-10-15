@@ -41,3 +41,11 @@ export function memoWhen(iso: string | null | undefined, now = Date.now()): stri
   const sameYear = d.getFullYear() === new Date(now).getFullYear()
   return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })} ${time}`
 }
+
+/** The first prompt of a session started from a memo (editable in the New session form). */
+export function memoSessionPrompt(memo: { title: string; path: string }): string {
+  return [
+    `Read the voice memo "${memo.title}" at ${memo.path} — a transcript of a conversation I recorded (speakers are not marked; names and terms may be misheard).`,
+    'Give me its key points, the decisions made and the action items (who, what), then ask what I want to do with them.',
+  ].join(' ')
+}

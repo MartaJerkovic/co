@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import { cleanTitle, createMemos, parseMemo, setMetaLine, slugify } from '../lib/memos.mjs';
+import { cleanTitle, createMemos, memoPrompt, parseMemo, setMetaLine, slugify } from '../lib/memos.mjs';
 
 function audioReq(body, type = 'audio/webm;codecs=opus') {
   const req = Readable.from([Buffer.from(body)]);
@@ -118,4 +118,15 @@ test('no title model (or no speech) → a date title', async () => {
   const memo = await memos.finish(REC, { segments: 1, startedAt: START, durationMs: 1000 });
   assert.equal(memo.title, 'Memo 2026-10-15 14:32');
   assert.equal(memo.id, '2026-10-15-memo-14-32');
+});
+
+test('the vocabulary steers every segment\'s transcription', async () => {
+  assert.match(memoPrompt(['Claude', ' beads ', '']), /Pojmovi: Claude, beads\.$/);
+  assert.ok(memoPrompt(Array(500).fill('term')).length < 1000, 'capped');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-memos-'));
+  const prompts = [];
+  const transcriber = { transcribeAudio: async (a, t, prompt) => (prompts.push(prompt), { text: 'x' }) };
+  const memos = createMemos({ dir: path.join(root, 'm'), audioDir: path.join(root, 'a'), transcriber, vocabulary: ['Productive'] });
+  await memos.putSegment(REC, 0, audioReq('seg0'));
+  assert.match(prompts[0], /Pojmovi: Productive\./);
 });

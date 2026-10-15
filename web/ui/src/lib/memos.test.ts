@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDuration, memoWhen, parseMemosLocation } from './memos'
+import { formatDuration, memoSessionPrompt, memoWhen, parseMemosLocation } from './memos'
 
 describe('memos helpers', () => {
   it('parses the memos routes', () => {
@@ -25,5 +25,11 @@ describe('memos helpers', () => {
     expect(memoWhen(new Date(2026, 9, 1, 9, 5).toISOString(), now)).toBe('1 Oct 09:05')
     expect(memoWhen(new Date(2025, 9, 1, 9, 5).toISOString(), now)).toBe('1 Oct 2025 09:05')
     expect(memoWhen(null, now)).toBe('')
+  })
+})
+
+describe('memoSessionPrompt', () => {
+  it('names the memo file', () => {
+    expect(memoSessionPrompt({ title: 'Plan', path: '/n/memos/plan.md' })).toMatch(/"Plan" at \/n\/memos\/plan\.md/)
   })
 })

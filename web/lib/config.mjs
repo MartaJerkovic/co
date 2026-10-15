@@ -6,7 +6,7 @@
 //     web: { port, bind, dir, ui, editor, editorSsh, quickReplies, models: [ { id, label } ],
 //            autoName: { enabled, intervalMinutes },
 //            grouping: { enabled, intervalMinutes }, uploads: { dir, maxMB, retentionDays },
-//            memos: { dir, audioDir, model },
+//            memos: { dir, audioDir, model, vocabulary },
 //            briefs: { enabled, model, idleMs, minIntervalMs, maxDeltaChars, maxCallsPerHour, … },
 //            stacks: { syncMinutes } },
 //     stacks: { enabled, model },         (read by the CLI; the server only reports them)
@@ -415,7 +415,10 @@ export function normalizeConfig(
   // web.memos: voice memos (lib/memos.mjs) — transcripts as markdown in `dir` (a notes folder,
   // say), segment audio in `audioDir`; `model` names their titles.
   const wm = web.memos == null ? {} : web.memos;
-  if (!isObject(wm)) throw new Error('config.web.memos must be an object { dir, audioDir, model }');
+  if (!isObject(wm)) throw new Error('config.web.memos must be an object { dir, audioDir, model, vocabulary }');
+  if (wm.vocabulary != null && (!Array.isArray(wm.vocabulary) || wm.vocabulary.some((v) => typeof v !== 'string'))) {
+    throw new Error('config.web.memos.vocabulary must be an array of strings (names and terms the transcription should expect)');
+  }
   const memoDir = (key, fallback) => {
     if (wm[key] != null && (typeof wm[key] !== 'string' || !wm[key].trim())) throw new Error(`config.web.memos.${key} must be a non-empty string`);
     const d = expandHome(wm[key]?.trim() ?? fallback, home);
@@ -423,7 +426,7 @@ export function normalizeConfig(
     return path.normalize(d);
   };
   if (wm.model != null && (typeof wm.model !== 'string' || !MODEL_ID_RE.test(wm.model))) throw new Error('config.web.memos.model must be a model id (letters, digits and ._[]-)');
-  const memos = { dir: memoDir('dir', DEFAULT_MEMOS_DIR), audioDir: memoDir('audioDir', DEFAULT_MEMO_AUDIO_DIR), model: wm.model ?? 'haiku' };
+  const memos = { dir: memoDir('dir', DEFAULT_MEMOS_DIR), audioDir: memoDir('audioDir', DEFAULT_MEMO_AUDIO_DIR), model: wm.model ?? 'haiku', vocabulary: (wm.vocabulary ?? []).map((v) => v.trim()).filter(Boolean) };
 
   // web.briefs: per-session briefs (lib/briefs.mjs) — the budget knobs for its model calls.
   const wb = web.briefs == null ? {} : web.briefs;
