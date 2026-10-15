@@ -20,6 +20,8 @@ export interface Module {
   href?: string
   run?: () => void
   hint?: ShortcutAction
+  /** `work`: the modules you work in; `utility`: the helper screens (usage, settings). */
+  group: 'work' | 'utility'
 }
 
 /**
@@ -31,20 +33,31 @@ function useModules(): Module[] {
   const notesHosts = useNotesHosts()
   const settings = useSettings()
   const all: (Module | null)[] = [
-    settings.operator ? { id: 'operator', label: 'Operator', icon: <AudioLinesIcon />, href: '#/operator' } : null,
-    { id: 'prs', label: 'Pull requests', icon: <GitPullRequestIcon />, href: '#/prs' },
-    { id: 'scratchpad', label: 'Scratchpad', icon: <NotebookPenIcon />, run: () => (scratchpad.isOpen() ? scratchpad.hide() : scratchpad.show()), hint: 'scratchpad' },
-    notesHosts.length ? { id: 'notes', label: 'Notes', icon: <NotebookTextIcon />, href: '#/notes', hint: 'notes' } : null,
-    { id: 'jobs', label: 'Scheduled jobs', icon: <CalendarClockIcon />, href: '#/jobs' },
-    { id: 'usage', label: 'Usage limits', icon: <GaugeIcon />, href: '#/usage' },
-    { id: 'settings', label: 'Settings', icon: <Settings2Icon />, href: '#/settings' },
+    settings.operator ? { id: 'operator', label: 'Operator', icon: <AudioLinesIcon />, href: '#/operator', group: 'work' } : null,
+    { id: 'prs', label: 'Pull requests', icon: <GitPullRequestIcon />, href: '#/prs', group: 'work' },
+    { id: 'scratchpad', label: 'Scratchpad', icon: <NotebookPenIcon />, run: () => (scratchpad.isOpen() ? scratchpad.hide() : scratchpad.show()), hint: 'scratchpad', group: 'work' },
+    notesHosts.length ? { id: 'notes', label: 'Notes', icon: <NotebookTextIcon />, href: '#/notes', hint: 'notes', group: 'work' } : null,
+    { id: 'jobs', label: 'Scheduled jobs', icon: <CalendarClockIcon />, href: '#/jobs', group: 'work' },
+    { id: 'usage', label: 'Usage limits', icon: <GaugeIcon />, href: '#/usage', group: 'utility' },
+    { id: 'settings', label: 'Settings', icon: <Settings2Icon />, href: '#/settings', group: 'utility' },
   ]
   return all.filter((m): m is Module => m !== null)
 }
 
 /** One icon button per module (the sidebar row, the rail). */
-export function ModuleButtons({ size = 'icon', className, exclude = [] }: { size?: 'icon' | 'icon-sm'; className?: string; exclude?: ModuleId[] }) {
-  const modules = useModules().filter((m) => !exclude.includes(m.id))
+export function ModuleButtons({
+  size = 'icon',
+  className,
+  exclude = [],
+  group,
+}: {
+  size?: 'icon' | 'icon-sm'
+  className?: string
+  exclude?: ModuleId[]
+  /** Only this group (absent: all). */
+  group?: Module['group']
+}) {
+  const modules = useModules().filter((m) => !exclude.includes(m.id) && (!group || m.group === group))
   const scratchOpen = useScratchpadOpen()
   return (
     <>

@@ -215,9 +215,11 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
       </div>
 
       <div className="shrink-0 border-t px-2 py-1.5 text-xs text-dimmer">
-        {/* The modules, spread over the width (fits the narrowest sidebar). Jump and the shortcuts live in ⌘K / ⌘? and Settings. */}
-        <nav aria-label="Modules" className="flex items-center justify-between">
-          <ModuleButtons size="icon-sm" />
+        {/* Work modules on the left, helper screens (usage, settings) on the right. Jump and the shortcuts live in ⌘K / ⌘? and Settings. */}
+        <nav aria-label="Modules" className="flex items-center gap-1">
+          <ModuleButtons size="icon-sm" group="work" />
+          <span className="ml-auto" />
+          <ModuleButtons size="icon-sm" group="utility" />
         </nav>
       </div>
     </div>
