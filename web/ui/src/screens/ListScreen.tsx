@@ -129,15 +129,6 @@ export function ListScreen() {
               <ModuleMenuItems exclude={['prs', 'operator']} />
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button
-            size="icon"
-            aria-label="New session"
-            title="New session"
-            onClick={() => setNewOpen(true)}
-            className="-my-1 size-8 shrink-0 rounded-full min-[400px]:size-9 sm:size-10 [&_svg:not([class*='size-'])]:size-5"
-          >
-            <PlusIcon />
-          </Button>
         </div>
 
         <div className="mt-2 flex items-center gap-2">
@@ -257,7 +248,7 @@ export function ListScreen() {
       </ScreenHeader>
 
       <main className="flex-1 pb-safe px-safe">
-        <div className={cn('mx-auto w-full max-w-3xl px-3 pt-2', settings.operator && settings.memos ? 'pb-44' : settings.operator || settings.memos ? 'pb-28' : 'pb-8')}>
+        <div className={cn('mx-auto w-full max-w-3xl px-3 pt-2', settings.operator && settings.memos ? 'pb-52' : settings.operator || settings.memos ? 'pb-36' : 'pb-20')}>
           {error ? (
             <Alert variant="destructive" className="my-2">
               <AlertDescription>
@@ -293,18 +284,29 @@ export function ListScreen() {
         </div>
       </main>
 
-      {/* The operator: one tap from the list to talking with the fleet. */}
-      {settings.operator ? (
-        <a
-          href="#/operator"
-          aria-label="Talk to the operator"
-          title="Operator — talk to the fleet"
-          className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-30 grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
+      {/* Thumb actions, stacked bottom-right: record a memo, talk to the operator, new session. */}
+      <div className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-30 flex flex-col items-end gap-3">
+        <MemoRecordFab />
+        {settings.operator ? (
+          <a
+            href="#/operator"
+            aria-label="Talk to the operator"
+            title="Operator — talk to the fleet"
+            className="grid size-12 place-items-center rounded-full border bg-background text-foreground shadow-lg transition-transform active:scale-95"
+          >
+            <MicIcon className="size-5" />
+          </a>
+        ) : null}
+        <button
+          type="button"
+          aria-label="New session"
+          title="New session"
+          onClick={() => setNewOpen(true)}
+          className="grid size-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
         >
-          <MicIcon className="size-6" />
-        </a>
-      ) : null}
-      <MemoRecordFab raised={settings.operator} />
+          <PlusIcon className="size-6" />
+        </button>
+      </div>
       <NewSessionDrawer open={newOpen} onOpenChange={setNewOpen} onOpenSession={(href) => navigate(href)} />
     </div>
   )
