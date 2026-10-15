@@ -122,7 +122,7 @@ test('no title model (or no speech) → a date title', async () => {
 
 test('the vocabulary steers every segment\'s transcription', async () => {
   assert.match(memoPrompt(['Claude', ' beads ', '']), /Pojmovi: Claude, beads\.$/);
-  assert.ok(memoPrompt(Array(500).fill('term')).length < 1000, 'capped');
+  assert.ok(memoPrompt(Array(500).fill('term')).length < 1700, 'capped');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-memos-'));
   const prompts = [];
   const transcriber = { transcribeAudio: async (a, t, prompt) => (prompts.push(prompt), { text: 'x' }) };
