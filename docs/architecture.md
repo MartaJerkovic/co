@@ -137,7 +137,7 @@ server. Path: `$FLEET_CONFIG`, else `${XDG_CONFIG_HOME:-~/.config}/fleet/config.
 | `web.briefs` | `{ enabled, model, idleMs, minIntervalMs, maxDeltaChars, maxCallsPerHour, minNewTurns, minNewChars, maxBriefChars }` (default off, `haiku`, 60 s, 15 min, 12000, 12, 2, 2000, 3000): background generation of [session briefs](#session-briefs) on this host; reading and editing briefs (and a manual regenerate) work either way |
 | `web.stacks` | `{ syncMinutes }` (default 2): how often this host's web server runs `fleet stack sync` while any of its sessions is in a [stack](#session-stacks) |
 | `web.notes` | `{ root, name?, searchCmd?, exclude? }` (default off): the web UI's notes explorer (`#/notes`) over the markdown notes under `root` on this host — browse, full-text search (built in, or an external `searchCmd` such as `rg -n -i -F {query}`), preview with `[[wiki]]` / relative links between notes; hidden entries, `node_modules`, `.gitignore`d paths and age-encrypted blocks are never served (web/ARCHITECTURE.md → notes). Peers browse each other's notes through the usual proxy |
-| `web.operator` | `{ hosts?, model?, voice?, compactIdleMinutes?, compactMinTokens? }` (default `[self]`, Claude's default model, `alloy`, 60, 30000): the [voice operator](#voice-operator) — `hosts`: where it runs, the first that answers (set the same list on every machine so all talk to one operator); the model its Claude session runs; the OpenAI voice that reads its replies; autocompact after that many idle minutes (0 = never) when its context holds at least that many tokens |
+| `web.operator` | `{ hosts?, model?, voice?, clearIdleMinutes? }` (default `[self]`, Claude's default model, `alloy`, 60): the [voice operator](#voice-operator) — `hosts`: where it runs, the first that answers (set the same list on every machine so all talk to one operator); the model its Claude session runs; the OpenAI voice that reads its replies; `/clear` after that many idle minutes (0 = never) |
 | `web.files.roots` | array of dirs (`~` expanded, default `[]`): extra roots a relative file path in chat may be under. A relative path missing under the session cwd first matches files the session touched (from its transcript), then ancestors of those, then these roots; the sandbox stays `$HOME` + cwd |
 | `desktop.url` | the server [Fleet.app](desktop.md) opens instead of `hosts.<self>.web`; unset → this machine's server |
 | `tmux` | tmux binary; `null` → `PATH`, then `/opt/homebrew/bin`, `/usr/local/bin` |
@@ -453,10 +453,10 @@ The operator is found by its cwd. Its row in `/api/fleet` carries `operator: tru
 keeps it out of session lists (the CLI still shows it). `web.operator.hosts` picks one operator
 for every device: each server sends `/api/operator` to the first host of the list that answers.
 
-**Autocompact**: every 5 minutes the server checks its operator; idle for `compactIdleMinutes`
-with at least `compactMinTokens` of context, it gets `/compact` (keeping follow-ups, pending
-decisions and the sessions that matter), so one conversation goes on indefinitely. A session
-compacted this way is left alone until it is used again.
+**Auto-clear**: every 5 minutes the server checks its operator; idle for `clearIdleMinutes`, it
+gets `/clear`. Claude Code then starts a new session (a new session id, an empty transcript), so
+the next conversation starts fresh and the app shows no history. A cleared session has no context
+until it is used, which keeps it from being cleared again.
 
 ## Smart grouping
 

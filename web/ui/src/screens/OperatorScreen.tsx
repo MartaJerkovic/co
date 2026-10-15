@@ -48,7 +48,8 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
   const { fleet } = useFleet()
   const [status, setStatus] = useState<OperatorStatus | null>(null)
   const [starting, setStarting] = useState(false)
-  const [messages, setMessages] = useState<Message[] | null>(null)
+  // The conversation, tagged with its session: a new one (after the idle /clear) starts empty.
+  const [chat, setChat] = useState<{ key: string; list: Message[] } | null>(null)
   const [opStatus, setOpStatus] = useState<string | null>(null)
   // Sent, no reply yet: "thinking" until the operator answers.
   const [awaiting, setAwaiting] = useState(false)
@@ -62,6 +63,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
   const { speak, state: speechState } = speech
   const session = status?.session ?? null
   const opKey = session ? sessionKey(session) : null
+  const messages = chat && chat.key === opKey ? chat.list : null
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
@@ -91,7 +93,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
       if (!session) return
       try {
         const r = await api.messages(session.host, session.session_id, 40, { signal })
-        setMessages(r.messages)
+        setChat({ key: sessionKey(session), list: r.messages })
         setOpStatus(r.status)
       } catch (err) {
         // Gone (closed, host restarted): look for the operator again.
@@ -141,7 +143,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
       try {
         await api.send(session.host, session.session_id, t)
         setAwaiting(true)
-        setMessages((m) => [...(m ?? []), { role: 'user', kind: 'user', text: t, ts: Date.now(), queued: true }])
+        setChat((c) => ({ key: sessionKey(session), list: [...(c?.key === sessionKey(session) ? c.list : []), { role: 'user', kind: 'user', text: t, ts: Date.now(), queued: true }] }))
       } catch (err) {
         toast.error("Couldn't reach the operator", { description: sendErrorMessage(err) })
       }

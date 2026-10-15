@@ -190,7 +190,7 @@ server.listen(config.port, config.bind, () => {
   // A running operator keeps its workspace current (its ./api helper names this server's port).
   operator.prepare().catch((err) => logError(err, 'operator workspace'));
   operator.start();
-  if (config.operator.compactIdleMinutes) log(`[fleet-web] operator: autocompact after ${config.operator.compactIdleMinutes}m idle (≥ ${config.operator.compactMinTokens} tokens of context)`);
+  if (config.operator.clearIdleMinutes) log(`[fleet-web] operator: /clear after ${config.operator.clearIdleMinutes}m idle`);
   log(`[fleet-web] uploads ${config.uploads.dir} (max ${config.uploads.maxMB} MB, kept ${config.uploads.retentionDays || '∞'} days)`);
   if (grouper) {
     grouper.start();

@@ -110,16 +110,15 @@ async function writeIfChanged(file, content, mode) {
   if (mode) await fs.chmod(file, mode);
 }
 
-/** What `/compact` keeps when the idle operator is compacted (the conversation goes on after it). */
-export const COMPACT_COMMAND =
-  '/compact Keep what the user asked you to follow up on, decisions still pending, the sessions they care about and why, and how they like to be answered.';
+/** Sent to the idle operator: a fresh conversation (a new session id, no history in the app). */
+export const CLEAR_COMMAND = '/clear';
 
 /**
  * @param {object} deps
- *   config   normalized config (self, hosts, bind, port, operator: { dir, model, compactIdleMinutes, compactMinTokens })
+ *   config   normalized config (self, hosts, bind, port, operator: { dir, model, clearIdleMinutes })
  *   fleet    lib/fleet.mjs instance (localHost)
  *   spawner  lib/spawn.mjs spawner
- *   backend  lib/backends.mjs instance (send: the autocompact; absent → no autocompact)
+ *   backend  lib/backends.mjs instance (send: the auto-clear; absent → none)
  */
 export function createOperator({ config, fleet, spawner, backend = null, now = Date.now, log = () => {}, checkEveryMs = 5 * 60 * 1000 }) {
   const dir = config.operator.dir;
@@ -160,28 +159,24 @@ export function createOperator({ config, fleet, spawner, backend = null, now = D
     return { host: config.self, dir, session: null, started: true, tmuxSession: result.tmuxSession };
   }
 
-  // Autocompact: an operator idle for compactIdleMinutes with at least compactMinTokens of context
-  // gets /compact, so the conversation never runs out of room. The compaction itself is activity:
-  // a session compacted here is left alone until it has been used again.
-  let lastCompact = null; // { id, at }
+  // Auto-clear: an operator idle for clearIdleMinutes gets /clear — the next conversation starts
+  // empty (Claude Code starts a new session, so the app shows no history). A cleared session has
+  // no context yet, which is what keeps it from being cleared again.
   async function tick() {
-    const idleMs = config.operator.compactIdleMinutes * 60 * 1000;
+    const idleMs = config.operator.clearIdleMinutes * 60 * 1000;
     if (!backend || !idleMs) return null;
     const s = await find({ force: true });
-    if (!s || s.status !== 'idle' || !s.updated_at) return null;
+    if (!s || s.status !== 'idle' || !s.updated_at || !s.context?.used) return null;
     if (now() - s.updated_at < idleMs) return null;
-    if ((s.context?.used ?? 0) < config.operator.compactMinTokens) return null;
-    if (lastCompact?.id === s.session_id && s.updated_at < lastCompact.at + 15 * 60 * 1000) return null;
-    await backend.send(s, COMPACT_COMMAND);
-    lastCompact = { id: s.session_id, at: now() };
-    log(`[fleet-web] operator: compacted ${s.session_id.slice(0, 8)} (idle ${Math.round((now() - s.updated_at) / 60000)}m, ${s.context?.used} tokens)`);
+    await backend.send(s, CLEAR_COMMAND);
+    log(`[fleet-web] operator: cleared ${s.session_id.slice(0, 8)} (idle ${Math.round((now() - s.updated_at) / 60000)}m)`);
     return s.session_id;
   }
 
   let timer = null;
   function start() {
-    if (timer || !backend || !config.operator.compactIdleMinutes) return;
-    timer = setInterval(() => tick().catch((err) => log(`[fleet-web] operator autocompact: ${err?.message ?? err}`)), checkEveryMs);
+    if (timer || !backend || !config.operator.clearIdleMinutes) return;
+    timer = setInterval(() => tick().catch((err) => log(`[fleet-web] operator auto-clear: ${err?.message ?? err}`)), checkEveryMs);
     timer.unref?.();
   }
   function stop() {

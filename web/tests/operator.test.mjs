@@ -141,8 +141,8 @@ test('createKeySource reads the key it is named for', async () => {
   assert.equal(await createKeySource({ env, platform: 'linux' })(), 'sk-stt');
 });
 
-test('operator: stamp marks its row; tick compacts an idle, full operator once', async (t) => {
-  const config = tmpConfig(t, { compactIdleMinutes: 60, compactMinTokens: 1000 });
+test('operator: stamp marks its row; tick clears an operator idle for an hour, once', async (t) => {
+  const config = tmpConfig(t, { clearIdleMinutes: 60 });
   const dir = config.operator.dir;
   let t0 = 10 * 3600 * 1000;
   const op = { session_id: 'op-0000-1111', cwd: dir, harness: 'claude', status: 'idle', updated_at: t0, context: { used: 5000 } };
@@ -165,14 +165,12 @@ test('operator: stamp marks its row; tick compacts an idle, full operator once',
   op.status = 'busy';
   assert.equal(await operator.tick(), null, 'busy');
   op.status = 'idle';
-  op.context.used = 10;
-  assert.equal(await operator.tick(), null, 'small context');
-  op.context.used = 5000;
   assert.equal(await operator.tick(), 'op-0000-1111');
-  assert.match(sent[0][1], /^\/compact /);
-  op.updated_at = t0 + 60 * 1000; // the compaction itself
+  assert.deepEqual(sent, [['op-0000-1111', '/clear']]);
+  // Claude Code starts a new session: no context until it is used.
+  Object.assign(op, { session_id: 'op-2222', context: null, updated_at: t0 });
   t0 += 2 * 3600 * 1000;
-  assert.equal(await operator.tick(), null, 'compacted and unused since');
+  assert.equal(await operator.tick(), null, 'already empty');
   assert.equal(sent.length, 1);
 });
 
