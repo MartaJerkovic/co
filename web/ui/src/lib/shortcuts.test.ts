@@ -46,6 +46,11 @@ describe('matchShortcut', () => {
     expect(cmd('e')).toBe('rename')
     expect(cmd('E', { shiftKey: true })).toBe('notes')
     expect(cmd('S', { shiftKey: true })).toBe('scratchpad')
+    expect(cmd('K', { shiftKey: true })).toBe('operator')
+    expect(cmd('P', { shiftKey: true })).toBe('prs')
+    expect(cmd('L', { shiftKey: true })).toBe('jobs')
+    expect(cmd('U', { shiftKey: true })).toBe('usage')
+    expect(cmd(',')).toBe('settings')
   })
 
   it('uses ⌘ on macOS and Ctrl elsewhere, never both', () => {
@@ -59,7 +64,7 @@ describe('matchShortcut', () => {
   })
 
   it('needs the exact modifiers', () => {
-    expect(cmd('k', { shiftKey: true })).toBeNull()
+    expect(cmd('x', { shiftKey: true })).toBeNull()
     expect(cmd('k', { altKey: true })).toBeNull()
     expect(cmd('o')).toBeNull() // ⌘O: the browser's open file
     expect(cmd('e', { altKey: true })).toBeNull()

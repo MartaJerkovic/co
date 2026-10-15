@@ -33,13 +33,13 @@ function useModules(): Module[] {
   const notesHosts = useNotesHosts()
   const settings = useSettings()
   const all: (Module | null)[] = [
-    settings.operator ? { id: 'operator', label: 'Operator', icon: <AudioLinesIcon />, href: '#/operator', group: 'work' } : null,
-    { id: 'prs', label: 'Pull requests', icon: <GitPullRequestIcon />, href: '#/prs', group: 'work' },
+    settings.operator ? { id: 'operator', label: 'Operator', icon: <AudioLinesIcon />, href: '#/operator', hint: 'operator', group: 'work' } : null,
+    { id: 'prs', label: 'Pull requests', icon: <GitPullRequestIcon />, href: '#/prs', hint: 'prs', group: 'work' },
     { id: 'scratchpad', label: 'Scratchpad', icon: <NotebookPenIcon />, run: () => (scratchpad.isOpen() ? scratchpad.hide() : scratchpad.show()), hint: 'scratchpad', group: 'work' },
     notesHosts.length ? { id: 'notes', label: 'Notes', icon: <NotebookTextIcon />, href: '#/notes', hint: 'notes', group: 'work' } : null,
-    { id: 'jobs', label: 'Scheduled jobs', icon: <CalendarClockIcon />, href: '#/jobs', group: 'work' },
-    { id: 'usage', label: 'Usage limits', icon: <GaugeIcon />, href: '#/usage', group: 'utility' },
-    { id: 'settings', label: 'Settings', icon: <Settings2Icon />, href: '#/settings', group: 'utility' },
+    { id: 'jobs', label: 'Scheduled jobs', icon: <CalendarClockIcon />, href: '#/jobs', hint: 'jobs', group: 'work' },
+    { id: 'usage', label: 'Usage limits', icon: <GaugeIcon />, href: '#/usage', hint: 'usage', group: 'utility' },
+    { id: 'settings', label: 'Settings', icon: <Settings2Icon />, href: '#/settings', hint: 'settings', group: 'utility' },
   ]
   return all.filter((m): m is Module => m !== null)
 }

@@ -310,6 +310,21 @@ export function DesktopShell() {
       case 'notes':
         navigate(notesOpen ? '/' : notesHref())
         return true
+      case 'operator':
+        navigate(operatorOpen ? '/' : '/operator')
+        return true
+      case 'prs':
+        navigate(prsOpen ? '/' : '/prs')
+        return true
+      case 'jobs':
+        navigate(jobsOpen ? '/' : '/jobs')
+        return true
+      case 'usage':
+        navigate(usageOpen ? '/' : '/usage')
+        return true
+      case 'settings':
+        navigate(settingsOpen ? '/' : '/settings')
+        return true
       case 'scratchpad':
         scratchpad.toggle(!!target?.closest('[data-scratchpad]'))
         return true

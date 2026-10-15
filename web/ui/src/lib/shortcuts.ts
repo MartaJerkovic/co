@@ -23,6 +23,11 @@ export type ShortcutAction =
   | 'rename'
   | 'notes'
   | 'scratchpad'
+  | 'operator'
+  | 'prs'
+  | 'jobs'
+  | 'usage'
+  | 'settings'
   | 'close'
 
 export interface KeyLike {
@@ -82,6 +87,13 @@ export const BINDINGS: readonly Binding[] = [
   { action: 'rename', combo: ['mod', 'E'] },
   { action: 'notes', combo: ['mod', 'shift', 'E'] },
   { action: 'scratchpad', combo: ['mod', 'shift', 'S'] },
+  // The modules (again → back to the sessions). ⌘, is the macOS settings key: Fleet.app and
+  // Safari pass it to the page, Chrome keeps it for its own settings.
+  { action: 'operator', combo: ['mod', 'shift', 'K'] },
+  { action: 'prs', combo: ['mod', 'shift', 'P'] },
+  { action: 'jobs', combo: ['mod', 'shift', 'L'] },
+  { action: 'usage', combo: ['mod', 'shift', 'U'] },
+  { action: 'settings', combo: ['mod', ','] },
   { action: 'close', combo: ['mod', 'Backspace'] },
 ]
 
@@ -248,6 +260,16 @@ export const SHORTCUT_HELP: { title: string; items: ShortcutHelp[] }[] = [
       { action: 'notes', label: 'Notes explorer (Esc back to the sessions)' },
       { action: 'scratchpad', label: 'Scratchpad: a floating, autosaved text buffer (again or Esc closes it)' },
       { action: 'help', label: 'This help' },
+    ],
+  },
+  {
+    title: 'Modules (again: back to the sessions)',
+    items: [
+      { action: 'operator', label: 'Operator: talk to the fleet' },
+      { action: 'prs', label: 'Pull requests' },
+      { action: 'jobs', label: 'Scheduled jobs' },
+      { action: 'usage', label: 'Usage limits' },
+      { action: 'settings', label: 'Settings' },
     ],
   },
 ]
