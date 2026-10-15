@@ -21,7 +21,7 @@ const PREVIEW_CHARS = 160;
 // The transcript fed to the title model.
 const TITLE_INPUT_CHARS = 12000;
 // The vocabulary appended to the transcription prompt (web.memos.vocabulary).
-const VOCABULARY_MAX = 800;
+const VOCABULARY_MAX = 1500;
 // The previous segment's tail, as context for the next one (words cut at the boundary).
 const CONTEXT_CHARS = 200;
 
