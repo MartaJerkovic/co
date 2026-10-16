@@ -1168,3 +1168,54 @@ export interface DiffResponse {
   stats?: { files: number; additions: number; deletions: number }
   truncated?: boolean
 }
+
+// --- diff reviewer threads (…/sessions/:id/review) ------------------------------------------
+
+export interface ReviewReply {
+  text: string
+  ts: number | null
+  final: boolean
+}
+
+/** One comment or follow-up in a thread and the session's answer to it. */
+export interface ReviewEntry {
+  body: string
+  /** null while a draft */
+  sentAt: number | null
+  /** draft → sent (typed, not in the transcript yet) → queued → working → done */
+  state: 'draft' | 'sent' | 'queued' | 'working' | 'done'
+  replies: ReviewReply[]
+  turnTs?: number
+}
+
+export interface ReviewThread {
+  id: string
+  path: string
+  side: 'new' | 'old'
+  start: number
+  end: number
+  /** the selected lines when the comment was made */
+  code: string[]
+  base: string | null
+  createdAt: number
+  status: 'draft' | 'sent'
+  resolved: boolean
+  reviewId: string | null
+  entries: ReviewEntry[]
+}
+
+export interface ReviewState {
+  host: string
+  id: string
+  threads: ReviewThread[]
+  reviews: { id: string; body: string; sentAt: number; threads: string[] }[]
+  drafts: number
+}
+
+export interface ReviewAnchor {
+  path: string
+  side: 'new' | 'old'
+  start: number
+  end: number
+  code: string[]
+}

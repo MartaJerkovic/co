@@ -77,7 +77,8 @@ src/
   lib/notes.ts        notes explorer: buildTree(), notesHref() / parseNotesLocation() (`#/notes/<host>/<path>`),
                       indexNotes() + resolveNoteLink() (relative + `[[wiki]]` links), splitRanges(), highlightTerms()
   lib/review.ts       diff reviewer: reviewHref() / parseReviewLocation() (`#/review/<host>/<id>`), fileTree() +
-                      treeOrder(), splitRows() (side-by-side pairing), fileSignature() (Viewed resets on change)
+                      treeOrder(), splitRows() (side-by-side pairing), fileSignature() (Viewed resets on change),
+                      selectLine() / selectionCode(), placeThreads() (anchors, outdated), orphanThreads()
   lib/outbox.ts       composer outbox (send with an undo delay): pure transitions (schedule / cancel / flush / retry),
                       reconcile() (dedupe optimistic bubbles against the transcript), the Outbox class (timer +
                       one-at-a-time sender), SEND_DELAYS (Settings → Send delay, `fleet.sendDelay`)
@@ -138,7 +139,8 @@ src/
                       failed user bubbles; the terminal view's strip), FilePreview, DetailsPanel (the desktop
                       details column) / DetailsDrawer (mobile ⋯), BriefSection (its top), LatestButton
   components/desktop/ Sidebar (+ SidebarRail when collapsed, NotesLink), CommandPalette (⌘K), ShortcutsDialog (⌘?)
-  components/review/  FileDiff (one file's card: unified / split hunks, Viewed), FileTree
+  components/review/  FileDiff (one file's card: unified / split hunks, Viewed, line-number selection, threads under
+                      their lines), FileTree, ReviewThread (CommentComposer, ReviewThreadCard)
   components/notes/   NoteTree, NoteResults / RecentNotes, NoteView (frontmatter, body, actions), SendNoteDialog
   screens/            ListScreen (`#/`), SessionScreen (`#/s/:host/:id`; `layout="pane"` on desktop),
                       SettingsScreen (`#/settings`; `layout="pane"` on desktop),
@@ -425,6 +427,16 @@ src/
   `fleet.reviewViewed:<host>/<id>` as the diff's signature, so a new change unticks it). Desktop:
   file tree (`fleet.reviewTree`) | diff | the session itself as a pane (`fleet.reviewChat`) —
   review and conversation side by side.
+  **Comments** (`useReview`, ../ARCHITECTURE.md → `…/review`): click a line number (shift-click
+  extends on the same side) → a composer under the lines: **Add single comment** types it into
+  the session now; **Start a review** / **Add review comment** keeps it as a pending draft, and
+  **Submit review (n)** in the header sends all drafts in one prompt with an optional overall
+  note (⌘↵ in the composer: a review comment once one is pending, else a single comment). Each
+  thread sits under its last line with the session's answer (final messages; interim narration
+  only until there is one), its state (pending / sent / queued / Claude is working…), Reply,
+  Resolve and Remove. A thread whose lines changed is *Outdated*; one whose lines left the diff
+  shows at the top of its file, one whose file left the diff at the bottom. Polled every 2 s
+  while an answer is due, else every 10 s.
 - **Notes** (`#/notes[/<host>[/<path>]]`; ../ARCHITECTURE.md → notes): browse, search and read the
   markdown notes of any host with `web.notes.root` (hosts come from `/api/fleet` entries carrying
   `notes`; the last one used is `fleet.notesHost`). Reached from the ⋯ More menu in the mobile

@@ -1,10 +1,10 @@
-import { ChevronDownIcon, ChevronRightIcon, CopyIcon } from 'lucide-react'
-import { memo } from 'react'
+import { ChevronDownIcon, ChevronRightIcon, CopyIcon, MessageSquareIcon } from 'lucide-react'
+import { Fragment, memo, useMemo, type ReactNode } from 'react'
 
-import type { DiffFile, DiffHunk, DiffLine } from '@/api/types'
+import type { DiffFile, DiffHunk, DiffLine, ReviewThread } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { copyWithToast } from '@/lib/clipboard'
-import { diffBar, fileAnchor, splitRows } from '@/lib/review'
+import { anchorKey, diffBar, fileAnchor, inSelection, lineNo, placeThreads, splitRows, unifiedSide, type LineSelection, type Side } from '@/lib/review'
 import { cn } from '@/lib/utils'
 
 export type DiffView = 'unified' | 'split'
@@ -69,30 +69,70 @@ function HunkHeader({ hunk }: { hunk: DiffHunk }) {
   )
 }
 
-function UnifiedHunk({ hunk }: { hunk: DiffHunk }) {
+/** What a row needs to know about comments: selection, the gutter click, what renders under it. */
+interface Commenting {
+  path: string
+  selection: LineSelection | null
+  onLine: (path: string, side: Side, n: number, extend: boolean) => void
+  /** threads (and the composer) shown under the row holding these anchor keys */
+  after: (keys: string[]) => ReactNode
+}
+
+function Gutter({ l, side, c }: { l: DiffLine | null; side: Side; c: Commenting }) {
+  const n = lineNo(l, side)
+  // A line commentable on this side: not the other side's change.
+  const ok = l != null && n != null && (side === 'new' ? l.t !== '-' : l.t !== '+')
+  const selected = ok && inSelection(c.selection, c.path, side, n)
+  if (!ok) return <span className={cn(NUM, numBg(l))}>{n ?? ''}</span>
+  return (
+    <button
+      type="button"
+      onClick={(e) => c.onLine(c.path, side, n, e.shiftKey)}
+      title="Comment on this line (shift-click: a range)"
+      className={cn(NUM, numBg(l), 'cursor-pointer hover:bg-primary/25 hover:text-foreground', selected && 'bg-primary/30 text-foreground')}
+    >
+      {n}
+    </button>
+  )
+}
+
+const keysOf = (l: DiffLine | null, sides: Side[]) =>
+  sides.flatMap((side) => {
+    const n = lineNo(l, side)
+    return l && n != null && (side === 'new' ? l.t !== '-' : l.t !== '+') ? [anchorKey(side, n)] : []
+  })
+
+function UnifiedHunk({ hunk, c }: { hunk: DiffHunk; c: Commenting }) {
   return (
     <>
       <HunkHeader hunk={hunk} />
-      {hunk.lines.map((l, i) => (
-        <div key={i} className={cn('flex font-mono text-xs leading-5', lineBg(l))}>
-          <span className={cn(NUM, numBg(l))}>{l.o ?? ''}</span>
-          <span className={cn(NUM, numBg(l))}>{l.n ?? ''}</span>
-          <span className={cn('w-5 shrink-0 select-none text-center', l.t === '+' ? 'text-diff-add' : l.t === '-' ? 'text-diff-del' : 'text-dimmer')}>
-            {l.t === ' ' ? '' : l.t === '-' ? '−' : '+'}
-          </span>
-          <span className={CODE}>
-            <Text l={l} />
-          </span>
-        </div>
-      ))}
+      {hunk.lines.map((l, i) => {
+        const sel = inSelection(c.selection, c.path, unifiedSide(l), lineNo(l, unifiedSide(l)))
+        return (
+          <Fragment key={i}>
+            <div className={cn('flex font-mono text-xs leading-5', lineBg(l), sel && 'bg-primary/10')}>
+              <Gutter l={l} side="old" c={c} />
+              <Gutter l={l} side="new" c={c} />
+              <span className={cn('w-5 shrink-0 select-none text-center', l.t === '+' ? 'text-diff-add' : l.t === '-' ? 'text-diff-del' : 'text-dimmer')}>
+                {l.t === ' ' ? '' : l.t === '-' ? '−' : '+'}
+              </span>
+              <span className={CODE}>
+                <Text l={l} />
+              </span>
+            </div>
+            {c.after(keysOf(l, ['old', 'new']))}
+          </Fragment>
+        )
+      })}
     </>
   )
 }
 
-function SplitSide({ l, side }: { l: DiffLine | null; side: 'o' | 'n' }) {
+function SplitSide({ l, side, c }: { l: DiffLine | null; side: Side; c: Commenting }) {
+  const sel = inSelection(c.selection, c.path, side, lineNo(l, side))
   return (
-    <div className={cn('flex min-w-0 flex-1 font-mono text-xs leading-5', lineBg(l))}>
-      <span className={cn(NUM, numBg(l))}>{l ? l[side] : ''}</span>
+    <div className={cn('flex min-w-0 flex-1 font-mono text-xs leading-5', lineBg(l), sel && 'bg-primary/10')}>
+      <Gutter l={l} side={side} c={c} />
       <span className={cn('w-5 shrink-0 select-none text-center', l?.t === '+' ? 'text-diff-add' : l?.t === '-' ? 'text-diff-del' : 'text-dimmer')}>
         {l && l.t !== ' ' ? (l.t === '-' ? '−' : '+') : ''}
       </span>
@@ -101,15 +141,18 @@ function SplitSide({ l, side }: { l: DiffLine | null; side: 'o' | 'n' }) {
   )
 }
 
-function SplitHunk({ hunk }: { hunk: DiffHunk }) {
+function SplitHunk({ hunk, c }: { hunk: DiffHunk; c: Commenting }) {
   return (
     <>
       <HunkHeader hunk={hunk} />
       {splitRows(hunk).map((r, i) => (
-        <div key={i} className="flex divide-x">
-          <SplitSide l={r.left} side="o" />
-          <SplitSide l={r.right} side="n" />
-        </div>
+        <Fragment key={i}>
+          <div className="flex divide-x">
+            <SplitSide l={r.left} side="old" c={c} />
+            <SplitSide l={r.right} side="new" c={c} />
+          </div>
+          {c.after([...keysOf(r.left, ['old']), ...keysOf(r.right, ['new'])])}
+        </Fragment>
       ))}
     </>
   )
@@ -124,10 +167,53 @@ export interface FileDiffProps {
   fresh: boolean
   onToggleCollapsed: (path: string) => void
   onToggleViewed: (path: string) => void
+  /** this file's selection (null when the selection is on another file) */
+  selection: LineSelection | null
+  /** the composer is open under the selection */
+  composing: boolean
+  onLine: (path: string, side: Side, n: number, extend: boolean) => void
+  /** this file's threads */
+  threads: ReviewThread[]
+  renderThread: (thread: ReviewThread, outdated: boolean) => ReactNode
+  renderComposer: () => ReactNode
 }
 
 /** One file's card: the GitHub "Files changed" header (path, +/−, Viewed) over its hunks. */
-export const FileDiff = memo(function FileDiff({ file, view, collapsed, viewed, fresh, onToggleCollapsed, onToggleViewed }: FileDiffProps) {
+export const FileDiff = memo(function FileDiff({
+  file,
+  view,
+  collapsed,
+  viewed,
+  fresh,
+  onToggleCollapsed,
+  onToggleViewed,
+  selection,
+  composing,
+  onLine,
+  threads,
+  renderThread,
+  renderComposer,
+}: FileDiffProps) {
+  const placed = useMemo(() => placeThreads(file, threads), [file, threads])
+  const composerKey = composing && selection ? anchorKey(selection.side, selection.end) : null
+  const c: Commenting = {
+    path: file.path,
+    selection,
+    onLine,
+    after: (keys) => {
+      const ts = keys.flatMap((k) => placed.at.get(k) ?? [])
+      const withComposer = composerKey != null && keys.includes(composerKey)
+      if (!ts.length && !withComposer) return null
+      return (
+        <>
+          {ts.map((t) => (
+            <Fragment key={t.id}>{renderThread(t, placed.outdated.has(t.id))}</Fragment>
+          ))}
+          {withComposer ? renderComposer() : null}
+        </>
+      )
+    },
+  }
   const Hunk = view === 'split' ? SplitHunk : UnifiedHunk
   const open = !collapsed && !viewed
   return (
@@ -155,12 +241,26 @@ export const FileDiff = memo(function FileDiff({ file, view, collapsed, viewed, 
           <CopyIcon className="size-3.5" />
         </Button>
         <span className="flex-1" />
+        {threads.length ? (
+          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground" title={`${threads.length} comment thread${threads.length === 1 ? '' : 's'}`}>
+            <MessageSquareIcon className="size-3.5" />
+            {threads.length}
+          </span>
+        ) : null}
         <DiffStat additions={file.additions} deletions={file.deletions} />
         <label className={cn('ml-1 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs', viewed && 'border-primary/40 bg-primary/10')}>
           <input type="checkbox" checked={viewed} onChange={() => onToggleViewed(file.path)} className="accent-primary" />
           Viewed
         </label>
       </header>
+      {open && placed.unplaced.length ? (
+        <div className="border-b">
+          <p className="bg-muted/40 px-3 py-1 text-xs text-muted-foreground">Comments on lines no longer in the diff</p>
+          {placed.unplaced.map((t) => (
+            <Fragment key={t.id}>{renderThread(t, true)}</Fragment>
+          ))}
+        </div>
+      ) : null}
       {open ? (
         <div className="overflow-x-auto">
           {file.binary ? (
@@ -168,7 +268,7 @@ export const FileDiff = memo(function FileDiff({ file, view, collapsed, viewed, 
           ) : !file.hunks.length ? (
             <p className="px-4 py-3 text-sm text-muted-foreground">{file.truncated ? 'Diff too large to show.' : 'No content changes (mode or rename only).'}</p>
           ) : (
-            file.hunks.map((h, i) => <Hunk key={i} hunk={h} />)
+            file.hunks.map((h, i) => <Hunk key={i} hunk={h} c={c} />)
           )}
           {file.truncated && file.hunks.length ? <p className="border-t px-4 py-2 text-xs text-muted-foreground">Diff cut short — too many lines.</p> : null}
         </div>

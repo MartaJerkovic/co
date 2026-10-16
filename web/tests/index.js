@@ -22,3 +22,5 @@ import './dormant.test.mjs';
 import './repos.test.mjs';
 import './jobs.test.mjs';
 import './memos.test.mjs';
+import './diff.test.mjs';
+import './reviews.test.mjs';

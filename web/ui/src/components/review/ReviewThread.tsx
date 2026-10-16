@@ -1,0 +1,245 @@
+import { CheckIcon, CircleDotIcon, LoaderIcon, PencilIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+
+import type { ReviewEntry, ReviewThread as Thread } from '@/api/types'
+import { Markdown } from '@/components/Markdown'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { rangeText } from '@/lib/review'
+import { cn } from '@/lib/utils'
+
+const isSubmit = (e: React.KeyboardEvent) => e.key === 'Enter' && (e.metaKey || e.ctrlKey)
+
+/**
+ * The box under selected lines: write a comment, then send it now ("Add single comment") or
+ * keep it for the review ("Start a review" / "Add review comment"). ⌘↵ does what GitHub does:
+ * a review comment once a review is pending, else a single comment.
+ */
+export function CommentComposer({
+  label,
+  drafts,
+  onCancel,
+  onSubmit,
+}: {
+  label: string
+  drafts: number
+  onCancel: () => void
+  onSubmit: (body: string, draft: boolean) => Promise<boolean>
+}) {
+  const [body, setBody] = useState('')
+  const [busy, setBusy] = useState<false | 'single' | 'draft'>(false)
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => ref.current?.focus(), [])
+  const go = async (draft: boolean) => {
+    if (!body.trim() || busy) return
+    setBusy(draft ? 'draft' : 'single')
+    const ok = await onSubmit(body, draft)
+    setBusy(false)
+    if (ok) onCancel()
+  }
+  return (
+    <div className="border-y bg-card px-3 py-2.5 font-sans">
+      <p className="mb-1.5 text-xs text-muted-foreground">Comment on {label}</p>
+      <Textarea
+        ref={ref}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onKeyDown={(e) => {
+          if (isSubmit(e)) {
+            e.preventDefault()
+            void go(drafts > 0)
+          } else if (e.key === 'Escape') {
+            e.stopPropagation()
+            onCancel()
+          }
+        }}
+        placeholder="Ask, suggest a change… (the selected lines go with it)"
+        className="min-h-20 bg-background text-sm"
+      />
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant={drafts > 0 ? 'default' : 'outline'} size="sm" disabled={!body.trim() || !!busy} onClick={() => void go(true)}>
+          {busy === 'draft' ? <LoaderIcon className="animate-spin" /> : null}
+          {drafts > 0 ? 'Add review comment' : 'Start a review'}
+        </Button>
+        <Button variant={drafts > 0 ? 'outline' : 'default'} size="sm" disabled={!body.trim() || !!busy} onClick={() => void go(false)}>
+          {busy === 'single' ? <LoaderIcon className="animate-spin" /> : null}
+          Add single comment
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const STATE_TEXT: Record<ReviewEntry['state'], string> = {
+  draft: 'Pending — sent with the review',
+  sent: 'Sent to the session…',
+  queued: 'Queued — the session is busy',
+  working: 'Claude is working…',
+  done: '',
+}
+
+function Entry({ entry, first }: { entry: ReviewEntry; first: boolean }) {
+  // Interim narration between tool calls is noise here; the final answer(s) are the reply.
+  const finals = entry.replies.filter((r) => r.final)
+  const shown = finals.length ? finals : entry.replies.slice(-1)
+  return (
+    <div className={cn('space-y-2 px-3 py-2', !first && 'border-t')}>
+      <div className="flex gap-2">
+        <span className="mt-0.5 shrink-0 rounded bg-primary/10 px-1.5 text-[0.6875rem] font-semibold text-primary">You</span>
+        <Markdown text={entry.body} className="min-w-0 flex-1 text-sm" />
+      </div>
+      {shown.map((r, i) => (
+        <div key={i} className="flex gap-2">
+          <span className="mt-0.5 shrink-0 rounded bg-muted px-1.5 text-[0.6875rem] font-semibold text-muted-foreground">Claude</span>
+          <Markdown text={r.text} className={cn('min-w-0 flex-1 text-sm', !r.final && 'text-muted-foreground')} />
+        </div>
+      ))}
+      {entry.state !== 'done' ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {entry.state === 'draft' ? <CircleDotIcon className="size-3.5 text-status-waiting" /> : <LoaderIcon className="size-3.5 animate-spin" />}
+          {STATE_TEXT[entry.state]}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+export interface ThreadActions {
+  reply: (thread: string, body: string) => Promise<boolean>
+  edit: (thread: string, body: string) => Promise<boolean>
+  resolve: (thread: string, resolved: boolean) => Promise<boolean>
+  remove: (thread: string) => Promise<boolean>
+}
+
+/** A comment thread under its lines: the comment, the session's answer(s), follow-ups. */
+export function ReviewThreadCard({ thread, outdated, actions }: { thread: Thread; outdated: boolean; actions: ThreadActions }) {
+  const [open, setOpen] = useState(!thread.resolved)
+  const [replying, setReplying] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const draft = thread.status === 'draft'
+
+  const run = async (fn: () => Promise<boolean>) => {
+    setBusy(true)
+    const ok = await fn()
+    setBusy(false)
+    return ok
+  }
+  const sendReply = async () => {
+    if (!text.trim()) return
+    if (await run(() => (editing ? actions.edit(thread.id, text) : actions.reply(thread.id, text)))) {
+      setText('')
+      setReplying(false)
+      setEditing(false)
+    }
+  }
+
+  return (
+    <div className="border-y bg-background px-3 py-2 font-sans">
+      <div className={cn('overflow-hidden rounded-lg border bg-card', thread.resolved && 'opacity-80')}>
+        <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs">
+          <button type="button" className="min-w-0 flex-1 truncate text-left text-muted-foreground" onClick={() => setOpen(!open)} aria-expanded={open}>
+            {thread.path.split('/').at(-1)} · {rangeText(thread)}
+          </button>
+          {draft ? <span className="rounded border border-status-waiting/40 px-1.5 text-status-waiting">Pending</span> : null}
+          {outdated ? <span className="rounded border px-1.5 text-muted-foreground" title="The lines changed since this comment">Outdated</span> : null}
+          {thread.resolved ? <span className="rounded border px-1.5 text-muted-foreground">Resolved</span> : null}
+          {draft ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label="Edit"
+              title="Edit"
+              onClick={() => {
+                setEditing(true)
+                setReplying(true)
+                setText(thread.entries[0]?.body ?? '')
+              }}
+            >
+              <PencilIcon className="size-3.5" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label={thread.resolved ? 'Reopen' : 'Resolve'}
+              title={thread.resolved ? 'Reopen' : 'Resolve'}
+              onClick={() => {
+                setOpen(thread.resolved)
+                void run(() => actions.resolve(thread.id, !thread.resolved))
+              }}
+            >
+              {thread.resolved ? <RotateCcwIcon className="size-3.5" /> : <CheckIcon className="size-3.5" />}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            aria-label={draft ? 'Delete draft' : 'Remove from the review'}
+            title={draft ? 'Delete draft' : 'Remove from the review (the conversation keeps it)'}
+            onClick={() => void run(() => actions.remove(thread.id))}
+          >
+            <Trash2Icon className="size-3.5" />
+          </Button>
+        </div>
+        {open ? (
+          <>
+            {thread.entries.map((e, i) => (
+              <Entry key={i} entry={e} first={i === 0} />
+            ))}
+            <div className="border-t px-3 py-2">
+              {replying ? (
+                <>
+                  <Textarea
+                    autoFocus
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (isSubmit(e)) {
+                        e.preventDefault()
+                        void sendReply()
+                      } else if (e.key === 'Escape') {
+                        e.stopPropagation()
+                        setReplying(false)
+                        setEditing(false)
+                      }
+                    }}
+                    placeholder={editing ? 'Edit the comment' : 'Reply — it goes to the session with this thread’s lines'}
+                    className="min-h-16 bg-background text-sm"
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setReplying(false)
+                        setEditing(false)
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button size="sm" disabled={!text.trim() || busy} onClick={() => void sendReply()}>
+                      {busy ? <LoaderIcon className="animate-spin" /> : null}
+                      {editing ? 'Save' : 'Reply'}
+                    </Button>
+                  </div>
+                </>
+              ) : draft ? null : (
+                <button type="button" onClick={() => setReplying(true)} className="w-full rounded-md border bg-background px-2.5 py-1.5 text-left text-sm text-muted-foreground hover:border-ring">
+                  Reply…
+                </button>
+              )}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
+}

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { configPath, loadConfig, ensurePath, ensureUtf8Locale, resolveBinary } from './lib/config.mjs';
+import { configPath, fleetStateDir, loadConfig, ensurePath, ensureUtf8Locale, resolveBinary } from './lib/config.mjs';
 import { run } from './lib/run.mjs';
 import { createFleetCli } from './lib/fleet-cli.mjs';
 import { createFleet } from './lib/fleet.mjs';
@@ -22,6 +22,7 @@ import { SPEECH_KEY_NAME, createKeySource, createSpeaker, createTranscriber } fr
 import { createOperator } from './lib/operator.mjs';
 import { createCompleter } from './lib/complete.mjs';
 import { createDiffer } from './lib/diff.mjs';
+import { createReviews } from './lib/reviews.mjs';
 import { createFiles } from './lib/files.mjs';
 import { createNotes } from './lib/notes.mjs';
 import { createSpawnDirsEditor } from './lib/spawn-dirs.mjs';
@@ -138,11 +139,14 @@ const transcriber = createTranscriber({ getKey: transcribeKey, log });
 const memos = createMemos({ ...config.memos, transcriber, ask: createClaudeAsk({ bin: claudeBin, run }), log });
 const spawner = createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers });
 const operator = createOperator({ config, fleet, spawner, backend, log });
+// One transcript reader: the chat and the review threads (their replies) share its cache.
+const transcripts = createTranscriptReader();
+
 const handleApi = createApi({
   config,
   fleet,
   backend,
-  transcripts: createTranscriptReader(),
+  transcripts,
   spawner,
   killer: createKiller({ run, tmux: config.tmux, closeIterm: (s) => backend.closeIterm(s) }),
   cli,
@@ -156,6 +160,12 @@ const handleApi = createApi({
   files: createFiles({ home: os.homedir(), run, touched: createTouchedIndex(), roots: config.files.roots }),
   completer: createCompleter({ home: os.homedir(), run }),
   differ: createDiffer({ run }),
+  // Diff reviewer threads: typed into the session like a send, answers read from its transcript.
+  reviews: createReviews({
+    dir: path.join(fleetStateDir(process.env), 'reviews'),
+    send: (session, text) => backend.send(session, text),
+    messages: async (session) => (await transcripts.messages(session, 500))?.messages ?? null,
+  }),
   notes: createNotes({ config: config.notes, home: os.homedir(), run }),
   // Settings → Start directories: writes through `fleet config set`, hot-reloads config.spawnDirs.
   spawnDirs: createSpawnDirsEditor({ config, configFile: config.configFile ?? configPath(process.env), cli }),

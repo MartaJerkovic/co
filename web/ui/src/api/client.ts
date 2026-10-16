@@ -2,6 +2,9 @@
 // in dev, Vite proxies /api to a running server (see vite.config.ts).
 import type {
   DiffResponse,
+  ReviewAnchor,
+  ReviewState,
+  ReviewThread,
   Memo,
   MemoSegmentResponse,
   MemosResponse,
@@ -136,6 +139,20 @@ export const api = {
     const qs = q.toString()
     return request<DiffResponse>(`${sessionPath(host, id, 'diff')}${qs ? `?${qs}` : ''}`, o)
   },
+
+  review: (host: string, id: string, o: Opts = {}) => request<ReviewState>(sessionPath(host, id, 'review'), o),
+  /** `draft: false` types the comment into the session now; `true` keeps it for `submitReview`. */
+  reviewComment: (host: string, id: string, body: ReviewAnchor & { body: string; draft: boolean; base?: string | null }, o: Opts = {}) =>
+    request<ReviewState & { thread: ReviewThread }>(sessionPath(host, id, 'review/threads'), { ...o, method: 'POST', body }),
+  reviewReply: (host: string, id: string, thread: string, body: string, o: Opts = {}) =>
+    request<ReviewState & { thread: ReviewThread }>(sessionPath(host, id, `review/threads/${enc(thread)}/reply`), { ...o, method: 'POST', body: { body } }),
+  reviewUpdate: (host: string, id: string, thread: string, patch: { body?: string; resolved?: boolean }, o: Opts = {}) =>
+    request<ReviewState & { thread: ReviewThread }>(sessionPath(host, id, `review/threads/${enc(thread)}`), { ...o, method: 'PUT', body: patch }),
+  reviewDelete: (host: string, id: string, thread: string, o: Opts = {}) =>
+    request<ReviewState>(sessionPath(host, id, `review/threads/${enc(thread)}`), { ...o, method: 'DELETE' }),
+  /** Every draft in one prompt, with an optional overall note. */
+  submitReview: (host: string, id: string, body: string, o: Opts = {}) =>
+    request<ReviewState>(sessionPath(host, id, 'review/submit'), { ...o, method: 'POST', body: { body } }),
 
   send: (host: string, id: string, text: string, o: Opts & { keepalive?: boolean } = {}) =>
     request<OkResponse>(sessionPath(host, id, 'send'), { ...o, method: 'POST', body: { text } }),

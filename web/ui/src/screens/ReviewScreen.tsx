@@ -5,15 +5,20 @@ import { useLocation } from 'wouter'
 import { HostBadge } from '@/components/HostBadge'
 import { DiffStat, FileDiff, type DiffView } from '@/components/review/FileDiff'
 import { FileTree } from '@/components/review/FileTree'
+import { CommentComposer, ReviewThreadCard } from '@/components/review/ReviewThread'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useFleet } from '@/hooks/useFleet'
 import { useDiff } from '@/hooks/useDiff'
+import { useReview } from '@/hooks/useReview'
 import { useNow } from '@/hooks/useNow'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { useSessionTitle } from '@/hooks/useTitles'
 import { relTime } from '@/lib/format'
-import { fileAnchor, fileSignature, fileTree, parseReviewLocation, treeOrder } from '@/lib/review'
+import { fileAnchor, fileSignature, fileTree, orphanThreads, parseReviewLocation, rangeText, selectLine, selectionCode, treeOrder, type LineSelection, type Side } from '@/lib/review'
+import type { ReviewThread } from '@/api/types'
 import { findSession, sessionHref } from '@/lib/sessions'
 import { storage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
@@ -21,6 +26,7 @@ import { SessionScreen } from '@/screens/SessionScreen'
 
 /** A file whose diff changed in the last update keeps its highlight this long. */
 const FRESH_MS = 10_000
+const NO_THREADS: ReviewThread[] = []
 const parseView = (r: string) => (r === 'split' || r === 'unified' ? r : undefined)
 const parseBool = (r: string) => (r === 'true' ? true : r === 'false' ? false : undefined)
 
@@ -109,6 +115,51 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
     requestAnimationFrame(() => document.getElementById(fileAnchor(path))?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
   }
 
+  // --- comments --------------------------------------------------------------
+  const rv = useReview(host, id)
+  const threads = useMemo(() => rv.review?.threads ?? [], [rv.review])
+  const drafts = rv.review?.drafts ?? 0
+  const byPath = useMemo(() => {
+    const m = new Map<string, ReviewThread[]>()
+    for (const t of threads) m.set(t.path, [...(m.get(t.path) ?? []), t])
+    return m
+  }, [threads])
+  const orphans = useMemo(() => orphanThreads(files, threads), [files, threads])
+  const [selection, setSelection] = useState<LineSelection | null>(null)
+  const [composing, setComposing] = useState(false)
+  const onLine = useCallback((path: string, side: Side, n: number, extend: boolean) => {
+    setSelection((prev) => selectLine(prev, path, side, n, extend))
+    setComposing(true)
+  }, [])
+  const closeComposer = useCallback(() => {
+    setComposing(false)
+    setSelection(null)
+  }, [])
+  const renderThread = useCallback((t: ReviewThread, outdated: boolean) => <ReviewThreadCard thread={t} outdated={outdated} actions={rv} />, [rv])
+  const selFile = selection ? files.find((f) => f.path === selection.path) ?? null : null
+  const renderComposer = () =>
+    selection && selFile ? (
+      <CommentComposer
+        key={`${selection.path}:${selection.side}:${selection.start}`}
+        label={rangeText(selection)}
+        drafts={drafts}
+        onCancel={closeComposer}
+        onSubmit={(body, draft) => rv.comment({ ...selection, code: selectionCode(selFile, selection) }, body, draft, data?.base.sha ?? null)}
+      />
+    ) : null
+  const [submitOpen, setSubmitOpen] = useState(false)
+  const [summary, setSummary] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const submit = async () => {
+    setSubmitting(true)
+    const ok = await rv.submit(summary)
+    setSubmitting(false)
+    if (ok) {
+      setSubmitOpen(false)
+      setSummary('')
+    }
+  }
+
   const back = () => navigate(session ? sessionHref(session) : `/s/${encodeURIComponent(host)}/${encodeURIComponent(id)}`)
 
   const header = (
@@ -148,6 +199,9 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
             {viewedCount} / {files.length} viewed
           </span>
         ) : null}
+        <Button size="sm" variant={drafts ? 'default' : 'outline'} className="mr-1 shrink-0" disabled={!drafts} onClick={() => setSubmitOpen(true)} title={drafts ? 'Send the pending comments to the session in one prompt' : 'Start a review from a comment to submit it'}>
+          Submit review{drafts ? ` (${drafts})` : ''}
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -204,9 +258,60 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
           fresh={isFresh(f.path)}
           onToggleCollapsed={toggleCollapsed}
           onToggleViewed={toggleViewed}
+          selection={selection?.path === f.path ? selection : null}
+          composing={composing && selection?.path === f.path}
+          onLine={onLine}
+          threads={byPath.get(f.path) ?? NO_THREADS}
+          renderThread={renderThread}
+          renderComposer={renderComposer}
         />
       ))}
+      {orphans.length ? (
+        <section aria-label="Comments on files no longer changed" className="overflow-hidden rounded-lg border">
+          <p className="border-b bg-card px-3 py-1.5 text-xs text-muted-foreground">Comments on files no longer in the diff</p>
+          {orphans.map((t) => (
+            <div key={t.id}>
+              <p className="px-3 pt-2 font-mono text-xs">{t.path}</p>
+              {renderThread(t, true)}
+            </div>
+          ))}
+        </section>
+      ) : null}
+      {rv.error ? <p className="text-xs text-destructive">Comments: {rv.error}</p> : null}
     </div>
+  )
+
+  const dialog = (
+    <Dialog open={submitOpen} onOpenChange={setSubmitOpen}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Submit review</DialogTitle>
+          <DialogDescription>
+            {drafts === 1 ? 'The pending comment goes' : `${drafts} pending comments go`} to the session in one prompt, each with its lines. The answer shows in every thread and in the conversation.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault()
+              void submit()
+            }
+          }}
+          placeholder="Overall comment (optional)"
+          className="min-h-24 text-sm"
+        />
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setSubmitOpen(false)}>
+            Cancel
+          </Button>
+          <Button disabled={!drafts || submitting} onClick={() => void submit()}>
+            Submit review
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 
   if (!loc) return null
@@ -215,6 +320,7 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
       <div className="flex h-dvh flex-col bg-background">
         {header}
         {body}
+        {dialog}
       </div>
     )
   }
@@ -236,6 +342,7 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
           <SessionScreen key={`${host}/${id}`} host={host} id={id} layout="pane" embedded />
         </aside>
       ) : null}
+      {dialog}
     </div>
   )
 }

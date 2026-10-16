@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { DiffFile, DiffHunk } from '@/api/types'
+import type { DiffFile, DiffHunk, ReviewThread } from '@/api/types'
 
-import { diffBar, fileSignature, fileTree, parseReviewLocation, reviewHref, splitRows, treeOrder } from './review'
+import { diffBar, fileSignature, fileTree, orphanThreads, parseReviewLocation, placeThreads, reviewHref, selectLine, selectionCode, splitRows, treeOrder } from './review'
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path,
@@ -70,5 +70,55 @@ describe('fileSignature / diffBar', () => {
     expect(diffBar(0, 0)).toBe(0)
     expect(diffBar(6, 4)).toBe(3)
     expect(diffBar(1, 0)).toBe(5)
+  })
+})
+
+const thread = (o: Partial<ReviewThread>): ReviewThread => ({
+  id: 'c-000001',
+  path: 'a.ts',
+  side: 'new',
+  start: 2,
+  end: 2,
+  code: ['B'],
+  base: null,
+  createdAt: 0,
+  status: 'sent',
+  resolved: false,
+  reviewId: null,
+  entries: [],
+  ...o,
+})
+
+describe('line selection and threads', () => {
+  const f = file('a.ts', {
+    hunks: [
+      hunk([
+        { t: ' ', o: 1, n: 1, text: 'a' },
+        { t: '-', o: 2, n: null, text: 'b' },
+        { t: '+', o: null, n: 2, text: 'B' },
+        { t: '+', o: null, n: 3, text: 'C' },
+        { t: ' ', o: 3, n: 4, text: 'd' },
+      ]),
+    ],
+  })
+  it('shift extends on the same file and side only', () => {
+    const one = selectLine(null, 'a.ts', 'new', 3, false)
+    expect(selectLine(one, 'a.ts', 'new', 1, true)).toEqual({ path: 'a.ts', side: 'new', start: 1, end: 3 })
+    expect(selectLine(one, 'a.ts', 'old', 1, true)).toEqual({ path: 'a.ts', side: 'old', start: 1, end: 1 })
+  })
+  it('code of a selection skips the other side', () => {
+    expect(selectionCode(f, { path: 'a.ts', side: 'new', start: 1, end: 4 })).toEqual(['a', 'B', 'C', 'd'])
+    expect(selectionCode(f, { path: 'a.ts', side: 'old', start: 1, end: 3 })).toEqual(['a', 'b', 'd'])
+  })
+  it('places threads after their last line; moved or changed lines are outdated', () => {
+    const ok = thread({})
+    const changed = thread({ id: 'c-000002', code: ['old text'] })
+    const gone = thread({ id: 'c-000003', end: 40, start: 40 })
+    const other = thread({ id: 'c-000004', path: 'b.ts' })
+    const p = placeThreads(f, [ok, changed, gone, other])
+    expect(p.at.get('new:2')?.map((t) => t.id)).toEqual(['c-000001', 'c-000002'])
+    expect(p.unplaced.map((t) => t.id)).toEqual(['c-000003'])
+    expect([...p.outdated].sort()).toEqual(['c-000002', 'c-000003'])
+    expect(orphanThreads([f], [ok, other]).map((t) => t.id)).toEqual(['c-000004'])
   })
 })

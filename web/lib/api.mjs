@@ -17,6 +17,7 @@ import { createSnapshot } from './snapshot.mjs';
 import { DISABLED_GROUPS } from './grouping.mjs';
 import { DEFAULT_MODELS } from './config.mjs';
 import { SESSION_ID_RE } from './briefs.mjs';
+import { validThreadId } from './reviews.mjs';
 import { editorUrl, editorViewer, withBriefEditor, withSessionEditors } from './editor.mjs';
 import {
   STACK_BODY_LIMIT,
@@ -76,6 +77,9 @@ const FILES_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/files\/(stat|raw
 const COMPLETE_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/complete$/;
 const COMPLETE_KINDS = new Set(['skills', 'files', 'brain']);
 const DIFF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/diff$/;
+const REVIEW_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/review(?:\/(submit)|\/(threads)(?:\/([^/]+)(?:\/(reply))?)?)?$/;
+/** A review comment quotes the selected code: room for a big selection. */
+const REVIEW_BODY_LIMIT = 1024 * 1024;
 const BRIEF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/brief(\/regenerate)?$/;
 const MEMO_SEGMENT_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/segments\/(\d{1,3})$/;
 const MEMO_FINISH_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/finish$/;
@@ -136,6 +140,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
  *   completer   lib/complete.mjs instance (…/complete: composer autocomplete; absent → 501)
  *   differ      lib/diff.mjs#createDiffer (…/diff: the diff reviewer; absent → 501)
+ *   reviews     lib/reviews.mjs#createReviews (…/review: comment threads sent to the session; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
  *   notes       lib/notes.mjs instance (notes/tree|search|file|raw; absent → 501: web.notes.root unset)
  *   spawnDirs   lib/spawn-dirs.mjs#createSpawnDirsEditor (GET/PUT spawn-dirs; absent → 501)
@@ -170,6 +175,7 @@ export function createApi({
   completer = null,
   briefs = null,
   differ = null,
+  reviews = null,
   notes = null,
   spawnDirs = null,
   repos = null,
@@ -860,6 +866,47 @@ export function createApi({
           try {
             const body = await differ.diff(cwd, { base: url.searchParams.get('base'), since: url.searchParams.get('since') });
             return { status: 200, body: { host: config.self, id: session.session_id, ...body } };
+          } catch (err) {
+            if (err?.status) throw new HttpError(err.message, err.status);
+            throw err;
+          }
+        },
+      });
+    }
+
+    const rv = REVIEW_ROUTE.exec(url.pathname);
+    if (rv) {
+      const [, rawHost, rawId, submit, threads, rawTid, reply] = rv;
+      const tid = rawTid == null ? null : decodeURIComponent(rawTid);
+      const op = submit ? 'submit' : reply ? 'reply' : tid ? (req.method === 'DELETE' ? 'remove' : 'update') : threads ? 'create' : 'list';
+      const method = { list: 'GET', create: 'POST', submit: 'POST', reply: 'POST', remove: 'DELETE', update: 'PUT' }[op];
+      if (req.method !== method) throw new HttpError('method not allowed', 405);
+      if (tid != null && !validThreadId(tid)) throw new HttpError('invalid thread id', 400);
+      const id = decodeURIComponent(rawId);
+      return forHost({
+        req,
+        url,
+        host: decodeURIComponent(rawHost),
+        bodyLimit: REVIEW_BODY_LIMIT,
+        local: async () => {
+          if (!reviews) throw new HttpError('review comments are not available on this server', 501);
+          const body = method === 'POST' || method === 'PUT' ? await readJsonBody(req, REVIEW_BODY_LIMIT) : null;
+          const session = await resolveLocalSession(id);
+          if (!session.session_id || !SESSION_ID_RE.test(session.session_id)) throw new HttpError('this session has no session id yet', 409);
+          try {
+            const r =
+              op === 'list'
+                ? await reviews.list(session)
+                : op === 'create'
+                  ? await reviews.create(session, body)
+                  : op === 'submit'
+                    ? await reviews.submit(session, body)
+                    : op === 'reply'
+                      ? await reviews.reply(session, tid, body)
+                      : op === 'remove'
+                        ? await reviews.remove(session, tid)
+                        : await reviews.update(session, tid, body);
+            return { status: 200, body: { host: config.self, id: session.session_id, ...r } };
           } catch (err) {
             if (err?.status) throw new HttpError(err.message, err.status);
             throw err;

@@ -1,4 +1,4 @@
-import type { DiffFile, DiffHunk, DiffLine } from '@/api/types'
+import type { DiffFile, DiffHunk, DiffLine, ReviewThread } from '@/api/types'
 
 /** `#/review/<host>/<id>`: the diff reviewer for that session. */
 export const reviewHref = (host: string, id: string) => `/review/${encodeURIComponent(host)}/${encodeURIComponent(id)}`
@@ -112,3 +112,81 @@ export function diffBar(additions: number, deletions: number): number {
 
 /** A file card's element id (looked up with getElementById, so any path is fine). */
 export const fileAnchor = (path: string) => `diff:${path}`
+
+export type Side = 'new' | 'old'
+
+/** Lines selected for a comment: one side's numbering, start ≤ end. */
+export interface LineSelection {
+  path: string
+  side: Side
+  start: number
+  end: number
+}
+
+/** A line's number on a side (null when the line is not on it). */
+export const lineNo = (l: DiffLine | null, side: Side) => (l ? (side === 'new' ? l.n : l.o) : null)
+
+/** The side a unified row's gutter click comments on: the new side unless the line was removed. */
+export const unifiedSide = (l: DiffLine): Side => (l.n != null ? 'new' : 'old')
+
+/** Click on a line number: a new single-line selection, or (shift) extend the one on the same file and side. */
+export function selectLine(prev: LineSelection | null, path: string, side: Side, n: number, extend: boolean): LineSelection {
+  if (extend && prev && prev.path === path && prev.side === side) return { path, side, start: Math.min(prev.start, n), end: Math.max(prev.end, n) }
+  return { path, side, start: n, end: n }
+}
+
+export const inSelection = (sel: LineSelection | null, path: string, side: Side, n: number | null) =>
+  !!sel && n != null && sel.path === path && sel.side === side && n >= sel.start && n <= sel.end
+
+/** The text of the selected lines, as the diff shows them (lines of the other side skipped). */
+export function selectionCode(file: DiffFile, sel: LineSelection): string[] {
+  const out: string[] = []
+  for (const h of file.hunks) for (const l of h.lines) {
+    const n = lineNo(l, sel.side)
+    if (n != null && n >= sel.start && n <= sel.end && (sel.side === 'new' ? l.t !== '-' : l.t !== '+')) out.push(l.text)
+  }
+  return out
+}
+
+/** Where a thread shows: after the row holding its last line. `${side}:${line}` */
+export const anchorKey = (side: Side, n: number) => `${side}:${n}`
+
+/**
+ * A file's threads by anchor key; a thread whose last line is not in the diff any more
+ * (`unplaced`) shows at the top of the file. `outdated`: its lines read differently now.
+ */
+export function placeThreads(file: DiffFile, threads: ReviewThread[]): { at: Map<string, ReviewThread[]>; unplaced: ReviewThread[]; outdated: Set<string> } {
+  const present = new Set<string>()
+  for (const h of file.hunks) for (const l of h.lines) {
+    if (l.n != null && l.t !== '-') present.add(anchorKey('new', l.n))
+    if (l.o != null && l.t !== '+') present.add(anchorKey('old', l.o))
+  }
+  const at = new Map<string, ReviewThread[]>()
+  const unplaced: ReviewThread[] = []
+  const outdated = new Set<string>()
+  for (const t of threads) {
+    if (t.path !== file.path) continue
+    const key = anchorKey(t.side, t.end)
+    if (!present.has(key)) {
+      unplaced.push(t)
+      outdated.add(t.id)
+      continue
+    }
+    at.set(key, [...(at.get(key) ?? []), t])
+    const now = selectionCode(file, t)
+    if (now.length !== t.code.length || now.some((x, i) => x !== t.code[i])) outdated.add(t.id)
+  }
+  return { at, unplaced, outdated }
+}
+
+/** Threads on files the diff no longer shows. */
+export function orphanThreads(files: DiffFile[], threads: ReviewThread[]): ReviewThread[] {
+  const paths = new Set(files.map((f) => f.path))
+  return threads.filter((t) => !paths.has(t.path))
+}
+
+/** A thread still waiting for the session's answer (poll faster). */
+export const threadPending = (t: ReviewThread) => t.entries.some((e) => e.state === 'sent' || e.state === 'queued' || e.state === 'working')
+
+export const rangeText = (t: { start: number; end: number; side: Side }) =>
+  `${t.side === 'old' ? 'removed ' : ''}${t.start === t.end ? `line ${t.start}` : `lines ${t.start}–${t.end}`}`
