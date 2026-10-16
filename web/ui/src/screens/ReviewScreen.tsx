@@ -1,4 +1,4 @@
-import { ChevronLeftIcon, Columns2Icon, FoldVerticalIcon, FolderGitIcon, GitBranchIcon, ListTreeIcon, MessageSquareTextIcon, RowsIcon, UnfoldVerticalIcon } from 'lucide-react'
+import { ChevronLeftIcon, Columns2Icon, FoldVerticalIcon, FolderGitIcon, GitBranchIcon, ListTreeIcon, MessageSquarePlusIcon, MessageSquareTextIcon, RowsIcon, UnfoldVerticalIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 
@@ -17,7 +17,7 @@ import { useNow } from '@/hooks/useNow'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { useSessionTitle } from '@/hooks/useTitles'
 import { relTime } from '@/lib/format'
-import { fileAnchor, fileSignature, orphanThreadsByKey, parseReviewLocation, rangeText, repoViews, selectLine, selectionCode, threadKey, type LineSelection, type Side } from '@/lib/review'
+import { fileAnchor, fileSignature, orphanThreadsByKey, parseReviewLocation, rangeText, repoViews, rowsToRange, selectLine, selectionCode, threadKey, type LineRow, type LineSelection, type Side } from '@/lib/review'
 import type { DiffRepo, ReviewThread } from '@/api/types'
 import { findSession, sessionHref } from '@/lib/sessions'
 import { storage } from '@/lib/storage'
@@ -147,6 +147,40 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
     setSelection(null)
   }, [])
   const renderThread = useCallback((t: ReviewThread, outdated: boolean) => <ReviewThreadCard thread={t} outdated={outdated} actions={rv} />, [rv])
+  // Select code with the mouse → a "Comment on lines …" button at the selection's end.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const [pick, setPick] = useState<{ sel: LineSelection; x: number; y: number } | null>(null)
+  const readSelection = useCallback(() => {
+    const s = window.getSelection()
+    if (!s || s.isCollapsed || !s.rangeCount) return setPick(null)
+    const rowOf = (node: Node | null) => (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>('[data-line]') ?? null
+    const a = rowOf(s.anchorNode)
+    const f = rowOf(s.focusNode)
+    const card = a?.closest<HTMLElement>('[data-file-key]')
+    if (!a || !f || !card || card !== f.closest('[data-file-key]')) return setPick(null)
+    const all = [...card.querySelectorAll<HTMLElement>('[data-line]')]
+    let i = all.indexOf(a)
+    let j = all.indexOf(f)
+    if (i > j) [i, j] = [j, i]
+    const num = (v: string | undefined) => (v == null || v === '' ? null : Number(v))
+    const rows: LineRow[] = all.slice(i, j + 1).map((el) => ({ side: el.dataset.side as Side | undefined, o: num(el.dataset.o), n: num(el.dataset.n), t: el.dataset.t ?? ' ' }))
+    const range = rowsToRange(rows, f.dataset.side as Side | undefined)
+    const key = card.dataset.fileKey
+    if (!range || !key) return setPick(null)
+    const rect = s.getRangeAt(0).getBoundingClientRect()
+    // Inside the diff column (the session pane sits to its right).
+    const box = bodyRef.current?.getBoundingClientRect()
+    const right = (box?.right ?? window.innerWidth) - 230
+    setPick({ sel: { path: key, ...range }, x: Math.max(box?.left ?? 0, Math.min(rect.right, right)), y: Math.min(rect.bottom + 6, window.innerHeight - 48) })
+  }, [])
+  const commentOnPick = () => {
+    if (!pick) return
+    setSelection(pick.sel)
+    setComposing(true)
+    setPick(null)
+    window.getSelection()?.removeAllRanges()
+  }
+
   // selection.path is a file key (root + path).
   const sel = selection ? entries.get(selection.path) ?? null : null
   const renderComposer = () =>
@@ -256,7 +290,19 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
   )
 
   const body = (
-    <div className="min-w-0 flex-1 space-y-3 overflow-y-auto p-3">
+    <div
+      ref={bodyRef}
+      className="min-w-0 flex-1 space-y-3 overflow-y-auto p-3"
+      // After the browser settles the selection.
+      onMouseUp={() => setTimeout(readSelection, 0)}
+      onKeyUp={(e) => e.shiftKey && readSelection()}
+      onScroll={() => pick && setPick(null)}
+    >
+      {files.length && !threads.length ? (
+        <p className="px-1 text-xs text-muted-foreground">
+          To comment: select code with the mouse, or click a line number (shift-click for a range). The comment goes to the session with those lines.
+        </p>
+      ) : null}
       {error ? <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
       {!data && !error ? <p className="px-1 py-6 text-center text-sm text-muted-foreground">Loading the diff…</p> : null}
       {data && !files.length ? (
@@ -305,6 +351,19 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
         </section>
       ) : null}
       {rv.error ? <p className="text-xs text-destructive">Comments: {rv.error}</p> : null}
+      {pick ? (
+        <Button
+          size="sm"
+          className="fixed z-30 shadow-lg"
+          style={{ left: pick.x, top: pick.y }}
+          // Keep the text selection while clicking.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={commentOnPick}
+        >
+          <MessageSquarePlusIcon />
+          Comment on {rangeText(pick.sel)}
+        </Button>
+      ) : null}
     </div>
   )
 

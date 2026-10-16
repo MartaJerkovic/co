@@ -88,9 +88,16 @@ function Gutter({ l, side, c }: { l: DiffLine | null; side: Side; c: Commenting 
     <button
       type="button"
       onClick={(e) => c.onLine(c.path, side, n, e.shiftKey)}
-      title="Comment on this line (shift-click: a range)"
-      className={cn(NUM, numBg(l), 'cursor-pointer hover:bg-primary/25 hover:text-foreground', selected && 'bg-primary/30 text-foreground')}
+      title="Comment on this line (shift-click: a range — or select the code)"
+      className={cn(NUM, numBg(l), 'relative cursor-pointer hover:bg-primary/25 hover:text-foreground', selected && 'bg-primary/30 text-foreground')}
     >
+      {/* GitHub's "+": shows on the hovered row, says the number is the way in. */}
+      <span
+        aria-hidden
+        className="absolute top-1/2 left-0.5 flex size-4 -translate-y-1/2 items-center justify-center rounded bg-primary text-[0.75rem] leading-none font-bold text-primary-foreground opacity-0 group-hover/row:opacity-100"
+      >
+        +
+      </span>
       {n}
     </button>
   )
@@ -110,7 +117,7 @@ function UnifiedHunk({ hunk, c }: { hunk: DiffHunk; c: Commenting }) {
         const sel = inSelection(c.selection, c.path, unifiedSide(l), lineNo(l, unifiedSide(l)))
         return (
           <Fragment key={i}>
-            <div className={cn('flex font-mono text-xs leading-5', lineBg(l), sel && 'bg-primary/10')}>
+            <div data-line="" data-o={l.o ?? undefined} data-n={l.n ?? undefined} data-t={l.t} className={cn('group/row flex font-mono text-xs leading-5', lineBg(l), sel && 'bg-primary/10')}>
               <Gutter l={l} side="old" c={c} />
               <Gutter l={l} side="new" c={c} />
               <span className={cn('w-5 shrink-0 select-none text-center', l.t === '+' ? 'text-diff-add' : l.t === '-' ? 'text-diff-del' : 'text-dimmer')}>
@@ -131,7 +138,14 @@ function UnifiedHunk({ hunk, c }: { hunk: DiffHunk; c: Commenting }) {
 function SplitSide({ l, side, c }: { l: DiffLine | null; side: Side; c: Commenting }) {
   const sel = inSelection(c.selection, c.path, side, lineNo(l, side))
   return (
-    <div className={cn('flex min-w-0 flex-1 font-mono text-xs leading-5', lineBg(l), sel && 'bg-primary/10')}>
+    <div
+      data-line=""
+      data-side={side}
+      data-o={l?.o ?? undefined}
+      data-n={l?.n ?? undefined}
+      data-t={l?.t}
+      className={cn('group/row flex min-w-0 flex-1 font-mono text-xs leading-5', lineBg(l), sel && 'bg-primary/10')}
+    >
       <Gutter l={l} side={side} c={c} />
       <span className={cn('w-5 shrink-0 select-none text-center', l?.t === '+' ? 'text-diff-add' : l?.t === '-' ? 'text-diff-del' : 'text-dimmer')}>
         {l && l.t !== ' ' ? (l.t === '-' ? '−' : '+') : ''}
@@ -222,6 +236,7 @@ export const FileDiff = memo(function FileDiff({
   return (
     <section
       id={fileAnchor(fileKey)}
+      data-file-key={fileKey}
       aria-label={file.path}
       className={cn('scroll-mt-3 overflow-hidden rounded-lg border bg-background [content-visibility:auto]', fresh && 'ring-2 ring-primary/40')}
     >

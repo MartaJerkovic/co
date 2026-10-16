@@ -430,8 +430,10 @@ src/
   `fleet.reviewViewed:<host>/<id>` as the diff's signature, so a new change unticks it). Desktop:
   file tree (`fleet.reviewTree`) | diff | the session itself as a pane (`fleet.reviewChat`) —
   review and conversation side by side.
-  **Comments** (`useReview`, ../ARCHITECTURE.md → `…/review`): click a line number (shift-click
-  extends on the same side) → a composer under the lines: **Add single comment** types it into
+  **Comments** (`useReview`, ../ARCHITECTURE.md → `…/review`): select code with the mouse → a
+  "Comment on lines X–Y" button at the selection's end (`rowsToRange` over the rows' `data-*`;
+  split view: the side the selection ends on), or click a line number (a "+" shows on the
+  hovered row; shift-click extends on the same side) → a composer under the lines: **Add single comment** types it into
   the session now; **Start a review** / **Add review comment** keeps it as a pending draft, and
   **Submit review (n)** in the header sends all drafts in one prompt with an optional overall
   note (⌘↵ in the composer: a review comment once one is pending, else a single comment). Each

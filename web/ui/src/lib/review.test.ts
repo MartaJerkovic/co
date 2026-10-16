@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiffFile, DiffHunk, ReviewThread } from '@/api/types'
 
-import { diffBar, fileKey, fileSignature, fileTree, orphanThreads, orphanThreadsByKey, repoViews, threadKey, parseReviewLocation, placeThreads, reviewHref, selectLine, selectionCode, splitRows, treeOrder } from './review'
+import { diffBar, fileKey, rowsToRange, fileSignature, fileTree, orphanThreads, orphanThreadsByKey, repoViews, threadKey, parseReviewLocation, placeThreads, reviewHref, selectLine, selectionCode, splitRows, treeOrder } from './review'
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path,
@@ -139,5 +139,29 @@ describe('several checkouts', () => {
     const other = thread({ id: 'c-000002', root: '/w/wt/b', path: 'a.ts' })
     expect(threadKey(legacy, '/w')).toBe(fileKey('/w', 'a.ts'))
     expect(orphanThreadsByKey(new Set([fileKey('/w', 'a.ts')]), [legacy, other], '/w').map((t) => t.id)).toEqual(['c-000002'])
+  })
+})
+
+describe('rowsToRange', () => {
+  it('unified: the new side unless only removed lines are selected', () => {
+    const rows = [
+      { o: 4, n: 4, t: ' ' },
+      { o: 5, n: null, t: '-' },
+      { o: null, n: 5, t: '+' },
+      { o: null, n: 6, t: '+' },
+    ]
+    expect(rowsToRange(rows)).toEqual({ side: 'new', start: 4, end: 6 })
+    expect(rowsToRange([rows[1]])).toEqual({ side: 'old', start: 5, end: 5 })
+    expect(rowsToRange([])).toBeNull()
+  })
+  it('split: the side the selection ends on, other-side rows ignored', () => {
+    const rows = [
+      { side: 'old' as const, o: 7, n: 7, t: ' ' },
+      { side: 'new' as const, o: 7, n: 7, t: ' ' },
+      { side: 'old' as const, o: 8, n: null, t: '-' },
+      { side: 'new' as const, o: null, n: 8, t: '+' },
+    ]
+    expect(rowsToRange(rows, 'new')).toEqual({ side: 'new', start: 7, end: 8 })
+    expect(rowsToRange(rows, 'old')).toEqual({ side: 'old', start: 7, end: 8 })
   })
 })

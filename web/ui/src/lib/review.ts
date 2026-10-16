@@ -223,3 +223,28 @@ export function repoViews(repos: DiffRepo[]): RepoView[] {
 export function orphanThreadsByKey(keys: Set<string>, threads: ReviewThread[], defaultRoot: string): ReviewThread[] {
   return threads.filter((t) => !keys.has(threadKey(t, defaultRoot)))
 }
+
+/** A diff line element's data (FileDiff's `data-*`): `side` only in the split view. */
+export interface LineRow {
+  side?: Side
+  o: number | null
+  n: number | null
+  t: string
+}
+
+/**
+ * The lines a text selection covers (the rows from its first to its last, in order) as a
+ * comment range. Split view: the side the selection ends on. Unified: the new side, unless the
+ * selection holds only removed lines. null when no row of that side is in it.
+ */
+export function rowsToRange(rows: LineRow[], endSide?: Side): { side: Side; start: number; end: number } | null {
+  if (!rows.length) return null
+  const split = rows.some((r) => r.side)
+  const side: Side = split ? (endSide ?? rows.at(-1)?.side ?? 'new') : rows.every((r) => r.t === '-') ? 'old' : 'new'
+  const nums = rows
+    .filter((r) => (!split || r.side === side) && (side === 'new' ? r.t !== '-' : r.t !== '+'))
+    .map((r) => (side === 'new' ? r.n : r.o))
+    .filter((n): n is number => n != null)
+  if (!nums.length) return null
+  return { side, start: Math.min(...nums), end: Math.max(...nums) }
+}
