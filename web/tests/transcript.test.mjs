@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyUserText, createTranscriptReader, encodeCwd, parseCodexTranscript, parsePiTranscript, parseTranscript } from '../lib/transcript.mjs';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { classifyUserText, createTranscriptReader, encodeCwd, transcriptPath, parseCodexTranscript, parsePiTranscript, parseTranscript } from '../lib/transcript.mjs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -201,4 +201,20 @@ test('parseTranscript shows queued prompts: absorbed mid-turn in place, still wa
     ],
   );
   assert.equal(typeof out.at(-1).ts, 'number');
+});
+
+test('the reader grows the tail when huge tool results leave too few messages for the limit', async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'fleet-tr-'));
+  const file = transcriptPath('/w', 'g1', home);
+  mkdirSync(path.dirname(file), { recursive: true });
+  const blob = user([{ type: 'tool_result', tool_use_id: 't', content: 'x'.repeat(2000) }]);
+  writeFileSync(file, [user('the first prompt'), blob, blob, blob, user('latest')].join('\n') + '\n');
+  const r = createTranscriptReader({ home, maxBytes: 1000, maxGrownBytes: 1 << 20 });
+  const session = { session_id: 'g1', cwd: '/w' };
+  const one = await r.messages(session, 1);
+  assert.deepEqual([one.messages.map((m) => m.text), one.truncated], [['latest'], true]);
+  const all = await r.messages(session, 60);
+  assert.deepEqual([all.messages.map((m) => m.text), all.truncated], [['the first prompt', 'latest'], false]);
+  const capped = createTranscriptReader({ home, maxBytes: 1000, maxGrownBytes: 4000 });
+  assert.equal((await capped.messages(session, 60)).truncated, true);
 });

@@ -8,6 +8,8 @@ import path from 'node:path';
 import { QUESTION_TOOL, normalizeQuestions, questionOutcome, questionsText } from './questions.mjs';
 
 export const MAX_TAIL_BYTES = 6 * 1024 * 1024;
+/** "Load older" grows the tail (doubling) up to this when it holds too few messages (screenshots bloat transcripts). */
+export const MAX_GROWN_TAIL_BYTES = 64 * 1024 * 1024;
 
 /** Mirror of the fleet CLI's `encode_cwd`: `/` and `.` become `-`. */
 export function encodeCwd(cwd) {
@@ -303,10 +305,10 @@ const PARSERS = { claude: parseTranscript, codex: parseCodexTranscript, pi: pars
  * Cached transcript reader. `messages(session, limit)` returns the last `limit` chat
  * messages of a `fleet list --json` session object ({ session_id, cwd }).
  */
-export function createTranscriptReader({ home = claudeHome(), maxBytes = MAX_TAIL_BYTES } = {}) {
-  const cache = new Map(); // sessionId -> { file, size, mtimeMs, messages, truncated }
+export function createTranscriptReader({ home = claudeHome(), maxBytes = MAX_TAIL_BYTES, maxGrownBytes = MAX_GROWN_TAIL_BYTES } = {}) {
+  const cache = new Map(); // sessionId -> { file, size, mtimeMs, bytes, messages, truncated }
 
-  async function load(session) {
+  async function load(session, limit) {
     const id = session.session_id;
     const harness = PARSERS[session.harness] ? session.harness : 'claude';
     const cached = cache.get(id);
@@ -325,22 +327,25 @@ export function createTranscriptReader({ home = claudeHome(), maxBytes = MAX_TAI
       cache.delete(id);
       return null;
     }
-    if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached;
-    const tail = await readTail(file, maxBytes);
-    const fresh = {
-      file,
-      size: tail.size,
-      mtimeMs: tail.mtimeMs,
-      truncated: tail.truncated,
-      messages: PARSERS[harness](tail.text),
-    };
+    const enough = (d) => !d.truncated || d.messages.length >= limit || d.bytes >= maxGrownBytes;
+    if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && enough(cached)) return cached;
+    // A tail of `bytes` can hold only a few messages when tool results are huge: grow it until
+    // it holds `limit` of them, reaches the file start, or hits the cap.
+    let bytes = Math.max(maxBytes, cached?.bytes ?? 0);
+    let fresh;
+    for (;;) {
+      const tail = await readTail(file, bytes);
+      fresh = { file, size: tail.size, mtimeMs: tail.mtimeMs, bytes, truncated: tail.truncated, messages: PARSERS[harness](tail.text) };
+      if (enough(fresh)) break;
+      bytes = Math.min(bytes * 2, maxGrownBytes);
+    }
     cache.set(id, fresh);
     return fresh;
   }
 
   return {
     async messages(session, limit = 60) {
-      const data = await load(session);
+      const data = await load(session, limit);
       if (!data) return null;
       const total = data.messages.length;
       const slice = limit > 0 ? data.messages.slice(-limit) : data.messages;
