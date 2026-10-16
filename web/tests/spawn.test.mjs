@@ -74,8 +74,10 @@ test('spawner creates the tmux session then types the launcher', async () => {
   assert.equal(res.tmuxSession, 'job');
   assert.deepEqual(calls[0], ['tmux', 'has-session', '-t', '=job']);
   assert.deepEqual(calls[1], ['tmux', 'new-session', '-d', '-s', 'job', '-c', '/tmp']);
-  assert.deepEqual(calls[2], ['tmux', 'send-keys', '-t', 'job:', '-l', '--', "claude -n 'job' 'go'"]);
-  assert.deepEqual(calls[3], ['tmux', 'send-keys', '-t', 'job:', 'Enter']);
+  assert.deepEqual(calls[2], ['tmux', 'capture-pane', '-p', '-t', 'job:'], 'waits for the shell prompt');
+  const keys = calls.filter((c) => c[1] === 'send-keys');
+  assert.deepEqual(keys[0], ['tmux', 'send-keys', '-t', 'job:', '-l', '--', "claude -n 'job' 'go'"]);
+  assert.deepEqual(keys[1], ['tmux', 'send-keys', '-t', 'job:', 'Enter']);
   assert.equal(res.trusted, false);
   assert.equal(res.model, null);
 });
@@ -89,7 +91,7 @@ test('spawner types --model when one was picked', async () => {
   };
   const sp = createSpawner({ run, tmux: 'tmux', launcher: 'claude', sleep: async () => {} });
   const res = await sp.spawn({ name: 'fw-101010', dir: '/tmp', prompt: 'go', nameGiven: false, model: 'claude-haiku-4-5-20251001' });
-  assert.deepEqual(calls[2], ['tmux', 'send-keys', '-t', 'fw-101010:', '-l', '--', "claude --model 'claude-haiku-4-5-20251001' 'go'"]);
+  assert.deepEqual(calls.find((c) => c[1] === 'send-keys'), ['tmux', 'send-keys', '-t', 'fw-101010:', '-l', '--', "claude --model 'claude-haiku-4-5-20251001' 'go'"]);
   assert.equal(res.model, 'claude-haiku-4-5-20251001');
 });
 
@@ -117,7 +119,7 @@ test('spawner launches codex with its configured command and accepts its trust p
   };
   const sp = createSpawner({ run, launcher: 'claude', launchers: { codex: 'cx' }, sleep: async () => {} });
   const res = await sp.spawn({ name: 'job', dir: '/tmp', prompt: 'go', harness: 'codex' });
-  assert.deepEqual(calls[2], ['tmux', 'send-keys', '-t', 'job:', '-l', '--', "cx 'go'"]);
+  assert.deepEqual(calls.find((c) => c[1] === 'send-keys'), ['tmux', 'send-keys', '-t', 'job:', '-l', '--', "cx 'go'"]);
   assert.equal(res.harness, 'codex');
   assert.equal(res.trusted, true);
   assert.ok(captures >= 2);
@@ -141,7 +143,7 @@ test('spawner passes a prompt too long to type via a file', async (t) => {
   const full = path.join(promptDir, file);
   assert.equal(readFileSync(full, 'utf8'), prompt);
   assert.equal(res.command, `claude -n 'job' "$(cat '${full}')"`);
-  assert.deepEqual(calls[2], ['send-keys', '-t', 'job:', '-l', '--', res.command]);
+  assert.deepEqual(calls.find((a) => a[0] === 'send-keys'), ['send-keys', '-t', 'job:', '-l', '--', res.command]);
 });
 
 test('spawner accepts the folder-trust prompt when it appears', async () => {
@@ -194,6 +196,20 @@ test('spawner leaves a session alone once something other than the shell runs in
   const sp = createSpawner({ run, sleep: async () => {} });
   await sp.spawn({ name: 'job', dir: '/tmp', prompt: 'go' });
   assert.equal(calls.some((a) => a[0] === 'kill-session'), false);
+});
+
+test('spawner types only once the shell prompt has drawn and settled', async () => {
+  const calls = [];
+  const screens = ['', '', 'Last login: …', '➜  work', '➜  work'];
+  const run = async (bin, args) => {
+    calls.push(args[0]);
+    if (args[0] === 'has-session') throw new Error('no such session');
+    if (args[0] === 'capture-pane' && !calls.includes('send-keys')) return { stdout: screens.shift() ?? '➜  work', stderr: '' };
+    return { stdout: '', stderr: '' };
+  };
+  const sp = createSpawner({ run, sleep: async () => {} });
+  await sp.spawn({ name: 'job', dir: '/tmp', prompt: 'go' });
+  assert.equal(calls.indexOf('send-keys'), 2 + 5, 'five polls: blank, blank, login banner, prompt, prompt again');
 });
 
 test('paneTail keeps the last non-empty lines, capped', () => {

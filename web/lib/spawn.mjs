@@ -157,7 +157,7 @@ export function createSpawner({
   tmux = 'tmux',
   launcher = 'claude',
   launchers = {},
-  enterDelayMs = 400,
+  enterDelayMs = 150,
   sleep,
   promptDir = path.join(os.homedir(), '.claude', 'fleet-prompts'),
 }) {
@@ -170,6 +170,29 @@ export function createSpawner({
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Wait for the new pane's shell to draw its prompt before typing into it: keys typed while
+   * a slow profile (oh-my-zsh: ~1.5s) still loads can lose their first character
+   * (`laude: command not found`). Ready once the pane shows text that holds still for one poll;
+   * after ~8s type anyway.
+   */
+  async function waitForShell(name, { tries = 80, intervalMs = 100 } = {}) {
+    let prev = '';
+    for (let i = 0; i < tries; i += 1) {
+      let text = '';
+      try {
+        ({ stdout: text } = await run(tmux, ['capture-pane', '-p', '-t', `${name}:`], { timeout: 5000 }));
+      } catch {
+        return;
+      }
+      text = text.trim();
+      if (text && text === prev) break;
+      prev = text;
+      await wait(intervalMs);
+    }
+    await wait(enterDelayMs);
   }
 
   /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness }} */
@@ -196,8 +219,7 @@ export function createSpawner({
       await fs.writeFile(promptFile, prompt, { mode: 0o600 });
       command = launchCommand({ ...launch, promptFile });
     }
-    // Give the login shell a moment to source its profile before typing into it.
-    await wait(enterDelayMs);
+    await waitForShell(name);
     await run(tmux, ['send-keys', '-t', `${name}:`, '-l', '--', command], { timeout: 8000 });
     await wait(150);
     await run(tmux, ['send-keys', '-t', `${name}:`, 'Enter'], { timeout: 8000 });
@@ -284,5 +306,5 @@ export function createSpawner({
     throw Object.assign(new Error(`${who} did not start${tail ? `:\n${tail}` : ''}`), { status: 502 });
   }
 
-  return { spawn, tmuxHasSession, acceptTrustPrompt, ensureStarted };
+  return { spawn, tmuxHasSession, waitForShell, acceptTrustPrompt, ensureStarted };
 }
