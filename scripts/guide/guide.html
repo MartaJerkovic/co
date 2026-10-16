@@ -115,20 +115,21 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
   <a href="#chat"><span>02</span>Chat i composer</a>
   <a href="#pitanja"><span>03</span>Pitanja i terminal</a>
   <a href="#brief"><span>04</span>Brief i detalji</a>
-  <a href="#board"><span>05</span>Board</a>
-  <a href="#stackovi"><span>06</span>Stackovi</a>
-  <a href="#nova"><span>07</span>Nova sesija</a>
-  <a href="#tipkovnica"><span>08</span>Tipkovnica</a>
-  <a href="#operator"><span>09</span>Glasovni operator</a>
-  <a href="#memos"><span>10</span>Voice memos</a>
-  <a href="#prs"><span>11</span>Pull requests</a>
-  <a href="#jobs"><span>12</span>Scheduled jobs</a>
-  <a href="#notes"><span>13</span>Notes</a>
-  <a href="#usage"><span>14</span>Usage</a>
-  <a href="#oporavak"><span>15</span>Oporavak</a>
-  <a href="#postavke"><span>16</span>Postavke i teme</a>
-  <a href="#terminal"><span>17</span>CLI i TUI</a>
-  <a href="#agenti"><span>18</span>Agenti i MCP</a>
+  <a href="#review"><span>05</span>Diff review</a>
+  <a href="#board"><span>06</span>Board</a>
+  <a href="#stackovi"><span>07</span>Stackovi</a>
+  <a href="#nova"><span>08</span>Nova sesija</a>
+  <a href="#tipkovnica"><span>09</span>Tipkovnica</a>
+  <a href="#operator"><span>10</span>Glasovni operator</a>
+  <a href="#memos"><span>11</span>Voice memos</a>
+  <a href="#prs"><span>12</span>Pull requests</a>
+  <a href="#jobs"><span>13</span>Scheduled jobs</a>
+  <a href="#notes"><span>14</span>Notes</a>
+  <a href="#usage"><span>15</span>Usage</a>
+  <a href="#oporavak"><span>16</span>Oporavak</a>
+  <a href="#postavke"><span>17</span>Postavke i teme</a>
+  <a href="#terminal"><span>18</span>CLI i TUI</a>
+  <a href="#agenti"><span>19</span>Agenti i MCP</a>
 </nav>
 
 <section class="row" id="ukratko">
@@ -236,8 +237,37 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
   </div>
 </section>
 
+<section class="row" id="review">
+  <div class="label">05 · Diff review<b>Files changed, uživo</b><code>#/review</code></div>
+  <div class="body">
+    <h2>PR review sa sesijom, dok još kodira</h2>
+    <p class="prose">GitHubov „Files changed”, ali nad <b>radnim stablom sesije</b>, ne nad PR-om. Diff gleda sve checkoute u kojima sesija radi: njen cwd i svaki worktree u kojem editira datoteke. Sesija iz meta repoa koja vodi tri PR-a kroz tri worktreeja vidi sva tri, svaki prema svom default branchu, s necommitanim i novim datotekama. Otvara se diff gumbom u headeru sesije ili s <kbd>⌘K</kbd> → Review changes; <kbd>Esc</kbd> vraća u sesiju.</p>
+    <figure><img src="img/d-review.webp" alt="Diff reviewer: stablo datoteka po worktreeju, unified diff s threadom i Claudeovim odgovorom, sesija desno" width="1600" height="1000" loading="lazy"><figcaption>Lijevo datoteke po worktreeju, u sredini diff s threadom, desno ista sesija s chatom i composerom</figcaption></figure>
+    <ul class="prose">
+      <li><b>Uživo:</b> diff se osvježava svake 2 s dok agent radi; datoteka koju je upravo promijenio dobije obrub i istakne se u stablu.</li>
+      <li><b>Viewed</b> po datoteci, kao na GitHubu, i sam se odznači kad se datoteka ponovno promijeni. Unified ili split, collapse all.</li>
+      <li>Diff ne dira repo: radno stablo snimi kroz privremenu kopiju indexa, bez refova i bez stashanja.</li>
+    </ul>
+    <h3>Komentar ide u sesiju, odgovor u thread</h3>
+    <p class="prose">Označi kod mišem i klikni <b>Comment on lines</b>, ili klikni broj linije (<b>+</b> na hover, shift-klik za raspon). Komentar ide u sesiju kao prompt s datotekom, rasponom linija i označenim kodom, pa agent točno zna o čemu pričaš. Odgovor se čita iz transcripta i pojavi se u threadu ispod linija, a ostaje i normalan dio razgovora sesije.</p>
+    <div class="shots two">
+      <figure><img src="img/d-review-select.webp" alt="Označeni kod u diffu i gumb Comment on lines" width="1600" height="1000" loading="lazy"><figcaption>Označiš kod, pojavi se gumb za komentar</figcaption></figure>
+      <figure><img src="img/d-review-compose.webp" alt="Composer ispod označenih linija s gumbima Start a review i Add single comment" width="1600" height="1000" loading="lazy"><figcaption><b>Add single comment</b> šalje odmah; <b>Start a review</b> čuva komentar za kasnije</figcaption></figure>
+    </div>
+    <ul class="prose">
+      <li><b>Single comment</b> odmah ide u sesiju. <b>Start a review</b> sprema komentare kao pending, a <b>Submit review (n)</b> ih šalje sve u jednom promptu, uz opći komentar. Svaki thread dobije odgovor na review.</li>
+      <li>Thread pokazuje stanje: <i>Sent</i> → <i>Queued</i> (sesija je zauzeta) → <i>Claude is working…</i> → odgovor. Reply nastavlja razgovor u istom threadu; Resolve ga zatvara.</li>
+      <li>Kad agent promijeni linije ispod komentara, thread postaje <i>Outdated</i>; ako linije nestanu iz diffa, thread ide na vrh datoteke.</li>
+    </ul>
+    <div class="shots pair">
+      <figure><img src="img/d-review-split.webp" alt="Split prikaz u tamnoj temi: drugi worktree s threadom dok Claude radi" width="1600" height="1000" loading="lazy"><figcaption>Split prikaz, bez chat stupca: drugi worktree, thread na kojem Claude upravo radi</figcaption></figure>
+      <figure class="phone"><img src="img/m-review.webp" alt="Mobitel: diff s threadom" width="640" height="1385" loading="lazy"><figcaption>Na mobitelu sam diff, s istim threadovima</figcaption></figure>
+    </div>
+  </div>
+</section>
+
 <section class="row" id="board">
-  <div class="label">05 · Board<b>Smart grouping</b><code>⌘B</code></div>
+  <div class="label">06 · Board<b>Smart grouping</b><code>⌘B</code></div>
   <div class="body">
     <h2>Sesije složene po poslu, ne po mašini</h2>
     <p class="prose">Board je Kanban u kojem je svaka kolona jedan work stream. Grupe slaže haiku pass svakih 10 minuta (jedan host za cijelu flotu, model call samo za nove sesije). Bez modela grupira po repou. Kartica pokazuje status, host, razlog čekanja, context i starost; sesije koje čekaju idu na vrh kolone.</p>
@@ -255,7 +285,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="stackovi">
-  <div class="label">06 · Stackovi<b>Više sesija, jedan kontekst</b></div>
+  <div class="label">07 · Stackovi<b>Više sesija, jedan kontekst</b></div>
   <div class="body">
     <h2>Stack: N sesija dijeli jedan StackBrief</h2>
     <p class="prose">Kad je posao prevelik za jednu sesiju, napraviš stack: sesije na jednom ili više hostova dijele jedan markdown s kontekstom (sažetak, resursi, bilješke). <b>Spawn sibling</b> pokrene novu sesiju u stacku, i na drugoj mašini; njen prvi prompt počne linijom koja joj kaže gdje je zajednički kontekst. Stack ima svoju kolonu na boardu i traku na vrhu sesije.</p>
@@ -268,7 +298,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="nova">
-  <div class="label">07 · Nova sesija<b>Spawn s bilo kojeg uređaja</b><code>⌘⇧O · ⌘N</code></div>
+  <div class="label">08 · Nova sesija<b>Spawn s bilo kojeg uređaja</b><code>⌘⇧O · ⌘N</code></div>
   <div class="body">
     <h2>Nova sesija na bilo kojem hostu</h2>
     <p class="prose">Biraš host, direktorij (Start directories iz postavki), agenta (Claude Code, Codex, pi), model i opcionalni prvi prompt, s prilozima i glasovnim unosom. <kbd>⌘Enter</kbd> pokreće. Ime ne upisuješ: sesija dobije naslov nakon prvog odgovora. Neposlani prompt ostaje kao draft tjedan dana. Kad sesija krene, Fleet je sam otvori.</p>
@@ -280,7 +310,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="tipkovnica">
-  <div class="label">08 · Tipkovnica<b>Paleta, prečaci, scratchpad</b></div>
+  <div class="label">09 · Tipkovnica<b>Paleta, prečaci, scratchpad</b></div>
   <div class="body">
     <h2>Sve je na tipkovnici</h2>
     <div class="shots two">
@@ -312,7 +342,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="operator">
-  <div class="label">09 · Operator<b>Razgovaraj s flotom</b><code>#/operator</code></div>
+  <div class="label">10 · Operator<b>Razgovaraj s flotom</b><code>#/operator</code></div>
   <div class="body">
     <h2>Glasovni operator</h2>
     <p class="prose">Operator je Claude sesija koju server pokrene na zahtjev, s briefom dispečera: odgovara kratko i glasom, uvijek prvo pogleda stanje, djeluje samo na nedvosmislen cilj, a zatvaranje ili prekid traži izričito „da”. Tapneš mic, kažeš što trebaš, odgovor se pročita naglas (OpenAI glas ili glas uređaja, brzina 1×–2×). Dok je ekran otvoren, najavi sesije koje te počnu trebati. Jedan operator za sve uređaje; nakon sat vremena mirovanja dobije <code>/clear</code> i kreće ispočetka.</p>
@@ -324,7 +354,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="memos">
-  <div class="label">10 · Memos<b>Snimi razgovor</b><code>#/memos</code></div>
+  <div class="label">11 · Memos<b>Snimi razgovor</b><code>#/memos</code></div>
   <div class="body">
     <h2>Voice memos: sastanak postaje transcript</h2>
     <p class="prose">Jedan gumb snima razgovor bez limita trajanja. Audio se reže u segmente od 5 minuta koji se transkribiraju dok snimanje traje, a na kraju memo dobije naslov i sprema se kao markdown. Ništa se ne gubi: chunkovi idu u IndexedDB dok ih server ne potvrdi, prekinuto snimanje se spasi kod sljedećeg otvaranja. Iz memoa jednim klikom <b>Start session</b>; vokabular (imena ljudi, domenski pojmovi) poboljšava transkripciju.</p>
@@ -336,7 +366,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="prs">
-  <div class="label">11 · Pull requests<b>Što čeka tebe</b><code>#/prs · fleet prs</code></div>
+  <div class="label">12 · Pull requests<b>Što čeka tebe</b><code>#/prs · fleet prs</code></div>
   <div class="body">
     <h2>PR-ovi koji te trebaju, po kolonama</h2>
     <p class="prose">Preko <code>gh</code> na odabranom hostu: <b>Unseen mentions</b>, <b>Waiting on me</b>, moji u reviewu, spremni za merge, moji draftovi i <b>Waiting on author</b>. Rub kartice ide od zelenog do crvenog kako PR stari („rotting”). Checks, review status, veličina, komentari. PR jednim klikom ide u worktree i dobije sesiju s promptom koji kaže o čemu je PR; sesije i PR-ovi su povezani u oba smjera.</p>
@@ -349,7 +379,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="jobs">
-  <div class="label">12 · Jobs<b>Agenti po rasporedu</b><code>#/jobs · fleet jobs</code></div>
+  <div class="label">13 · Jobs<b>Agenti po rasporedu</b><code>#/jobs · fleet jobs</code></div>
   <div class="body">
     <h2>Scheduled jobs: routines na tvojim mašinama</h2>
     <p class="prose">Cron raspored u configu hosta, prompt inline ili iz filea, harness i model po jobu. Raspored je napisan ljudski („Weekdays at 07:00”). Svaki run se pamti s outcomeom (spawned, skipped, missed, failed), a sve sesije koje job sesija pokrene pripadaju istom runu, prikazane kao stablo. Prekidač za pauzu, <b>Run now</b> (s „Run anyway” ako prethodni još radi), prompt file otvoriš u editoru.</p>
@@ -361,7 +391,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="notes">
-  <div class="label">13 · Notes<b>Markdown explorer</b><code>#/notes · ⌘⇧E</code></div>
+  <div class="label">14 · Notes<b>Markdown explorer</b><code>#/notes · ⌘⇧E</code></div>
   <div class="body">
     <h2>Bilješke bilo kojeg hosta</h2>
     <p class="prose">Ako host ima <code>web.notes.root</code>, Fleet pokazuje stablo foldera, nedavno mijenjane bilješke i pretragu (riječi, <code>"fraze"</code>, <code>#tag</code>) s istaknutim pogocima. Bilješka se prikazuje renderirana s frontmatterom kao tablicom i <code>[[wiki]]</code> linkovima. <b>Send to session</b> stavi putanju bilješke u composer odabrane sesije. Paleta <kbd>⌘K</kbd> pretražuje i bilješke.</p>
@@ -377,7 +407,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="usage">
-  <div class="label">14 · Usage<b>Limiti pretplate</b><code>#/usage · fleet usage</code></div>
+  <div class="label">15 · Usage<b>Limiti pretplate</b><code>#/usage · fleet usage</code></div>
   <div class="body">
     <h2>Koliko je još ostalo do limita</h2>
     <p class="prose">Isti brojevi kao Claude Codeov <code>/usage</code>, za svaki account logiran na nekoj mašini (hostovi na istom accountu dijele karticu): trenutna sesija, tjedni limit za sve modele, tjedni po modelu, extra usage. Limit koji trenutno veže je označen kao <i>binding</i>, a reset piše kad.</p>
@@ -386,7 +416,7 @@ footer { padding-block: 36px 64px; font-size: 13px; color: var(--muted); display
 </section>
 
 <section class="row" id="oporavak">
-  <div class="label">15 · Oporavak<b>Nakon reboota</b><code>fleet restore</code></div>
+  <div class="label">16 · Oporavak<b>Nakon reboota</b><code>fleet restore</code></div>
   <div class="body">
     <h2>Dormant i Recently closed</h2>
     <p class="prose">Fleet stalno sprema snapshot tmux layouta. Nakon reboota sesije postanu <b>dormant</b>: vide se ispod liste i na boardu, s tmux imenom, Claude naslovima, brojem windowa i paneova. <b>Resume</b> vrati isti layout i svaki Claude pane s <code>--resume</code>, pa grupe, stackovi i briefovi ostaju. <b>Recently closed</b> čuva zatvorene sesije 7 dana, za slučaj da si zatvorio krivu.</p>
@@ -401,7 +431,7 @@ fleet restore --closed     # nedavno zatvorene</code></pre></div>
 </section>
 
 <section class="row" id="postavke">
-  <div class="label">16 · Postavke<b>Izgled, repoi, direktoriji</b><code>#/settings · ⌘,</code></div>
+  <div class="label">17 · Postavke<b>Izgled, repoi, direktoriji</b><code>#/settings · ⌘,</code></div>
   <div class="body">
     <h2>Teme, veličina teksta i postavke flote</h2>
     <div class="prose">
@@ -422,7 +452,7 @@ fleet restore --closed     # nedavno zatvorene</code></pre></div>
 </section>
 
 <section class="row" id="terminal">
-  <div class="label">17 · Terminal<b>CLI i TUI</b><code>fleet</code></div>
+  <div class="label">18 · Terminal<b>CLI i TUI</b><code>fleet</code></div>
   <div class="body">
     <h2>Isto, iz terminala</h2>
     <p class="prose">Goli <code>fleet</code> je živi dashboard: sesije sortirane da one koje te trebaju budu gore, prompt i repo ispod naslova, događaji (pojavila se, završila, zapela dulje od 300 s) u donjem panelu. Brojevi 1–0 skaču na sesiju.</p>
@@ -445,7 +475,7 @@ fleet doctor                           # dostupnost hostova, verzije, config</co
 </section>
 
 <section class="row" id="agenti">
-  <div class="label">18 · Agenti<b>MCP, skill, sigurnost</b></div>
+  <div class="label">19 · Agenti<b>MCP, skill, sigurnost</b></div>
   <div class="body">
     <h2>Agenti upravljaju flotom sami</h2>
     <div class="cols c2">

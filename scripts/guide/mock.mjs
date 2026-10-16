@@ -323,6 +323,112 @@ const kindOf = (p) => /\.md$/.test(p) ? 'markdown' : /\.(png|jpe?g|svg)$/.test(p
 
 const OPERATOR = () => ({ host: 'workstation', dir: `${H}/.local/state/fleet/operator`, session: SESSIONS().find((s) => s.operator), tmuxSession: 'operator' })
 
+// ---------------------------------------------------------------- diff reviewer
+// "Invoice rounding fix" works in its acme-api worktree and edits the PDF renderer in an
+// acme-web worktree too: two checkouts, one answered thread, one waiting, one pending draft.
+const ROWS = (s) => s.split('\n').map((l) => [l[0], l.slice(2)])
+function hunk(oldStart, newStart, rows, section = '') {
+  let o = oldStart, n = newStart
+  const lines = rows.map(([t, text]) => (t === ' ' ? { t, o: o++, n: n++, text } : t === '-' ? { t, o: o++, n: null, text } : { t, o: null, n: n++, text }))
+  const oldLines = lines.filter((l) => l.t !== '+').length, newLines = lines.filter((l) => l.t !== '-').length
+  return { header: `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@${section ? ` ${section}` : ''}`, oldStart, oldLines, newStart, newLines, section, lines }
+}
+function dfile(path, status, hunks) {
+  const all = hunks.flatMap((h) => h.lines)
+  return { path, oldPath: status === 'added' ? null : path, status, binary: false, truncated: false, additions: all.filter((l) => l.t === '+').length, deletions: all.filter((l) => l.t === '-').length, hunks }
+}
+const API_WT = `${H}/Code/acme-api/.worktrees/fix-invoice-rounding`
+const WEB_WT = `${H}/Code/acme-web/.worktrees/invoice-pdf-totals`
+const DIFF_FILES = {
+  [API_WT]: [
+    dfile('src/billing/invoice_total.ts', 'modified', [hunk(1, 1, ROWS(`- import { Currency, roundMoney } from './currency'
++ import { Currency, toMinor, fromMinor } from './currency'
+  
+  export interface Line {
+    description: string
+    amount: number
+    quantity: number
+  }
+  
+- export function invoiceTotal(lines: Line[], cur: Currency) {
+-   return lines.reduce((s, l) => s + roundMoney(l.amount * l.quantity, cur), 0)
++ /**
++  * The invoice total: every line in minor units (cents), summed exactly,
++  * converted back once. Matches the PDF renderer (src/pdf/totals.ts).
++  */
++ export function invoiceTotal(lines: Line[], cur: Currency) {
++   const cents = lines.reduce((s, l) => s + toMinor(l.amount * l.quantity, cur), 0n)
++   return fromMinor(cents, cur)
+  }`))]),
+    dfile('src/billing/currency.ts', 'modified', [hunk(18, 18, ROWS(`  export function roundMoney(amount: number, cur: Currency): number {
+    const f = 10 ** decimals(cur)
+    return Math.round(amount * f) / f
+  }
++ 
++ /** Amount → integer minor units (cents; 3 decimals for KWD / BHD). */
++ export function toMinor(amount: number, cur: Currency): bigint {
++   return BigInt(Math.round(amount * 10 ** decimals(cur)))
++ }
++ 
++ export function fromMinor(minor: bigint, cur: Currency): number {
++   return Number(minor) / 10 ** decimals(cur)
++ }`), 'export function decimals(cur: Currency) {')]),
+    dfile('test/billing/invoice_total.test.ts', 'added', [hunk(0, 1, ROWS(`+ import { describe, expect, it } from 'vitest'
++ import { invoiceTotal } from '../../src/billing/invoice_total'
++ 
++ describe('invoiceTotal', () => {
++   it('matches the PDF for INV-2026-0912 (3 lines)', () => {
++     const lines = [
++       { description: 'Seats', amount: 416.665, quantity: 1 },
++       { description: 'Support', amount: 416.665, quantity: 1 },
++       { description: 'Setup', amount: 416.665, quantity: 1 },
++     ]
++     expect(invoiceTotal(lines, 'EUR')).toBe(1249.99)
++   })
++ })`))]),
+  ],
+  [WEB_WT]: [
+    dfile('src/pdf/totals.ts', 'modified', [hunk(12, 12, ROWS(`  export function pdfTotals(inv: Invoice) {
+-   const subtotal = inv.lines.reduce((s, l) => s + l.amount * l.quantity, 0)
+-   return { subtotal: round(subtotal, inv.currency), tax: round(subtotal * inv.taxRate, inv.currency) }
++   // Same arithmetic as the API (acme-api src/billing/invoice_total.ts): minor units, one conversion.
++   const subtotal = invoiceTotal(inv.lines, inv.currency)
++   return { subtotal, tax: round(subtotal * inv.taxRate, inv.currency) }
+  }`), 'import { round } from \'../money\'')]),
+  ],
+}
+function diffs(host, id) {
+  if (!(host === 'workstation' && id.endsWith('0001') && id.startsWith('a1'))) return { host, id, cwd: find(host, id)?.cwd ?? null, fingerprint: 'demo', unchanged: false, repos: [] }
+  const repo = (root, label, branch, base) => {
+    const files = DIFF_FILES[root]
+    const stats = { files: files.length, additions: files.reduce((a, f) => a + f.additions, 0), deletions: files.reduce((a, f) => a + f.deletions, 0) }
+    return { root, label, branch, head: '9f3c2a1', base: { ref: base, sha: '4e1d0b7c' }, tree: 'demo', fingerprint: `demo-${label}`, files, stats, truncated: false }
+  }
+  return {
+    host, id, cwd: API_WT, fingerprint: 'demo', unchanged: false,
+    repos: [repo(API_WT, '~/Code/acme-api/.worktrees/fix-invoice-rounding', 'fix/invoice-rounding', 'origin/main'), repo(WEB_WT, '~/Code/acme-web/.worktrees/invoice-pdf-totals', 'fix/invoice-pdf-totals', 'origin/main')],
+  }
+}
+function review(host, id) {
+  const t = now()
+  if (!(host === 'workstation' && id.endsWith('0001') && id.startsWith('a1'))) return { host, id, threads: [], reviews: [], drafts: 0 }
+  const th = (o) => ({ side: 'new', base: '4e1d0b7c', createdAt: t - 20 * M, status: 'sent', resolved: false, reviewId: null, ...o })
+  return {
+    host, id, drafts: 1, reviews: [],
+    threads: [
+      th({ id: 'c-4f1a02', root: API_WT, display: 'src/billing/invoice_total.ts', path: 'src/billing/invoice_total.ts', start: 14, end: 15, code: ['  const cents = lines.reduce((s, l) => s + toMinor(l.amount * l.quantity, cur), 0n)', '  return fromMinor(cents, cur)'], entries: [
+        { body: 'Why BigInt? Number cents are exact up to 2^53, which is plenty for one invoice.', sentAt: t - 19 * M, state: 'done', replies: [{ text: 'For one invoice, yes. But `invoiceTotal` also sums **monthly statements** (up to ~40k lines) and KWD has 3 decimals, so the minor-unit sum can pass 2^53 on the largest accounts. BigInt keeps it exact and costs ~40 ns per line. I added that reason to the doc comment.', ts: t - 18 * M, final: true }] },
+      ] }),
+      th({ id: 'c-9b27e4', root: WEB_WT, display: '~/Code/acme-web/.worktrees/invoice-pdf-totals/src/pdf/totals.ts', path: 'src/pdf/totals.ts', start: 14, end: 15, code: ['  const subtotal = invoiceTotal(inv.lines, inv.currency)', '  return { subtotal, tax: round(subtotal * inv.taxRate, inv.currency) }'], entries: [
+        { body: 'Credit notes go through `pdfTotals` too. Do they still match after this?', sentAt: t - 2 * M, state: 'working', replies: [{ text: 'Checking the credit-note fixtures in test/pdf/.', ts: t - M, final: false }] },
+      ] }),
+      th({ id: 'c-d03e5c', root: API_WT, display: 'test/billing/invoice_total.test.ts', path: 'test/billing/invoice_total.test.ts', start: 11, end: 11, status: 'draft', code: ["    expect(invoiceTotal(lines, 'EUR')).toBe(1249.99)"], entries: [
+        { body: 'Add a KWD case (3 decimals) next to this one.', sentAt: null, state: 'draft', replies: [] },
+      ] }),
+    ],
+  }
+}
+
 // ---------------------------------------------------------------- server
 async function body(req) { const b = []; for await (const c of req) b.push(c); try { return JSON.parse(Buffer.concat(b).toString() || '{}') } catch { return {} } }
 function route(method, p, q, b) {
@@ -343,6 +449,8 @@ function route(method, p, q, b) {
     if (what === 'messages') { const msgs = chat(id); return { host, id, status: sess?.status ?? 'idle', backend: 'tmux', name: sess?.display_title, limit: 60, messages: msgs, total: msgs.length, truncated: false, updatedAt: sess?.updated_at, capturedAt: now() } }
     if (what === 'peek') return { host, id, backend: 'tmux', lines: 200, text: PEEK, capturedAt: now() }
     if (what === 'brief') return brief(host, id)
+    if (what === 'diffs') return diffs(host, id)
+    if (what === 'review') return review(host, id)
     if (what === 'complete') { const kind = q.get('kind'); return kind === 'skills' ? { host, id, kind, skills: SKILLS } : kind === 'files' ? { host, id, kind, files: ['README.md', 'docs/billing/rounding.md', 'docs/onboarding/v3.md', 'CHANGELOG.md'] } : { host, id, kind, available: true, notes: [{ ref: 'billing', path: 'projects/billing.md', title: 'Billing' }] } }
     if (what === 'files/stat') return { host, id, cwd: sess?.cwd, home: H, files: (b.paths || []).map((input) => { const rel = input.replace(/:\d+(:\d+)?$/, ''); const ok = /^(src|test|docs)\//.test(rel); return ok ? { input, path: `${sess?.cwd}/${rel}`, rel, exists: true, isFile: true, size: 2048, mtime: now() - 20 * M, kind: kindOf(rel) } : { input, path: input, exists: false } }) }
     if (what === 'stack/spawn') return { host, stack: stack(), created: true, generated: true, spawn: { name: 'x', dir: '~', tmuxSession: 'x', command: 'claude', trusted: true } }

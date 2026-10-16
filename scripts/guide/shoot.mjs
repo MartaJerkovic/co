@@ -13,6 +13,20 @@ const focus = `document.querySelector('textarea[aria-label=Message]').focus()`
 const scrollTo = (t) => `(() => { const e = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent?.trim() === ${JSON.stringify(t)}); e?.scrollIntoView({ block: 'start' }); return !!e })()`
 const scrollAll = (last) => `(() => { const a = [...document.querySelectorAll('*')].filter((e) => e.scrollHeight > e.clientHeight + 50 && getComputedStyle(e).overflowY !== 'visible'); ${last ? 'a.slice(-1)' : 'a'}.forEach((e) => { e.scrollTop = 1e5 }) })()`
 
+const REV = '#/review/workstation/a1b2c3d4-1111-4000-8000-000000000001' // its diff reviewer: two worktrees, threads
+const UNI = { 'fleet.diffView': 'unified' }
+// Scroll the diff to a file's card (by the end of its path).
+const toCard = (end, block = 'start') => `(() => { const e = [...document.querySelectorAll('[data-file-key]')].find((e) => e.dataset.fileKey.endsWith(${JSON.stringify(end)})); e?.scrollIntoView({ block: ${JSON.stringify(block)} }); return !!e })()`
+// Select the code of new lines a..b in a file's card, as a mouse drag would, and let the reviewer see it.
+const selectLines = (end, a, b) => `(() => {
+  const card = [...document.querySelectorAll('[data-file-key]')].find((e) => e.dataset.fileKey.endsWith(${JSON.stringify(end)}))
+  const rows = [...card.querySelectorAll('[data-line]')].filter((r) => r.dataset.n && r.dataset.side !== 'old')
+  const row = (n) => rows.find((r) => r.dataset.n === String(n)).lastElementChild
+  const range = document.createRange(); range.setStart(row(${a}).firstChild, 2); range.setEnd(row(${b}).firstChild, row(${b}).textContent.length)
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range)
+  card.closest('.overflow-y-auto').dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  return true })()`
+
 const DESKTOP = { w: 1440, h: 900 }
 const MOBILE = { w: 390, h: 844, mobile: true, scale: 3 }
 const SHOTS = [
@@ -44,6 +58,10 @@ const SHOTS = [
   ['d-earth', DESKTOP, async (p) => { await p.go(U + '#/', { 'fleet.palette': 'earth', 'fleet.view': 'board' }) }],
   ['d-dormant', DESKTOP, async (p) => { await p.go(U + '#/'); await p.eval(scrollAll(false)); await p.sleep(700) }],
   ['d-details-bottom', DESKTOP, async (p) => { await p.go(U + INV); await p.eval(scrollAll(true)); await p.sleep(700) }],
+  ['d-review', DESKTOP, async (p) => { await p.go(U + REV, UNI); await p.eval(toCard('invoice_total.ts')); await p.sleep(800) }],
+  ['d-review-select', DESKTOP, async (p) => { await p.go(U + REV, UNI); await p.eval(toCard('currency.ts')); await p.sleep(500); await p.eval(selectLines('currency.ts', 23, 25)); await p.sleep(800) }],
+  ['d-review-compose', DESKTOP, async (p) => { await p.go(U + REV, UNI); await p.eval(toCard('currency.ts')); await p.sleep(500); await p.eval(selectLines('currency.ts', 23, 25)); await p.sleep(600); await p.click('Comment on lines', { sel: 'button' }); await p.type('Math.round on a float can still be off for x.xx5 amounts. Use a decimal string conversion here?', 900) }],
+  ['d-review-split', { ...DESKTOP, dark: true }, async (p) => { await p.go(U + REV, { 'fleet.diffView': 'split', 'fleet.reviewChat': 'false', 'fleet.theme': 'dark' }); await p.eval(toCard('totals.ts', 'center')); await p.sleep(800) }],
   // mobile
   ['m-list', MOBILE, async (p) => { await p.go(U + '#/') }],
   ['m-filters', MOBILE, async (p) => { await p.go(U + '#/'); await p.swipe(195, 40, 195, 200) }],
@@ -61,6 +79,7 @@ const SHOTS = [
   ['m-prs', MOBILE, async (p) => { await p.go(U + '#/prs') }],
   ['m-jobs', MOBILE, async (p) => { await p.go(U + '#/jobs') }],
   ['m-notes', MOBILE, async (p) => { await p.go(U + '#/notes/devbox/projects/billing.md') }],
+  ['m-review', MOBILE, async (p) => { await p.go(U + REV, UNI); await p.eval(toCard('invoice_total.ts')); await p.sleep(800) }],
   ['m-usage', MOBILE, async (p) => { await p.go(U + '#/usage') }],
   ['m-earth-dark', { ...MOBILE, dark: true }, async (p) => { await p.go(U + '#/', { 'fleet.palette': 'earth', 'fleet.theme': 'dark' }) }],
 ]
