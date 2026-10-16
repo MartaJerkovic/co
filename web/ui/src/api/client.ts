@@ -2,6 +2,7 @@
 // in dev, Vite proxies /api to a running server (see vite.config.ts).
 import type {
   DiffResponse,
+  DiffsResponse,
   ReviewAnchor,
   ReviewState,
   ReviewThread,
@@ -140,6 +141,9 @@ export const api = {
     return request<DiffResponse>(`${sessionPath(host, id, 'diff')}${qs ? `?${qs}` : ''}`, o)
   },
 
+  /** Every checkout the session works in (cwd's + those of the files it worked on); `since` = the last fingerprint. */
+  diffs: (host: string, id: string, since: string | null = null, o: Opts = {}) =>
+    request<DiffsResponse>(`${sessionPath(host, id, 'diffs')}${since ? `?since=${enc(since)}` : ''}`, o),
   review: (host: string, id: string, o: Opts = {}) => request<ReviewState>(sessionPath(host, id, 'review'), o),
   /** `draft: false` types the comment into the session now; `true` keeps it for `submitReview`. */
   reviewComment: (host: string, id: string, body: ReviewAnchor & { body: string; draft: boolean; base?: string | null }, o: Opts = {}) =>

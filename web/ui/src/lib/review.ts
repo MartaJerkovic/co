@@ -1,4 +1,4 @@
-import type { DiffFile, DiffHunk, DiffLine, ReviewThread } from '@/api/types'
+import type { DiffFile, DiffHunk, DiffLine, DiffRepo, ReviewThread } from '@/api/types'
 
 /** `#/review/<host>/<id>`: the diff reviewer for that session. */
 export const reviewHref = (host: string, id: string) => `/review/${encodeURIComponent(host)}/${encodeURIComponent(id)}`
@@ -23,12 +23,14 @@ export interface TreeDir {
 export interface TreeFile {
   kind: 'file'
   name: string
+  /** fileKey(root, path): unique across checkouts */
+  key: string
   file: DiffFile
 }
 export type TreeNode = TreeDir | TreeFile
 
 /** The changed files as a folder tree (folders first, then files, each by name), single-child folder chains merged. */
-export function fileTree(files: DiffFile[]): TreeNode[] {
+export function fileTree(files: DiffFile[], checkout = ''): TreeNode[] {
   const root: TreeDir = { kind: 'dir', name: '', path: '', children: [] }
   for (const file of files) {
     const parts = file.path.split('/')
@@ -42,7 +44,7 @@ export function fileTree(files: DiffFile[]): TreeNode[] {
       }
       dir = next
     }
-    dir.children.push({ kind: 'file', name: parts.at(-1) ?? file.path, file })
+    dir.children.push({ kind: 'file', name: parts.at(-1) ?? file.path, key: fileKey(checkout, file.path), file })
   }
   const finish = (nodes: TreeNode[]): TreeNode[] =>
     nodes
@@ -190,3 +192,34 @@ export const threadPending = (t: ReviewThread) => t.entries.some((e) => e.state 
 
 export const rangeText = (t: { start: number; end: number; side: Side }) =>
   `${t.side === 'old' ? 'removed ' : ''}${t.start === t.end ? `line ${t.start}` : `lines ${t.start}–${t.end}`}`
+
+/** A file's identity across checkouts. */
+export const fileKey = (root: string, path: string) => (root ? `${root}\u0000${path}` : path)
+
+/** A thread's file key; a thread from before roots belongs to the session's own checkout. */
+export const threadKey = (t: Pick<ReviewThread, 'root' | 'path'>, defaultRoot: string) => fileKey(t.root ?? defaultRoot, t.path)
+
+export interface RepoView {
+  repo: DiffRepo
+  tree: TreeNode[]
+  /** in tree order */
+  files: { key: string; file: DiffFile }[]
+}
+
+/** The checkouts with changes (or an error), each with its tree; clean ones are left out. */
+export function repoViews(repos: DiffRepo[]): RepoView[] {
+  return repos
+    .filter((r) => r.error || r.files?.length)
+    .map((repo) => {
+      const tree = fileTree(repo.files ?? [], repo.root)
+      const files: { key: string; file: DiffFile }[] = []
+      const walk = (nodes: TreeNode[]) => nodes.forEach((n) => (n.kind === 'file' ? files.push({ key: n.key, file: n.file }) : walk(n.children)))
+      walk(tree)
+      return { repo, tree, files }
+    })
+}
+
+/** Threads whose file the diff no longer shows (by file key). */
+export function orphanThreadsByKey(keys: Set<string>, threads: ReviewThread[], defaultRoot: string): ReviewThread[] {
+  return threads.filter((t) => !keys.has(threadKey(t, defaultRoot)))
+}

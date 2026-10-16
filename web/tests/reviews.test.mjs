@@ -169,3 +169,15 @@ test('HTTP: …/review routes locally (methods, ids) and 501 without reviews', a
   assert.equal((await call(urls.on, 'POST', {})).status, 405);
   assert.equal((await call(urls.off)).status, 501);
 });
+
+test('a thread in another checkout names its file from the session cwd (or absolutely)', async (t) => {
+  const fx = fixture(t);
+  const meta = { ...session, cwd: '/w/meta' };
+  const r = await fx.reviews.create(meta, { ...anchor, root: '/w/meta/worktrees/api-fix', body: 'Hm?' });
+  assert.equal(r.thread.display, 'worktrees/api-fix/src/a.ts');
+  assert.match(fx.sent[0], /Review comment on worktrees\/api-fix\/src\/a\.ts:10-11:/);
+  const outside = await fx.reviews.create(meta, { ...anchor, root: '/elsewhere/repo', body: 'Hm?', draft: true });
+  assert.equal(outside.thread.display, '/elsewhere/repo/src/a.ts');
+  await assert.rejects(fx.reviews.create(meta, { ...anchor, root: 'relative/x', body: 'x' }), { status: 400 });
+  await assert.rejects(fx.reviews.create(meta, { ...anchor, root: '/a/../b', body: 'x' }), { status: 400 });
+});

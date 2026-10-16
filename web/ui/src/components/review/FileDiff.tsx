@@ -159,6 +159,8 @@ function SplitHunk({ hunk, c }: { hunk: DiffHunk; c: Commenting }) {
 }
 
 export interface FileDiffProps {
+  /** unique across checkouts (lib/review fileKey): what the callbacks and the selection carry */
+  fileKey: string
   file: DiffFile
   view: DiffView
   collapsed: boolean
@@ -180,6 +182,7 @@ export interface FileDiffProps {
 
 /** One file's card: the GitHub "Files changed" header (path, +/−, Viewed) over its hunks. */
 export const FileDiff = memo(function FileDiff({
+  fileKey,
   file,
   view,
   collapsed,
@@ -197,7 +200,7 @@ export const FileDiff = memo(function FileDiff({
   const placed = useMemo(() => placeThreads(file, threads), [file, threads])
   const composerKey = composing && selection ? anchorKey(selection.side, selection.end) : null
   const c: Commenting = {
-    path: file.path,
+    path: fileKey,
     selection,
     onLine,
     after: (keys) => {
@@ -218,12 +221,12 @@ export const FileDiff = memo(function FileDiff({
   const open = !collapsed && !viewed
   return (
     <section
-      id={fileAnchor(file.path)}
+      id={fileAnchor(fileKey)}
       aria-label={file.path}
       className={cn('scroll-mt-3 overflow-hidden rounded-lg border bg-background [content-visibility:auto]', fresh && 'ring-2 ring-primary/40')}
     >
       <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-card px-2 py-1.5">
-        <Button variant="ghost" size="icon" className="size-7" aria-label={open ? 'Collapse' : 'Expand'} aria-expanded={open} onClick={() => onToggleCollapsed(file.path)}>
+        <Button variant="ghost" size="icon" className="size-7" aria-label={open ? 'Collapse' : 'Expand'} aria-expanded={open} onClick={() => onToggleCollapsed(fileKey)}>
           {open ? <ChevronDownIcon /> : <ChevronRightIcon />}
         </Button>
         <StatusLetter status={file.status} />
@@ -249,7 +252,7 @@ export const FileDiff = memo(function FileDiff({
         ) : null}
         <DiffStat additions={file.additions} deletions={file.deletions} />
         <label className={cn('ml-1 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs', viewed && 'border-primary/40 bg-primary/10')}>
-          <input type="checkbox" checked={viewed} onChange={() => onToggleViewed(file.path)} className="accent-primary" />
+          <input type="checkbox" checked={viewed} onChange={() => onToggleViewed(fileKey)} className="accent-primary" />
           Viewed
         </label>
       </header>

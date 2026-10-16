@@ -1,4 +1,4 @@
-import { ChevronLeftIcon, Columns2Icon, FoldVerticalIcon, GitBranchIcon, ListTreeIcon, MessageSquareTextIcon, RowsIcon, UnfoldVerticalIcon } from 'lucide-react'
+import { ChevronLeftIcon, Columns2Icon, FoldVerticalIcon, FolderGitIcon, GitBranchIcon, ListTreeIcon, MessageSquareTextIcon, RowsIcon, UnfoldVerticalIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 
@@ -17,8 +17,8 @@ import { useNow } from '@/hooks/useNow'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { useSessionTitle } from '@/hooks/useTitles'
 import { relTime } from '@/lib/format'
-import { fileAnchor, fileSignature, fileTree, orphanThreads, parseReviewLocation, rangeText, selectLine, selectionCode, treeOrder, type LineSelection, type Side } from '@/lib/review'
-import type { ReviewThread } from '@/api/types'
+import { fileAnchor, fileSignature, orphanThreadsByKey, parseReviewLocation, rangeText, repoViews, selectLine, selectionCode, threadKey, type LineSelection, type Side } from '@/lib/review'
+import type { DiffRepo, ReviewThread } from '@/api/types'
 import { findSession, sessionHref } from '@/lib/sessions'
 import { storage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
@@ -31,8 +31,8 @@ const parseView = (r: string) => (r === 'split' || r === 'unified' ? r : undefin
 const parseBool = (r: string) => (r === 'true' ? true : r === 'false' ? false : undefined)
 
 /**
- * `#/review/<host>/<id>`: GitHub's "Files changed" over the session's worktree, following it
- * live. Desktop (`pane`): file tree | diff | the session itself (chat + composer), so the
+ * `#/review/<host>/<id>`: GitHub's "Files changed" over every checkout the session works in
+ * (its cwd's, and the worktrees it edits from there — a meta repo's PRs), following it live. Desktop (`pane`): file tree | diff | the session itself (chat + composer), so the
  * review and the conversation sit side by side. Mobile: the diff alone.
  */
 export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }) {
@@ -51,10 +51,16 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
   const [showTree, setShowTree] = usePersistentState<boolean>('fleet.reviewTree', true, parseBool)
   const [showChat, setShowChat] = usePersistentState<boolean>('fleet.reviewChat', true, parseBool)
 
-  const files = useMemo(() => data?.files ?? [], [data])
-  const tree = useMemo(() => fileTree(files), [files])
-  const ordered = useMemo(() => treeOrder(tree), [tree])
-  const signatures = useMemo(() => new Map(files.map((f) => [f.path, fileSignature(f)])), [files])
+  const views = useMemo(() => repoViews(data?.repos ?? []), [data])
+  const clean = useMemo(() => (data?.repos ?? []).filter((r) => !r.error && !r.files?.length), [data])
+  // Every file across checkouts, by key (root + path).
+  const entries = useMemo(() => new Map(views.flatMap((v) => v.files.map((f) => [f.key, { ...f, repo: v.repo }] as const))), [views])
+  const files = useMemo(() => [...entries.values()], [entries])
+  const signatures = useMemo(() => new Map(files.map((f) => [f.key, fileSignature(f.file)])), [files])
+  const stats = useMemo(
+    () => views.reduce((a, v) => ({ files: a.files + (v.repo.stats?.files ?? 0), additions: a.additions + (v.repo.stats?.additions ?? 0), deletions: a.deletions + (v.repo.stats?.deletions ?? 0) }), { files: 0, additions: 0, deletions: 0 }),
+    [views],
+  )
 
   // Viewed: per session, path → the diff's signature when ticked (a new change unticks it).
   const viewedKey = `fleet.reviewViewed:${host}/${id}`
@@ -72,7 +78,7 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
     },
     [signatures, viewedKey],
   )
-  const viewedCount = files.filter((f) => isViewed(f.path)).length
+  const viewedCount = files.filter((f) => isViewed(f.key)).length
 
   // Fresh: the files whose diff changed in the latest update (not on the first load).
   const prevSigs = useRef<Map<string, string> | null>(null)
@@ -101,7 +107,7 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
     },
     [isViewed, toggleViewed],
   )
-  const allCollapsed = files.length > 0 && files.every((f) => collapsed.has(f.path) || isViewed(f.path))
+  const allCollapsed = files.length > 0 && files.every((f) => collapsed.has(f.key) || isViewed(f.key))
 
   const [active, setActive] = useState<string | null>(null)
   const openFile = (path: string) => {
@@ -119,12 +125,17 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
   const rv = useReview(host, id)
   const threads = useMemo(() => rv.review?.threads ?? [], [rv.review])
   const drafts = rv.review?.drafts ?? 0
-  const byPath = useMemo(() => {
+  // Threads made before the reviewer knew several checkouts belong to the session's own (the first).
+  const defaultRoot = data?.repos?.[0]?.root ?? ''
+  const byKey = useMemo(() => {
     const m = new Map<string, ReviewThread[]>()
-    for (const t of threads) m.set(t.path, [...(m.get(t.path) ?? []), t])
+    for (const t of threads) {
+      const k = threadKey(t, defaultRoot)
+      m.set(k, [...(m.get(k) ?? []), t])
+    }
     return m
-  }, [threads])
-  const orphans = useMemo(() => orphanThreads(files, threads), [files, threads])
+  }, [threads, defaultRoot])
+  const orphans = useMemo(() => (data ? orphanThreadsByKey(new Set(entries.keys()), threads, defaultRoot) : []), [data, entries, threads, defaultRoot])
   const [selection, setSelection] = useState<LineSelection | null>(null)
   const [composing, setComposing] = useState(false)
   const onLine = useCallback((path: string, side: Side, n: number, extend: boolean) => {
@@ -136,15 +147,23 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
     setSelection(null)
   }, [])
   const renderThread = useCallback((t: ReviewThread, outdated: boolean) => <ReviewThreadCard thread={t} outdated={outdated} actions={rv} />, [rv])
-  const selFile = selection ? files.find((f) => f.path === selection.path) ?? null : null
+  // selection.path is a file key (root + path).
+  const sel = selection ? entries.get(selection.path) ?? null : null
   const renderComposer = () =>
-    selection && selFile ? (
+    selection && sel ? (
       <CommentComposer
         key={`${selection.path}:${selection.side}:${selection.start}`}
         label={rangeText(selection)}
         drafts={drafts}
         onCancel={closeComposer}
-        onSubmit={(body, draft) => rv.comment({ ...selection, code: selectionCode(selFile, selection) }, body, draft, data?.base.sha ?? null)}
+        onSubmit={(body, draft) =>
+          rv.comment(
+            { root: sel.repo.root, path: sel.file.path, side: selection.side, start: selection.start, end: selection.end, code: selectionCode(sel.file, selection) },
+            body,
+            draft,
+            sel.repo.base?.sha ?? null,
+          )
+        }
       />
     ) : null
   const [submitOpen, setSubmitOpen] = useState(false)
@@ -177,18 +196,20 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
             <HostBadge host={host} className="h-4 px-1 text-[0.625rem]" />
             {data ? (
               <>
-                <GitBranchIcon className="size-3 shrink-0" />
-                <span className="truncate font-mono">
-                  {data.branch ?? 'detached'}
-                  {data.base.ref && data.base.ref !== data.branch ? <span className="text-dimmer"> ← {data.base.ref}</span> : null}
-                </span>
-                {data.stats ? (
+                {views.length === 1 ? (
                   <>
-                    <span className="text-dimmer">·</span>
-                    <span className="shrink-0">{data.stats.files} files</span>
-                    <DiffStat additions={data.stats.additions} deletions={data.stats.deletions} bar={false} />
+                    <GitBranchIcon className="size-3 shrink-0" />
+                    <BranchText repo={views[0].repo} />
                   </>
-                ) : null}
+                ) : (
+                  <>
+                    <FolderGitIcon className="size-3 shrink-0" />
+                    <span className="shrink-0">{views.length} checkouts</span>
+                  </>
+                )}
+                <span className="text-dimmer">·</span>
+                <span className="shrink-0">{stats.files} files</span>
+                <DiffStat additions={stats.additions} deletions={stats.deletions} bar={false} />
                 {changedAt ? <span className="truncate text-dimmer tabular-nums">· changed {relTime(changedAt, now)} ago</span> : null}
               </>
             ) : null}
@@ -208,7 +229,7 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
           className="size-10 shrink-0 rounded-xl"
           aria-label={allCollapsed ? 'Expand all' : 'Collapse all'}
           title={allCollapsed ? 'Expand all' : 'Collapse all'}
-          onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(files.map((f) => f.path)))}
+          onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(files.map((f) => f.key)))}
         >
           {allCollapsed ? <UnfoldVerticalIcon className="size-5" /> : <FoldVerticalIcon className="size-5" />}
         </Button>
@@ -242,36 +263,42 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
         <div className="px-1 py-12 text-center">
           <p className="text-base font-semibold">No changes</p>
           <p className="mt-1 text-sm text-dimmer">
-            The worktree matches {data.base.ref ?? 'HEAD'}
-            {data.base.ref ? ` (${data.base.sha.slice(0, 7)})` : ''}. This view follows the session as it edits.
+            {clean.length ? `Nothing changed in ${clean.map((r) => r.label).join(', ')}.` : 'This session works in no git checkout yet.'} Checkouts show up here as the session edits files in them.
           </p>
         </div>
       ) : null}
-      {data?.truncated ? <p className="text-xs text-muted-foreground">The diff is very large: later files are listed without their lines.</p> : null}
-      {ordered.map((f) => (
-        <FileDiff
-          key={f.path}
-          file={f}
-          view={view}
-          collapsed={collapsed.has(f.path)}
-          viewed={isViewed(f.path)}
-          fresh={isFresh(f.path)}
-          onToggleCollapsed={toggleCollapsed}
-          onToggleViewed={toggleViewed}
-          selection={selection?.path === f.path ? selection : null}
-          composing={composing && selection?.path === f.path}
-          onLine={onLine}
-          threads={byPath.get(f.path) ?? NO_THREADS}
-          renderThread={renderThread}
-          renderComposer={renderComposer}
-        />
+      {views.map((v) => (
+        <section key={v.repo.root} aria-label={v.repo.label} className="space-y-3">
+          {views.length > 1 || v.repo.error ? <RepoHeader repo={v.repo} /> : null}
+          {v.repo.error ? <p className="rounded-lg border border-destructive/40 px-3 py-2 text-sm text-destructive">{v.repo.error}</p> : null}
+          {v.repo.truncated ? <p className="text-xs text-muted-foreground">The diff is very large: later files are listed without their lines.</p> : null}
+          {v.files.map(({ key, file }) => (
+            <FileDiff
+              key={key}
+              fileKey={key}
+              file={file}
+              view={view}
+              collapsed={collapsed.has(key)}
+              viewed={isViewed(key)}
+              fresh={isFresh(key)}
+              onToggleCollapsed={toggleCollapsed}
+              onToggleViewed={toggleViewed}
+              selection={selection?.path === key ? selection : null}
+              composing={composing && selection?.path === key}
+              onLine={onLine}
+              threads={byKey.get(key) ?? NO_THREADS}
+              renderThread={renderThread}
+              renderComposer={renderComposer}
+            />
+          ))}
+        </section>
       ))}
       {orphans.length ? (
         <section aria-label="Comments on files no longer changed" className="overflow-hidden rounded-lg border">
           <p className="border-b bg-card px-3 py-1.5 text-xs text-muted-foreground">Comments on files no longer in the diff</p>
           {orphans.map((t) => (
             <div key={t.id}>
-              <p className="px-3 pt-2 font-mono text-xs">{t.path}</p>
+              <p className="px-3 pt-2 font-mono text-xs">{t.display ?? t.path}</p>
               {renderThread(t, true)}
             </div>
           ))}
@@ -331,7 +358,17 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
         <div className="flex min-h-0 flex-1">
           {showTree && files.length ? (
             <aside aria-label="Changed files" className="w-64 shrink-0 overflow-y-auto border-r px-1.5">
-              <FileTree nodes={tree} viewed={isViewed} fresh={isFresh} active={active} onOpen={openFile} />
+              {views.map((v) => (
+                <div key={v.repo.root}>
+                  {views.length > 1 ? (
+                    <p className="mt-2 flex items-center gap-1.5 px-2 text-xs font-semibold text-muted-foreground" title={v.repo.root}>
+                      <FolderGitIcon className="size-3.5 shrink-0" />
+                      <span className="truncate">{v.repo.label}</span>
+                    </p>
+                  ) : null}
+                  <FileTree nodes={v.tree} viewed={isViewed} fresh={isFresh} active={active} onOpen={openFile} />
+                </div>
+              ))}
             </aside>
           ) : null}
           {body}
@@ -349,3 +386,28 @@ export function ReviewScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane'
 
 const toggleItem =
   'size-9 rounded-[10px] text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent [&_svg:not([class*=size-])]:size-[18px]'
+
+function BranchText({ repo }: { repo: DiffRepo }) {
+  return (
+    <span className="truncate font-mono">
+      {repo.branch ?? 'detached'}
+      {repo.base?.ref && repo.base.ref !== repo.branch ? <span className="text-dimmer"> ← {repo.base.ref}</span> : null}
+    </span>
+  )
+}
+
+/** A checkout's heading in the diff list (several checkouts, or one that failed). */
+function RepoHeader({ repo }: { repo: DiffRepo }) {
+  return (
+    <div className="flex items-center gap-2 px-1 pt-2 text-sm" title={repo.root}>
+      <FolderGitIcon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate font-semibold">{repo.label}</span>
+      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        <GitBranchIcon className="size-3 shrink-0" />
+        <BranchText repo={repo} />
+      </span>
+      {repo.stats ? <DiffStat additions={repo.stats.additions} deletions={repo.stats.deletions} bar={false} /> : null}
+    </div>
+  )
+}
+

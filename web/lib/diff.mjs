@@ -5,6 +5,7 @@
 // The tree id doubles as the fingerprint: identical content ⇔ identical id, so a poller sends
 // `since=<tree>` and gets `{ unchanged: true }` back while nothing moved. Nothing in the repo
 // changes: no refs, no real index; only loose blobs for changed files (git gc reclaims them).
+import { createHash } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,6 +17,8 @@ export const MAX_FILE_LINES = 5000;
 /** The whole answer stops taking hunks past this many lines; later files come without them. */
 export const MAX_TOTAL_LINES = 50000;
 const GIT_TIMEOUT_MS = 20000;
+/** Checkouts diffed for one session at most (its cwd's first). */
+export const MAX_ROOTS = 12;
 const MAX_BUFFER = 64 * 1024 * 1024;
 /** `?base=`: a branch, tag or sha; never an option. */
 const REF_RE = /^(?!-)[A-Za-z0-9._/@{}~^-]{1,200}$/;
@@ -120,8 +123,9 @@ export function parsePatch(text) {
  * @param {object} deps
  *   run      lib/run.mjs#run (git)
  *   tmpDir   where throwaway index files go (default os.tmpdir())
+ *   home     never a checkout to diff ($HOME as a dotfiles repo)
  */
-export function createDiffer({ run, tmpDir = os.tmpdir() }) {
+export function createDiffer({ run, tmpDir = os.tmpdir(), home = os.homedir() }) {
   const git = (cwd, args, opts = {}) =>
     run('git', ['-C', cwd, '-c', 'core.quotePath=false', ...args], { timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_BUFFER, ...opts });
 
@@ -161,18 +165,8 @@ export function createDiffer({ run, tmpDir = os.tmpdir() }) {
     }
   }
 
-  /**
-   * The diff for a directory inside a checkout.
-   *   cwd     the session's working directory
-   *   base    a ref to diff against (default: the repo's default branch); the diff starts at
-   *           the merge-base of HEAD with it, so commits on the branch count as changes
-   *   since   a tree id from an earlier answer: unchanged → { unchanged: true, tree } only
-   * → { root, branch, head, base: { ref, sha }, tree, unchanged, files, stats, truncated }
-   */
-  async function diff(cwd, { base = null, since = null } = {}) {
-    if (base != null && !validRef(base)) throw new DiffError('invalid base ref', 400);
-    const root = await revParse(cwd, ['--show-toplevel']);
-    if (!root) throw new DiffError('not a git repository', 409);
+  /** Where a checkout stands: its working tree as a tree id, HEAD, the base → the fingerprint. */
+  async function snapshot(root, base) {
     const tree = await worktreeTree(root);
     const head = await revParse(root, ['--verify', '--quiet', 'HEAD^{commit}']);
     const branchName = await git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).then((r) => r.stdout.trim() || null, () => null);
@@ -186,11 +180,14 @@ export function createDiffer({ run, tmpDir = os.tmpdir() }) {
         else if (base != null) throw new DiffError(`no merge-base with ${base}`, 400);
       }
     }
-    const meta = { root, branch: branchName, head, base: { ref: head ? baseRef : null, sha: baseSha }, tree };
     // The base can move too (a commit, a rebase): the fingerprint is both ids.
-    const fingerprint = `${baseSha}:${tree}`;
-    if (since && since === fingerprint) return { ...meta, fingerprint, unchanged: true };
+    return { root, branch: branchName, head, base: { ref: head ? baseRef : null, sha: baseSha }, tree, fingerprint: `${baseSha}:${tree}` };
+  }
 
+  /** A snapshot's files → hunks → lines. */
+  async function filesOf(meta) {
+    const { root, tree } = meta;
+    const baseSha = meta.base.sha;
     const opts = ['--no-color', '--no-ext-diff', '-M', '--no-relative'];
     const [{ stdout: ns }, { stdout: patch }] = await Promise.all([
       git(root, ['diff', ...opts, '--name-status', '-z', baseSha, tree]),
@@ -222,10 +219,91 @@ export function createDiffer({ run, tmpDir = os.tmpdir() }) {
       total += hunks.reduce((s, h) => s + h.lines.length, 0);
       return { ...f, binary: p.binary, additions, deletions, truncated: cut, hunks };
     });
-    return { ...meta, fingerprint, unchanged: false, files, stats, truncated };
+    return { files, stats, truncated };
   }
 
-  return { diff };
+
+  /**
+   * The diff for a directory inside a checkout.
+   *   cwd     the session's working directory
+   *   base    a ref to diff against (default: the repo's default branch); the diff starts at
+   *           the merge-base of HEAD with it, so commits on the branch count as changes
+   *   since   a fingerprint from an earlier answer: unchanged → { unchanged: true } without files
+   * → { root, branch, head, base: { ref, sha }, tree, fingerprint, unchanged, files, stats, truncated }
+   */
+  async function diff(cwd, { base = null, since = null } = {}) {
+    if (base != null && !validRef(base)) throw new DiffError('invalid base ref', 400);
+    const root = await revParse(cwd, ['--show-toplevel']);
+    if (!root) throw new DiffError('not a git repository', 409);
+    const meta = await snapshot(root, base);
+    if (since && since === meta.fingerprint) return { ...meta, unchanged: true };
+    return { ...meta, unchanged: false, ...(await filesOf(meta)) };
+  }
+
+  const toplevels = new Map(); // a found checkout dir → git's toplevel (realpath), or null
+
+  /** The nearest directory holding a `.git` (dir: a main checkout, file: a linked worktree). */
+  async function nearestCheckout(dir, memo) {
+    const trail = [];
+    let d = dir;
+    let found = null;
+    for (;;) {
+      if (memo.has(d)) {
+        found = memo.get(d);
+        break;
+      }
+      trail.push(d);
+      if (await fsp.stat(path.join(d, '.git')).then(() => true, () => false)) {
+        found = d;
+        break;
+      }
+      const up = path.dirname(d);
+      if (up === d) break;
+      d = up;
+    }
+    for (const t of trail) memo.set(t, found);
+    return found;
+  }
+
+  /**
+   * The checkouts a session works in: its cwd's first, then those holding the files it worked
+   * on (`worked`, most recent first) — a session in a meta repo edits many worktrees it never
+   * cd's into. Never $HOME or `/` (a dotfiles repo would mean hashing the whole home).
+   */
+  async function roots(cwd, worked = []) {
+    const out = [];
+    const add = (r) => {
+      if (r && !out.includes(r) && r !== home && r !== '/') out.push(r);
+    };
+    if (cwd) add(await revParse(cwd, ['--show-toplevel']));
+    const memo = new Map();
+    for (const p of worked) {
+      if (out.length >= MAX_ROOTS) break;
+      if (typeof p !== 'string' || !path.isAbsolute(p)) continue;
+      const dir = await nearestCheckout(path.dirname(p), memo);
+      if (!dir || dir === home) continue;
+      if (!toplevels.has(dir)) toplevels.set(dir, await revParse(dir, ['--show-toplevel']));
+      add(toplevels.get(dir));
+    }
+    return out;
+  }
+
+  /**
+   * Every checkout's diff in one answer. `since`: the combined fingerprint of an earlier one —
+   * unchanged → { unchanged: true } without repos. A checkout that fails (deleted worktree)
+   * comes back as { root, error }.
+   */
+  async function diffAll(rootList, { since = null } = {}) {
+    const metas = await mapLimit(rootList, 4, (root) => snapshot(root, null).catch((err) => ({ root, error: err.message || String(err) })));
+    const fingerprint = createHash('sha1')
+      .update(metas.map((m) => `${m.root}=${m.fingerprint ?? 'error'}`).join('\n'))
+      .digest('hex');
+    if (since && since === fingerprint) return { fingerprint, unchanged: true };
+    const repos = await mapLimit(metas, 4, async (m) => (m.error ? m : { ...m, ...(await filesOf(m).catch((err) => ({ error: err.message || String(err), files: [] }))) }));
+    return { fingerprint, unchanged: false, repos };
+  }
+
+  return { diff, roots, diffAll };
 }
 
 function cutHunks(hunks, max) {
@@ -236,5 +314,18 @@ function cutHunks(hunks, max) {
     out.push(h.lines.length <= left ? h : { ...h, lines: h.lines.slice(0, left) });
     left -= h.lines.length;
   }
+  return out;
+}
+
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
 }

@@ -48,7 +48,21 @@ export function langOf(file) {
 
 export function rangeLabel(t) {
   const lines = t.start === t.end ? `${t.start}` : `${t.start}-${t.end}`;
-  return `${t.path}:${lines}${t.side === 'old' ? ' (removed lines)' : ''}`;
+  return `${t.display ?? t.path}:${lines}${t.side === 'old' ? ' (removed lines)' : ''}`;
+}
+
+/**
+ * How the prompt names a file: relative to the session's cwd when the checkout is inside it
+ * (`worktrees/api-fix/app/x.rb` from a meta repo), else absolute; without a root, as given.
+ */
+export function displayPath(root, file, cwd) {
+  if (!root) return file;
+  const full = path.join(root, file);
+  if (cwd) {
+    const rel = path.relative(cwd, full);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+  }
+  return full;
 }
 
 /** A fenced block that its own content cannot close. */
@@ -93,12 +107,15 @@ function validBody(body) {
 /** A new thread's anchor from the request body. */
 export function parseAnchor(b) {
   if (!b || typeof b !== 'object') throw new ReviewError('body must be a JSON object', 400);
-  const { path: p, side = 'new', start, end = start, code } = b;
+  const { path: p, side = 'new', start, end = start, code, root = null } = b;
+  if (root != null && (typeof root !== 'string' || !path.isAbsolute(root) || root.includes('\0') || root.length > 4096 || path.normalize(root) !== root)) {
+    throw new ReviewError('invalid root', 400);
+  }
   if (typeof p !== 'string' || !p || p.length > 1024 || p.includes('\0') || p.startsWith('/')) throw new ReviewError('invalid path', 400);
   if (side !== 'new' && side !== 'old') throw new ReviewError('side must be "new" or "old"', 400);
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end - start > 2000) throw new ReviewError('invalid line range', 400);
   if (!Array.isArray(code) || code.length > 2001 || !code.every((l) => typeof l === 'string' && l.length <= 4000)) throw new ReviewError('code must be an array of lines', 400);
-  return { path: p, side, start, end, code };
+  return { root, path: p, side, start, end, code };
 }
 
 /**
@@ -267,6 +284,7 @@ export function createReviews({ dir, send, messages, now = () => Date.now(), ran
         const t = {
           id: newId(state),
           ...anchor,
+          display: displayPath(anchor.root, anchor.path, session.cwd ?? null),
           base: typeof body.base === 'string' ? body.base.slice(0, 64) : null,
           createdAt: now(),
           status: draft ? 'draft' : 'sent',

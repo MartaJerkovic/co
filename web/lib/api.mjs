@@ -1,6 +1,7 @@
 // The HTTP JSON API (/api/*), independent of any UI. server.mjs mounts it next to the
 // static UI; tests mount it on an ephemeral port with fake dependencies.
 // Endpoint reference: ARCHITECTURE.md → "HTTP API".
+import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { HttpError, readJsonBody } from './http.mjs';
@@ -76,7 +77,7 @@ const UPLOAD_ROUTE = /^\/api\/hosts\/([^/]+)\/uploads$/;
 const FILES_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/files\/(stat|raw|open)$/;
 const COMPLETE_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/complete$/;
 const COMPLETE_KINDS = new Set(['skills', 'files', 'brain']);
-const DIFF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/diff$/;
+const DIFF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/(diffs?)$/;
 const REVIEW_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/review(?:\/(submit)|\/(threads)(?:\/([^/]+)(?:\/(reply))?)?)?$/;
 /** A review comment quotes the selected code: room for a big selection. */
 const REVIEW_BODY_LIMIT = 1024 * 1024;
@@ -139,7 +140,8 @@ export const DEFAULT_QUICK_REPLIES = [
  *   operator    lib/operator.mjs instance (GET/POST /api/operator; absent → 501)
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
  *   completer   lib/complete.mjs instance (…/complete: composer autocomplete; absent → 501)
- *   differ      lib/diff.mjs#createDiffer (…/diff: the diff reviewer; absent → 501)
+ *   differ      lib/diff.mjs#createDiffer (…/diff, …/diffs: the diff reviewer; absent → 501)
+ *   touched     lib/touched.mjs index — the files a session worked on (…/diffs finds their checkouts)
  *   reviews     lib/reviews.mjs#createReviews (…/review: comment threads sent to the session; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
  *   notes       lib/notes.mjs instance (notes/tree|search|file|raw; absent → 501: web.notes.root unset)
@@ -175,6 +177,7 @@ export function createApi({
   completer = null,
   briefs = null,
   differ = null,
+  touched = null,
   reviews = null,
   notes = null,
   spawnDirs = null,
@@ -862,6 +865,20 @@ export function createApi({
           if (!differ) throw new HttpError('the diff reviewer is not available on this server', 501);
           const session = await resolveLocalSession(id);
           const cwd = typeof session.cwd === 'string' && session.cwd ? session.cwd : null;
+          if (d[3] === 'diffs') {
+            // Every checkout the session works in: its cwd's, then those of the files it worked on.
+            const worked = (await touched?.get(session).catch(() => null))?.worked ?? [];
+            const roots = await differ.roots(cwd, worked);
+            const all = await differ.diffAll(roots, { since: url.searchParams.get('since') });
+            const home = os.homedir();
+            const label = (root) => {
+              const rel = cwd ? path.relative(cwd, root) : '';
+              if (cwd && rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+              return root === home ? '~' : root.startsWith(`${home}/`) ? `~/${root.slice(home.length + 1)}` : root;
+            };
+            if (all.repos) all.repos = all.repos.map((r) => ({ ...r, label: label(r.root) }));
+            return { status: 200, body: { host: config.self, id: session.session_id, cwd, ...all } };
+          }
           if (!cwd) throw new HttpError('this session has no working directory', 409);
           try {
             const body = await differ.diff(cwd, { base: url.searchParams.get('base'), since: url.searchParams.get('since') });

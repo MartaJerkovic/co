@@ -169,8 +169,9 @@ export function createTouchedIndex({ home = claudeHome(), maxBytes = MAX_SCAN_BY
 
   return {
     /**
-     * → { version, paths: [abs] } — tool inputs first, then result mentions; most recent first
-     * within each. `version` changes whenever the transcript grew. null without a transcript.
+     * → { version, paths: [abs], worked: [abs] } — tool inputs first, then result mentions; most
+     * recent first within each; `worked`: the tool inputs alone (files the session read, edited
+     * or wrote). `version` changes whenever the transcript grew. null without a transcript.
      */
     async get(session) {
       const st = await refresh(session).catch(() => null);
@@ -178,8 +179,9 @@ export function createTouchedIndex({ home = claudeHome(), maxBytes = MAX_SCAN_BY
       const version = `${st.file}:${st.offset}`;
       if (st.list?.version !== version) {
         const all = [...st.paths.entries()].reverse();
-        const paths = [...all.filter(([, v]) => v.tier === 2), ...all.filter(([, v]) => v.tier < 2)].map(([p]) => p);
-        st.list = { version, paths };
+        const worked = all.filter(([, v]) => v.tier === 2).map(([p]) => p);
+        const paths = [...worked, ...all.filter(([, v]) => v.tier < 2).map(([p]) => p)];
+        st.list = { version, paths, worked };
       }
       return st.list;
     },

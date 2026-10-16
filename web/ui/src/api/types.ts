@@ -1190,6 +1190,10 @@ export interface ReviewEntry {
 
 export interface ReviewThread {
   id: string
+  /** the checkout the path is in (null: comments made before the reviewer knew several) */
+  root?: string | null
+  /** how the prompt named the file (relative to the session cwd) */
+  display?: string
   path: string
   side: 'new' | 'old'
   start: number
@@ -1213,9 +1217,37 @@ export interface ReviewState {
 }
 
 export interface ReviewAnchor {
+  root: string | null
   path: string
   side: 'new' | 'old'
   start: number
   end: number
   code: string[]
+}
+
+/** One checkout in GET …/diffs: the session's cwd checkout first, then those of the files it worked on. */
+export interface DiffRepo {
+  root: string
+  /** relative to the session cwd when inside it, else ~/… */
+  label: string
+  branch?: string | null
+  head?: string | null
+  base?: { ref: string | null; sha: string }
+  tree?: string
+  fingerprint?: string
+  files?: DiffFile[]
+  stats?: { files: number; additions: number; deletions: number }
+  truncated?: boolean
+  /** the checkout could not be read (a removed worktree) */
+  error?: string
+}
+
+export interface DiffsResponse {
+  host: string
+  id: string
+  cwd: string | null
+  /** pass back as `since`: unchanged → `{ unchanged: true }` without `repos` */
+  fingerprint: string
+  unchanged: boolean
+  repos?: DiffRepo[]
 }

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 
 import { ApiError, api, sessionErrorMessage } from '@/api/client'
-import type { DiffResponse } from '@/api/types'
+import type { DiffsResponse } from '@/api/types'
 import { usePoller } from '@/hooks/usePoller'
 
 /** The diff follows the session live: a poll is one `git add` into a throwaway index, and an unchanged tree answers in a few bytes. */
@@ -14,21 +14,21 @@ function diffError(err: unknown): string {
 }
 
 /**
- * A session's diff, polled with `since=<fingerprint>` so nothing re-renders while nothing moved.
- * `changedAt`: when the files last changed (for the "updated" hint).
+ * A session's diffs — every checkout it works in — polled with `since=<fingerprint>` so nothing
+ * re-renders while nothing moved. `changedAt`: when the files last changed (the "changed" hint).
  */
-export function useDiff(host: string, id: string, { base = null }: { base?: string | null } = {}) {
-  const [data, setData] = useState<{ key: string; diff: DiffResponse } | null>(null)
+export function useDiff(host: string, id: string) {
+  const [data, setData] = useState<{ key: string; diff: DiffsResponse } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [changedAt, setChangedAt] = useState<number | null>(null)
   const last = useRef<{ key: string; fingerprint: string } | null>(null)
-  const key = `${host}/${id}/${base ?? ''}`
+  const key = `${host}/${id}`
 
   const poll = useCallback(
     async (signal: AbortSignal) => {
       const since = last.current?.key === key ? last.current.fingerprint : null
       try {
-        const r = await api.diff(host, id, { base, since }, { signal })
+        const r = await api.diffs(host, id, since, { signal })
         setError(null)
         if (r.unchanged && since) return
         last.current = { key, fingerprint: r.fingerprint }
@@ -39,7 +39,7 @@ export function useDiff(host: string, id: string, { base = null }: { base?: stri
         setError(diffError(err))
       }
     },
-    [host, id, base, key],
+    [host, id, key],
   )
   const refresh = usePoller(poll, DIFF_POLL_MS)
   return { data: data?.key === key ? data.diff : null, error, changedAt, refresh }

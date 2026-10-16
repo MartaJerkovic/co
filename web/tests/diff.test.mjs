@@ -184,3 +184,74 @@ test('HTTP: …/diff for a session, 404 unknown session, 405 non-GET, 501 withou
   assert.equal((await fetch(`${urls.on}/aaaaaaaa/diff`, { method: 'POST' })).status, 405);
   assert.equal((await fetch(`${urls.off}/aaaaaaaa/diff`)).status, 501);
 });
+
+test('roots + diffAll: a meta repo session sees every worktree it edited; one fingerprint for all', async (t) => {
+  const meta = repo(t);
+  meta.write('.gitignore', 'worktrees/\n');
+  meta.write('README.md', 'meta\n');
+  meta.git('add', '-A');
+  meta.git('commit', '-qm', 'meta');
+  // Two checkouts under the ignored worktrees/ (the session edits them without cd'ing in).
+  const sub = (name) => {
+    const dir = path.join(meta.dir, 'worktrees', name);
+    fs.mkdirSync(dir, { recursive: true });
+    const g = (...args) => execFileSync('git', ['-C', dir, ...args], { env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' }, encoding: 'utf8' });
+    g('init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'one\n');
+    g('add', '-A');
+    g('commit', '-qm', 'init');
+    return dir;
+  };
+  const api = sub('api-fix');
+  const ui = sub('ui-feature');
+  fs.writeFileSync(path.join(api, 'a.txt'), 'one\ntwo\n');
+  fs.writeFileSync(path.join(ui, 'b.txt'), 'new\n');
+  const differ = createDiffer({ run, home: '/nonexistent-home' });
+
+  const worked = [path.join(ui, 'b.txt'), path.join(api, 'a.txt'), path.join(api, 'a.txt'), '/etc/hosts', path.join(meta.dir, 'README.md')];
+  const roots = await differ.roots(meta.dir, worked);
+  assert.deepEqual(roots, [meta.dir, ui, api], 'cwd first, then by recency, deduped, non-git paths skipped');
+
+  const all = await differ.diffAll(roots);
+  assert.equal(all.unchanged, false);
+  assert.deepEqual(
+    all.repos.map((r) => [r.root, r.files.map((f) => f.path)]),
+    [
+      [meta.dir, []],
+      [ui, ['b.txt']],
+      [api, ['a.txt']],
+    ],
+  );
+  assert.deepEqual(await differ.diffAll(roots, { since: all.fingerprint }), { fingerprint: all.fingerprint, unchanged: true });
+  fs.writeFileSync(path.join(ui, 'b.txt'), 'changed\n');
+  assert.notEqual((await differ.diffAll(roots, { since: all.fingerprint })).fingerprint, all.fingerprint);
+
+  // A worktree that went away is reported, not fatal.
+  const gone = await differ.diffAll([...roots, path.join(meta.dir, 'worktrees', 'missing')]);
+  assert.match(gone.repos.at(-1).error, /./);
+});
+
+test('HTTP: …/diffs — the cwd checkout plus those of the files the session worked on, labelled from the cwd', async (t) => {
+  const meta = repo(t);
+  meta.write('.gitignore', 'wt/\n');
+  meta.git('add', '-A');
+  meta.git('commit', '-qm', 'meta');
+  const wt = path.join(meta.dir, 'wt', 'one');
+  fs.mkdirSync(wt, { recursive: true });
+  execFileSync('git', ['-C', wt, 'init', '-q', '-b', 'main']);
+  fs.writeFileSync(path.join(wt, 'x.txt'), 'x\n');
+  const id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const config = normalizeConfig({ self: 'laptop' }, { env: {}, home: '/home/tester' });
+  const fleet = { localHost: async () => ({ name: 'laptop', ok: true, sessions: [{ session_id: id, cwd: meta.dir, status: 'idle', backend: 'tmux' }] }) };
+  const touched = { get: async () => ({ version: '1', paths: [], worked: [path.join(wt, 'x.txt')] }) };
+  const api = createApi({ config, fleet, backend: {}, transcripts: {}, spawner: {}, differ: createDiffer({ run, home: '/nonexistent-home' }), touched, warmFleet: false });
+  t.after(() => api.stop());
+  const server = createHttpServer({ handleApi: api, uiDir: null });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/hosts/laptop/sessions/aaaaaaaa/diffs`;
+  const body = await (await fetch(base)).json();
+  assert.equal(body.cwd, meta.dir);
+  assert.deepEqual(body.repos.map((r) => [r.label, r.files.map((f) => f.path)]), [[meta.dir.replace(os.homedir(), '~'), []], ['wt/one', ['x.txt']]]);
+  assert.equal((await (await fetch(`${base}?since=${body.fingerprint}`)).json()).unchanged, true);
+});

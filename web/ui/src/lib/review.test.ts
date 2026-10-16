@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiffFile, DiffHunk, ReviewThread } from '@/api/types'
 
-import { diffBar, fileSignature, fileTree, orphanThreads, parseReviewLocation, placeThreads, reviewHref, selectLine, selectionCode, splitRows, treeOrder } from './review'
+import { diffBar, fileKey, fileSignature, fileTree, orphanThreads, orphanThreadsByKey, repoViews, threadKey, parseReviewLocation, placeThreads, reviewHref, selectLine, selectionCode, splitRows, treeOrder } from './review'
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path,
@@ -120,5 +120,24 @@ describe('line selection and threads', () => {
     expect(p.unplaced.map((t) => t.id)).toEqual(['c-000003'])
     expect([...p.outdated].sort()).toEqual(['c-000002', 'c-000003'])
     expect(orphanThreads([f], [ok, other]).map((t) => t.id)).toEqual(['c-000004'])
+  })
+})
+
+describe('several checkouts', () => {
+  it('repoViews keeps checkouts with changes or errors, keys files by root + path', () => {
+    const views = repoViews([
+      { root: '/w', label: '~/w', files: [] },
+      { root: '/w/wt/a', label: 'wt/a', files: [file('x.ts'), file('src/y.ts')] },
+      { root: '/w/wt/gone', label: 'wt/gone', error: 'not a git repository' },
+    ])
+    expect(views.map((v) => v.repo.label)).toEqual(['wt/a', 'wt/gone'])
+    expect(views[0].files.map((f) => f.key)).toEqual([fileKey('/w/wt/a', 'src/y.ts'), fileKey('/w/wt/a', 'x.ts')])
+    expect(fileKey('/w/wt/a', 'x.ts')).not.toBe(fileKey('/w/wt/b', 'x.ts'))
+  })
+  it('a thread without a root belongs to the default checkout; orphans by key', () => {
+    const legacy = thread({ root: null, path: 'a.ts' })
+    const other = thread({ id: 'c-000002', root: '/w/wt/b', path: 'a.ts' })
+    expect(threadKey(legacy, '/w')).toBe(fileKey('/w', 'a.ts'))
+    expect(orphanThreadsByKey(new Set([fileKey('/w', 'a.ts')]), [legacy, other], '/w').map((t) => t.id)).toEqual(['c-000002'])
   })
 })

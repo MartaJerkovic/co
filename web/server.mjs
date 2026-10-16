@@ -141,6 +141,8 @@ const spawner = createSpawner({ run, tmux: config.tmux, launcher: config.claude,
 const operator = createOperator({ config, fleet, spawner, backend, log });
 // One transcript reader: the chat and the review threads (their replies) share its cache.
 const transcripts = createTranscriptReader();
+// Files each session worked on: file links resolve against them, the diff reviewer finds the checkouts it edits.
+const touched = createTouchedIndex();
 
 const handleApi = createApi({
   config,
@@ -157,7 +159,8 @@ const handleApi = createApi({
   memos,
   speaker: createSpeaker({ getKey: speechKey, voice: config.operator.voice ?? undefined, log }),
   operator,
-  files: createFiles({ home: os.homedir(), run, touched: createTouchedIndex(), roots: config.files.roots }),
+  files: createFiles({ home: os.homedir(), run, touched, roots: config.files.roots }),
+  touched,
   completer: createCompleter({ home: os.homedir(), run }),
   differ: createDiffer({ run }),
   // Diff reviewer threads: typed into the session like a send, answers read from its transcript.

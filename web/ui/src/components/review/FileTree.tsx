@@ -18,7 +18,7 @@ export function FileTree({ nodes, ...rest }: FileTreeProps) {
   return (
     <ul role="tree" aria-label="Changed files" className="space-y-px py-1 text-[0.8125rem]">
       {nodes.map((n) => (
-        <Node key={n.kind === 'dir' ? `d:${n.path}` : n.file.path} node={n} depth={0} {...rest} />
+        <Node key={n.kind === 'dir' ? `d:${n.path}` : n.key} node={n} depth={0} {...rest} />
       ))}
     </ul>
   )
@@ -38,14 +38,14 @@ function Node({ node, depth, viewed, fresh, active, onOpen }: { node: TreeNode; 
         {open ? (
           <ul role="group" className="space-y-px">
             {node.children.map((c) => (
-              <Node key={c.kind === 'dir' ? `d:${c.path}` : c.file.path} node={c} depth={depth + 1} viewed={viewed} fresh={fresh} active={active} onOpen={onOpen} />
+              <Node key={c.kind === 'dir' ? `d:${c.path}` : c.key} node={c} depth={depth + 1} viewed={viewed} fresh={fresh} active={active} onOpen={onOpen} />
             ))}
           </ul>
         ) : null}
       </li>
     )
   }
-  const path = node.file.path
+  const path = node.key
   const seen = viewed(path)
   return (
     <li role="treeitem" aria-selected={active === path}>
@@ -53,7 +53,7 @@ function Node({ node, depth, viewed, fresh, active, onOpen }: { node: TreeNode; 
         type="button"
         onClick={() => onOpen(path)}
         style={pad}
-        title={path}
+        title={node.file.path}
         className={cn('flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left hover:bg-muted', active === path && 'bg-muted font-medium', seen && 'text-muted-foreground')}
       >
         <span className="size-3.5 shrink-0" />

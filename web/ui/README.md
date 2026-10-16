@@ -417,9 +417,12 @@ src/
   the same list to each, lists per-host results (unreachable hosts skipped with a warning) and
   patches the fleet snapshot with what each host now `offered`, so the New session form shows it
   at once. Mobile: one card per entry; from `md` up a compact grid.
-- **Diff reviewer** (`#/review/<host>/<id>`; ../ARCHITECTURE.md → `…/diff`): GitHub's "Files
-  changed" over a session's worktree — everything since the merge-base with the default branch,
-  uncommitted and untracked files included. Reached from the diff button in the session header
+- **Diff reviewer** (`#/review/<host>/<id>`; ../ARCHITECTURE.md → `…/diffs`): GitHub's "Files
+  changed" over every checkout the session works in — its cwd's and the worktrees it edits from
+  there (a meta repo with several PRs in flight), each since the merge-base with its default
+  branch, uncommitted and untracked files included. Several checkouts: a section per checkout
+  (label, branch ← base, +/−) and the file tree grouped by checkout; clean ones are left out.
+  Files are keyed by root + path (`fileKey`), threads carry their `root`. Reached from the diff button in the session header
   and ⌘K → Review changes; Esc goes back to the session. `useDiff` polls every 2 s with
   `since=<fingerprint>` (an unchanged tree answers without files), so the diff follows the
   session as it edits; a file whose diff just changed is ringed for 10 s and highlighted in the
