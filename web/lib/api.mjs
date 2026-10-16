@@ -75,6 +75,7 @@ const UPLOAD_ROUTE = /^\/api\/hosts\/([^/]+)\/uploads$/;
 const FILES_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/files\/(stat|raw|open)$/;
 const COMPLETE_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/complete$/;
 const COMPLETE_KINDS = new Set(['skills', 'files', 'brain']);
+const DIFF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/diff$/;
 const BRIEF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/brief(\/regenerate)?$/;
 const MEMO_SEGMENT_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/segments\/(\d{1,3})$/;
 const MEMO_FINISH_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/finish$/;
@@ -134,6 +135,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   operator    lib/operator.mjs instance (GET/POST /api/operator; absent → 501)
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
  *   completer   lib/complete.mjs instance (…/complete: composer autocomplete; absent → 501)
+ *   differ      lib/diff.mjs#createDiffer (…/diff: the diff reviewer; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
  *   notes       lib/notes.mjs instance (notes/tree|search|file|raw; absent → 501: web.notes.root unset)
  *   spawnDirs   lib/spawn-dirs.mjs#createSpawnDirsEditor (GET/PUT spawn-dirs; absent → 501)
@@ -167,6 +169,7 @@ export function createApi({
   files = null,
   completer = null,
   briefs = null,
+  differ = null,
   notes = null,
   spawnDirs = null,
   repos = null,
@@ -837,6 +840,30 @@ export function createApi({
           const session = await resolveLocalSession(id);
           const cwd = typeof session.cwd === 'string' && session.cwd ? session.cwd : null;
           return { status: 200, body: { host: config.self, id: session.session_id, kind, ...(await completer.list(kind, cwd)) } };
+        },
+      });
+    }
+
+    const d = DIFF_ROUTE.exec(url.pathname);
+    if (d) {
+      if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
+      const id = decodeURIComponent(d[2]);
+      return forHost({
+        req,
+        url,
+        host: decodeURIComponent(d[1]),
+        local: async () => {
+          if (!differ) throw new HttpError('the diff reviewer is not available on this server', 501);
+          const session = await resolveLocalSession(id);
+          const cwd = typeof session.cwd === 'string' && session.cwd ? session.cwd : null;
+          if (!cwd) throw new HttpError('this session has no working directory', 409);
+          try {
+            const body = await differ.diff(cwd, { base: url.searchParams.get('base'), since: url.searchParams.get('since') });
+            return { status: 200, body: { host: config.self, id: session.session_id, ...body } };
+          } catch (err) {
+            if (err?.status) throw new HttpError(err.message, err.status);
+            throw err;
+          }
         },
       });
     }

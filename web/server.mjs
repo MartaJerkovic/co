@@ -21,6 +21,7 @@ import { createUploader } from './lib/uploads.mjs';
 import { SPEECH_KEY_NAME, createKeySource, createSpeaker, createTranscriber } from './lib/transcribe.mjs';
 import { createOperator } from './lib/operator.mjs';
 import { createCompleter } from './lib/complete.mjs';
+import { createDiffer } from './lib/diff.mjs';
 import { createFiles } from './lib/files.mjs';
 import { createNotes } from './lib/notes.mjs';
 import { createSpawnDirsEditor } from './lib/spawn-dirs.mjs';
@@ -154,6 +155,7 @@ const handleApi = createApi({
   operator,
   files: createFiles({ home: os.homedir(), run, touched: createTouchedIndex(), roots: config.files.roots }),
   completer: createCompleter({ home: os.homedir(), run }),
+  differ: createDiffer({ run }),
   notes: createNotes({ config: config.notes, home: os.homedir(), run }),
   // Settings → Start directories: writes through `fleet config set`, hot-reloads config.spawnDirs.
   spawnDirs: createSpawnDirsEditor({ config, configFile: config.configFile ?? configPath(process.env), cli }),

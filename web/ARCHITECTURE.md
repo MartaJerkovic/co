@@ -40,6 +40,7 @@ lib/grouping.mjs      periodic `fleet group` over the merged fleet (the grouping
 lib/snapshot.mjs      warm stale-while-revalidate snapshot of the merged /api/fleet
 lib/uploads.mjs       dropped/pasted files → <uploads dir>/YYYY-MM-DD/<rand>-<name> (streamed, size-capped, daily cleanup)
 lib/files.mjs         files mentioned in chat: resolve against the session cwd (+ touched/roots fallback), $HOME/cwd sandbox, stat/kind, raw stream, open
+lib/diff.mjs          the diff reviewer: a session's worktree (incl. untracked) as a git tree via a throwaway index, diffed against the merge-base with the default branch → files/hunks/lines
 lib/complete.mjs      composer autocomplete: skills/commands (built-in, user, project, enabled plugins), the cwd's .md/.plain files, brain notes (~/.brainrc)
 lib/touched.mjs       absolute paths a session's tool calls touched, parsed incrementally from its transcript (for lib/files.mjs)
 lib/brief-format.mjs  session brief file format: parse/serialise, resource + Git-line merge, model-output check, continue prompt (pure)
@@ -196,6 +197,7 @@ JSON everywhere, same origin, no auth. Errors are `{ "error": "message" }`.
 | POST | `/api/hosts/:host/uploads` | `?name=<file name>`, the raw file as the body (any `content-type`) | `{ host, path, name, size }` — `path` is absolute on `:host`. 413 over `web.uploads.maxMB` (no partial file is left) |
 | POST | `/api/hosts/:host/autoname` | `{}` | `{ host, ok, at, ms, reason, dryRun, renamed: [{ from, to }], tmux: ["a → b"], held: [..], errors: [..], error? }` (502 when the pass failed) |
 | POST | `/api/hosts/:host/sessions/:id/files/stat` | `{ paths: [string] }` (≤ 200) | `{ host, id, cwd, home, files: [FileStat] }` — 400 not an array / too many |
+| GET | `/api/hosts/:host/sessions/:id/diff` | `?base=<ref>&since=<fingerprint>` | `{ host, id, root, branch, head, base: { ref, sha }, tree, fingerprint, unchanged, files: [{ path, oldPath, status, binary, additions, deletions, truncated, hunks: [{ header, oldStart, oldLines, newStart, newLines, section, lines: [{ t, o, n, text, noEol? }] }] }], stats, truncated }` — the session's worktree against the merge-base of HEAD with `base` (default: origin/HEAD, else main/master); `since` = the last `fingerprint` → `{ …, unchanged: true }` without `files` while nothing moved (lib/diff.mjs). 400 bad ref, 409 not a git repo / no cwd, 501 no differ |
 | GET | `/api/hosts/:host/sessions/:id/complete` | `?kind=skills\|files\|brain` | `{ host, id, kind, skills? \| files?, truncated? \| available?, notes? }` — what the composer autocompletes (lib/complete.mjs). 400 bad kind, 501 no completer |
 | GET | `/api/hosts/:host/sessions/:id/files/raw` | `?path=<as in chat or absolute>`, `&download=1` | the file's bytes (streamed; see Files). 400 no path / a directory, 403 outside the sandbox, 404 missing, 413 text over 5 MB inline |
 | POST | `/api/hosts/:host/sessions/:id/files/open` | `{ path }` | `{ ok, host, path, revealed, command }` — 403/404 as raw, 501 no `open`/`xdg-open` on the host, 502 the opener failed |
