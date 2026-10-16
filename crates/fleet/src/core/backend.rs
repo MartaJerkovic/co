@@ -843,6 +843,10 @@ pub fn plan_tmux_target(
     Ok((unique_tmux_name(&base, existing), false))
 }
 
+/// Environment for a spawn's shell: oh-my-zsh's "Would you like to update? [Y/n]" reads one
+/// key, eating the first character of the launch line typed into it (`laude: command not found`).
+pub const SPAWN_SHELL_ENV: &str = "DISABLE_AUTO_UPDATE=true";
+
 /// The tmux command that opens the spawn's window in `dir`, printing its target:
 /// a new window in an existing `session` (matched exactly), or the session itself.
 fn tmux_spawn_args(session: &str, dir: &str, exists: bool) -> Vec<String> {
@@ -856,7 +860,18 @@ fn tmux_spawn_args(session: &str, dir: &str, exists: bool) -> Vec<String> {
             session.into(),
         ]
     };
-    a.extend(["-P", "-F", "#{session_name}:#{window_index}", "-c", dir].map(String::from));
+    a.extend(
+        [
+            "-P",
+            "-F",
+            "#{session_name}:#{window_index}",
+            "-c",
+            dir,
+            "-e",
+            SPAWN_SHELL_ENV,
+        ]
+        .map(String::from),
+    );
     a
 }
 
@@ -884,7 +899,12 @@ mod tests {
         );
         let fresh = tmux_spawn_args("fleet", "/tmp", false);
         assert_eq!(fresh[..4], ["new-session", "-d", "-s", "fleet"]);
-        assert!(fresh.ends_with(&["-c".to_string(), "/tmp".to_string()]));
+        assert!(fresh.ends_with(&[
+            "-c".to_string(),
+            "/tmp".to_string(),
+            "-e".to_string(),
+            SPAWN_SHELL_ENV.to_string()
+        ]));
         assert!(fresh.contains(&"-P".to_string()));
     }
 

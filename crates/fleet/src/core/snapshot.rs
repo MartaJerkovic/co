@@ -1688,7 +1688,15 @@ fn rebuild(
             .map(|p| usable_dir(&p.cwd, warnings))
             .collect();
         let mut args = if wi == 0 {
-            let mut a = vec![s("new-session"), s("-d"), s("-s"), s(name)];
+            // Splits and later windows inherit the session's environment.
+            let mut a = vec![
+                s("new-session"),
+                s("-d"),
+                s("-s"),
+                s(name),
+                s("-e"),
+                s(crate::core::backend::SPAWN_SHELL_ENV),
+            ];
             // Big enough for every split; an attaching client resizes it anyway.
             if let Some((x, y)) = layout_size(&w.layout) {
                 a.extend([s("-x"), x.to_string(), s("-y"), y.to_string()]);
@@ -2083,6 +2091,8 @@ fn reopen_in(
             s("-d"),
             s("-t"),
             format!("={session}:"),
+            s("-e"),
+            s(crate::core::backend::SPAWN_SHELL_ENV),
             s("-c"),
             dir.clone(),
             s("-P"),
@@ -2694,7 +2704,7 @@ garbage";
             .collect();
         assert_eq!(
             log[0],
-            "new-session -d -s api -x 120 -y 40 -c /tmp -P -F '#{pane_id}'"
+            "new-session -d -s api -e DISABLE_AUTO_UPDATE=true -x 120 -y 40 -c /tmp -P -F '#{pane_id}'"
         );
         assert!(
             log[1].starts_with("split-window -d -t %1.0 -c /tmp"),
@@ -3038,7 +3048,7 @@ garbage";
             .collect();
         assert_eq!(
             log[0],
-            "new-window -d -t '=api:' -c /tmp -P -F '#{pane_id}'"
+            "new-window -d -t '=api:' -e DISABLE_AUTO_UPDATE=true -c /tmp -P -F '#{pane_id}'"
         );
         assert_eq!(
             log[1],

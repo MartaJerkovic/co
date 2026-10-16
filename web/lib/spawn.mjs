@@ -207,7 +207,8 @@ export function createSpawner({
     if (await tmuxHasSession(name)) {
       throw Object.assign(new Error(`tmux session "${name}" already exists`), { status: 409 });
     }
-    await run(tmux, ['new-session', '-d', '-s', name, '-c', dir], { timeout: 8000 });
+    // oh-my-zsh's "Would you like to update? [Y/n]" reads one key: the first typed character.
+    await run(tmux, ['new-session', '-d', '-s', name, '-c', dir, '-e', 'DISABLE_AUTO_UPDATE=true'], { timeout: 8000 });
     const launch = { launcher: launchers[harness] || (harness === 'claude' ? launcher : harness), harness, name: nameGiven ? name : null, prompt, model };
     let command = launchCommand(launch);
     if (Buffer.byteLength(command) > TYPED_LINE_MAX) {
