@@ -1118,3 +1118,53 @@ export interface MemoSegmentResponse {
   transcribed: boolean
   error?: string
 }
+
+// --- diff reviewer (GET …/sessions/:id/diff) -------------------------------------------------
+
+export interface DiffLine {
+  /** ' ' context, '+' added, '-' removed */
+  t: ' ' | '+' | '-'
+  /** old / new line number; null on the side the line is not on */
+  o: number | null
+  n: number | null
+  text: string
+  noEol?: boolean
+}
+
+export interface DiffHunk {
+  header: string
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  /** the function / section git names after @@ */
+  section: string
+  lines: DiffLine[]
+}
+
+export interface DiffFile {
+  path: string
+  oldPath: string | null
+  status: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied'
+  binary: boolean
+  additions: number
+  deletions: number
+  truncated: boolean
+  hunks: DiffHunk[]
+}
+
+export interface DiffResponse {
+  host: string
+  id: string
+  root: string
+  branch: string | null
+  head: string | null
+  base: { ref: string | null; sha: string }
+  tree: string
+  /** pass back as `since`: unchanged → `{ unchanged: true }` without `files` */
+  fingerprint: string
+  unchanged: boolean
+  files?: DiffFile[]
+  stats?: { files: number; additions: number; deletions: number }
+  truncated?: boolean
+}

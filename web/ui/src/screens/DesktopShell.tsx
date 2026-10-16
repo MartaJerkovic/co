@@ -9,6 +9,7 @@ import {
   KanbanIcon,
   KeyboardIcon,
   ListIcon,
+  FileDiffIcon,
   MessageSquareTextIcon,
   MonitorIcon,
   MoonIcon,
@@ -84,7 +85,9 @@ import { sessionTitle } from '@/lib/title'
 import { cn } from '@/lib/utils'
 import { NotesScreen } from '@/screens/NotesScreen'
 import { PrsScreen } from '@/screens/PrsScreen'
+import { ReviewScreen } from '@/screens/ReviewScreen'
 import { isPrsLocation } from '@/lib/prs'
+import { parseReviewLocation, reviewHref } from '@/lib/review'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
@@ -118,6 +121,9 @@ export function DesktopShell() {
   // `#/notes…`: the notes explorer takes the whole window (no sidebar / board).
   const notesLoc = parseNotesLocation(location)
   const notesOpen = notesLoc !== null
+  // `#/review/:host/:id`: the diff reviewer (with the session beside it) takes the whole window.
+  const reviewLoc = parseReviewLocation(location)
+  const reviewOpen = reviewLoc !== null
   const notesHosts = useNotesHosts()
   const selected = match ? { host: params.host, id: params.id } : null
   const selectedKey = selected ? `${selected.host}/${selected.id}` : null
@@ -260,6 +266,7 @@ export function DesktopShell() {
     const cur = cursorKey ? byKey.get(cursorKey) : null
     // The session list isn't on screen in the notes explorer: its keys do nothing there.
     if (notesOpen && !['search', 'new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
+    if (reviewOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
     if (prsOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
     switch (action) {
       case 'next':
@@ -285,6 +292,11 @@ export function DesktopShell() {
         setNewOpen(true)
         return true
       case 'back':
+        // Esc in the diff reviewer: back to its session.
+        if (reviewLoc) {
+          navigate(sessionHref({ host: reviewLoc.host, session_id: reviewLoc.id }))
+          return true
+        }
         if (selectedKey || settingsOpen || usageOpen || jobsOpen || operatorOpen || memosOpen || notesOpen || prsOpen) {
           navigate('/')
           return true
@@ -477,6 +489,17 @@ export function DesktopShell() {
                 keywords: ['details', 'brief', 'todos', 'summary', 'resources', 'continue', 'inspector'],
                 run: toggleInspector,
               },
+              ...(selected
+                ? [
+                    {
+                      id: 'review',
+                      label: 'Review changes (diff)',
+                      icon: <FileDiffIcon />,
+                      keywords: ['diff', 'review', 'changes', 'files', 'git', 'pr'],
+                      run: () => navigate(reviewHref(selected.host, selected.id)),
+                    },
+                  ]
+                : []),
             ]
           : []),
         board
@@ -568,7 +591,7 @@ export function DesktopShell() {
   ]
 
   // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/prs`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && location !== '/') return <Redirect to="/" replace />
+  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -611,6 +634,10 @@ export function DesktopShell() {
       ) : prsOpen ? (
         <main className="flex min-w-0 flex-1">
           <PrsScreen layout="pane" />
+        </main>
+      ) : reviewOpen ? (
+        <main className="flex min-w-0 flex-1">
+          <ReviewScreen layout="pane" />
         </main>
       ) : board ? (
         <div ref={boardAreaRef} className="relative flex min-w-0 flex-1">
@@ -730,7 +757,7 @@ export function DesktopShell() {
         />
       )}
 
-      {board || notesOpen || prsOpen ? null : (
+      {board || notesOpen || prsOpen || reviewOpen ? null : (
         <main className="flex min-w-0 flex-1" style={titlebarOffset(sidebarOpen ? sidebarW : '3rem')}>
           {pane ?? (
             <EmptyPane

@@ -22,13 +22,14 @@ import { ListScreen } from '@/screens/ListScreen'
 import { NotesScreen } from '@/screens/NotesScreen'
 import { OperatorScreen } from '@/screens/OperatorScreen'
 import { PrsScreen } from '@/screens/PrsScreen'
+import { ReviewScreen } from '@/screens/ReviewScreen'
 import { SessionScreen } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
 
 /**
  * Hash routing: `#/` (list), `#/s/<host>/<session_id>` (detail),
- * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer).
+ * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer) and `#/review/<host>/<session_id>` (the diff reviewer).
  * No server-side SPA fallback needed; the PWA start_url is `/#/`. Desktop and mobile use the
  * same routes, so links work across both.
  */
@@ -75,6 +76,9 @@ export default function App() {
                   </Route>
                   <Route path={/^\/notes(?:\/.*)?$/}>
                     <NotesScreen />
+                  </Route>
+                  <Route path="/review/:host/:id">
+                    <ReviewScreen />
                   </Route>
                   <Route path="/s/:host/:id">
                     {(p) => <SessionScreen key={`${p.host}/${p.id}`} host={p.host} id={p.id} />}

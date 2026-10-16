@@ -3,6 +3,7 @@ import {
   ChevronLeftIcon,
   CircleAlertIcon,
   EllipsisIcon,
+  FileDiffIcon,
   MessageSquareTextIcon,
   PanelRightIcon,
   SquareTerminalIcon,
@@ -51,6 +52,7 @@ import { modelLabel, relTime, shortCwd } from '@/lib/format'
 import { harnessLabel } from '@/lib/harness'
 import { tailAnchor } from '@/lib/outbox'
 import { findSession, statusMeta, withoutSession } from '@/lib/sessions'
+import { reviewHref } from '@/lib/review'
 import { stacksKnown } from '@/lib/stacks'
 import { isUndoBackspace, withHint } from '@/lib/shortcuts'
 import { STATUS_TEXT } from '@/lib/styles'
@@ -90,6 +92,8 @@ export interface SessionScreenProps {
   paneRef?: React.RefObject<PaneApi | null>
   /** Pane only: focus the composer on mount (opened with Enter). */
   autoFocusComposer?: boolean
+  /** Pane only: shown beside the diff reviewer — no Review / Details buttons in its header. */
+  embedded?: boolean
   /** Pane only: a close button in the header (the Board view's flyout). */
   onClose?: () => void
   /** Pane only: the pane is too narrow for a details column — lay it over the chat instead. */
@@ -111,6 +115,7 @@ export function SessionScreen({
   autoFocusComposer = false,
   onClose,
   detailsOverlay = false,
+  embedded = false,
 }: SessionScreenProps) {
   const pane = layout === 'pane'
   const { fleet, refresh: refreshFleet, applyFleet } = useFleet()
@@ -542,7 +547,19 @@ export function SessionScreen({
               </ToggleGroupItem>
             </ToggleGroup>
           ) : null}
-          {pane ? (
+          {session?.cwd && !embedded ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Review changes"
+              title="Review changes (diff)"
+              onClick={() => navigate(reviewHref(host, id))}
+              className="size-11 shrink-0 rounded-xl text-muted-foreground"
+            >
+              <FileDiffIcon className="size-5" />
+            </Button>
+          ) : null}
+          {pane && !embedded ? (
             <Button
               variant="ghost"
               size="icon"

@@ -1,6 +1,7 @@
 // Typed client for the fleet web HTTP API. Same origin (the server serves this UI);
 // in dev, Vite proxies /api to a running server (see vite.config.ts).
 import type {
+  DiffResponse,
   Memo,
   MemoSegmentResponse,
   MemosResponse,
@@ -126,6 +127,15 @@ export const api = {
     request<PeekResponse>(`${sessionPath(host, id, 'peek')}?lines=${lines}`, o),
   messages: (host: string, id: string, limit = 60, o: Opts = {}) =>
     request<MessagesResponse>(`${sessionPath(host, id, 'messages')}?limit=${limit}`, o),
+
+  /** The session's worktree against the merge-base with `base` (default branch); `since` = the last fingerprint. */
+  diff: (host: string, id: string, { base, since }: { base?: string | null; since?: string | null } = {}, o: Opts = {}) => {
+    const q = new URLSearchParams()
+    if (base) q.set('base', base)
+    if (since) q.set('since', since)
+    const qs = q.toString()
+    return request<DiffResponse>(`${sessionPath(host, id, 'diff')}${qs ? `?${qs}` : ''}`, o)
+  },
 
   send: (host: string, id: string, text: string, o: Opts & { keepalive?: boolean } = {}) =>
     request<OkResponse>(sessionPath(host, id, 'send'), { ...o, method: 'POST', body: { text } }),

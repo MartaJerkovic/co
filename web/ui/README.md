@@ -76,6 +76,8 @@ src/
                       index.css): PALETTES (picker swatches), parsePalette(), themeColor() (meta theme-color per mode)
   lib/notes.ts        notes explorer: buildTree(), notesHref() / parseNotesLocation() (`#/notes/<host>/<path>`),
                       indexNotes() + resolveNoteLink() (relative + `[[wiki]]` links), splitRanges(), highlightTerms()
+  lib/review.ts       diff reviewer: reviewHref() / parseReviewLocation() (`#/review/<host>/<id>`), fileTree() +
+                      treeOrder(), splitRows() (side-by-side pairing), fileSignature() (Viewed resets on change)
   lib/outbox.ts       composer outbox (send with an undo delay): pure transitions (schedule / cancel / flush / retry),
                       reconcile() (dedupe optimistic bubbles against the transcript), the Outbox class (timer +
                       one-at-a-time sender), SEND_DELAYS (Settings → Send delay, `fleet.sendDelay`)
@@ -136,11 +138,13 @@ src/
                       failed user bubbles; the terminal view's strip), FilePreview, DetailsPanel (the desktop
                       details column) / DetailsDrawer (mobile ⋯), BriefSection (its top), LatestButton
   components/desktop/ Sidebar (+ SidebarRail when collapsed, NotesLink), CommandPalette (⌘K), ShortcutsDialog (⌘?)
+  components/review/  FileDiff (one file's card: unified / split hunks, Viewed), FileTree
   components/notes/   NoteTree, NoteResults / RecentNotes, NoteView (frontmatter, body, actions), SendNoteDialog
   screens/            ListScreen (`#/`), SessionScreen (`#/s/:host/:id`; `layout="pane"` on desktop),
                       SettingsScreen (`#/settings`; `layout="pane"` on desktop),
                       NotesScreen (`#/notes[/<host>[/<path>]]`; `layout="pane"` on desktop),
                       JobsScreen (`#/jobs`; `layout="pane"` on desktop),
+                      ReviewScreen (`#/review/:host/:id`; desktop: file tree | diff | the session),
                       DesktopShell (≥ lg master–detail + the keyboard handler)
   App.tsx             providers + wouter hash router; picks DesktopShell or the mobile screens
 ```
@@ -411,6 +415,16 @@ src/
   the same list to each, lists per-host results (unreachable hosts skipped with a warning) and
   patches the fleet snapshot with what each host now `offered`, so the New session form shows it
   at once. Mobile: one card per entry; from `md` up a compact grid.
+- **Diff reviewer** (`#/review/<host>/<id>`; ../ARCHITECTURE.md → `…/diff`): GitHub's "Files
+  changed" over a session's worktree — everything since the merge-base with the default branch,
+  uncommitted and untracked files included. Reached from the diff button in the session header
+  and ⌘K → Review changes; Esc goes back to the session. `useDiff` polls every 2 s with
+  `since=<fingerprint>` (an unchanged tree answers without files), so the diff follows the
+  session as it edits; a file whose diff just changed is ringed for 10 s and highlighted in the
+  tree. Unified / split (`fleet.diffView`), collapse all, per-file Viewed (stored per session in
+  `fleet.reviewViewed:<host>/<id>` as the diff's signature, so a new change unticks it). Desktop:
+  file tree (`fleet.reviewTree`) | diff | the session itself as a pane (`fleet.reviewChat`) —
+  review and conversation side by side.
 - **Notes** (`#/notes[/<host>[/<path>]]`; ../ARCHITECTURE.md → notes): browse, search and read the
   markdown notes of any host with `web.notes.root` (hosts come from `/api/fleet` entries carrying
   `notes`; the last one used is `fleet.notesHost`). Reached from the ⋯ More menu in the mobile
