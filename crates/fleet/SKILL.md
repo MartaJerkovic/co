@@ -28,6 +28,8 @@ A firstmate-style orchestrator for the many Claude Code sessions the user runs i
 | "watch / notify me / anyone stuck" | `fleet watch [--interval 5] [--stuck 300] [--quiet] [--rows 1\|2\|auto] [--no-mouse]` |
 | "how much usage do I have left / my limits" | `fleet usage` (`--json` to parse) — session (5h), weekly, per-model weekly (e.g. Fable) and extra usage, with reset times |
 | "my PRs / what should I review / what's waiting on me" | `fleet prs` (`--json` to parse; `--column waiting-on-me` etc.; `--refresh` to fetch now) — see Pull requests below |
+| "my tasks / what's due / what am I working on in Productive" | `fleet tasks` (`--json` to parse) — see Productive tasks below |
+| "work on task X in a session / move task X to review" | `fleet task spawn <task> "<prompt>" -C <dir>` / `fleet task status <task> "<status>"` — see Productive tasks below |
 | "check out PR X / work on PR X / review PR X in a session" | `fleet pr checkout <pr>` / `fleet pr spawn <pr> "<prompt>"` — see Pull requests below |
 | "what's running everywhere" | `fleet list --all-hosts` (add `--json`; every row carries `host`) |
 | "…on the workstation" | `fleet -H <host> <any command above>` — runs it on that host over ssh |
@@ -176,6 +178,17 @@ A **stack** is a set of sessions — on one host or across hosts — that share 
 - **`fleet pr cleanup-worktrees`** lists the worktrees under `prs.worktrees` whose PR merged or closed and that are clean, pushed and unused (and why the rest stay); `--apply` removes them (and a merged PR's branch). It deletes: **show the list and confirm before `--apply`**.
 - **If your first prompt starts with "You're working on pull request …"** — you were spawned on that PR: work in the worktree it names, and use `gh pr view <n>` / `gh pr diff <n>` for the description, review comments, CI and diff.
 - The web UI's Pull requests screen does the same, and marks sessions running in a PR's worktree with a `#123` chip.
+
+## Productive tasks
+
+`fleet tasks` lists the user's open Productive tasks (assigned to them, not in archived projects) in three columns: **due** (due within 3 days or overdue), **inProgress** (a started status), **toDo** (not started). Each has its project, `status` (name + category), `dueDate`, todos and `url`. Needs a token (`tasks.token` in the config, or `$PRODUCTIVE_API_TOKEN`) and, when the user is in several organizations, `tasks.organization`. Cached for `tasks.refresh` (5m); `--cached` never fetches.
+
+- `<task>` is the task's id or its Productive URL.
+- **`fleet task show <task>`** — project, status, due date, todos, description.
+- **`fleet task status <task>`** lists its workflow's statuses; **`fleet task status <task> "<status>"`** moves it (a name, a unique prefix or an id; ambiguous → error with candidates). It changes the task for everyone: **confirm with the user first**.
+- **`fleet task spawn <task> "<prompt>" -C <dir>`** starts a session whose first prompt names the task (number, title, project, status, URL). It starts an agent: **confirm with the user like `spawn`**.
+- **If your first prompt starts with "Productive task #…"** — you were spawned on that task: read it in full (description, todos, comments) from its URL with the Productive tools you have, and link it from the PR you open (`app.productive.io/…/tasks/<id>` in the description) so fleet links the two.
+- PRs link to tasks through such URLs in their title or description (`tasks` in `fleet prs --json`). The web UI's Tasks screen shows the same columns, moves tasks, starts sessions, and marks sessions and PRs that belong to a task.
 
 ## Scheduled jobs
 

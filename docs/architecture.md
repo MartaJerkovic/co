@@ -47,6 +47,8 @@ Pure logic plus thin process wrappers; no printing. Everything a future front-en
 - **repos** / **prs** — [`fleet repos`](cli.md#repos) (keep checkouts fresh) and
   [`fleet prs`](cli.md#pull-requests) (the GitHub PRs that need you, through `gh`, joined with
   those checkouts and their worktrees).
+- **tasks** — [`fleet tasks`](cli.md#productive-tasks): your open Productive tasks over its REST
+  API (`curl`), by column, cached, with each workflow's statuses; moving a task between statuses.
 - **snapshot** — [session recovery](#session-recovery): records what runs, marks it dormant after
   a reboot, restores it.
 
@@ -154,6 +156,7 @@ server. Path: `$FLEET_CONFIG`, else `${XDG_CONFIG_HOME:-~/.config}/fleet/config.
 | `jobs` | [`fleet jobs`](cli.md#jobs), per machine: `{ "<name>": { schedule, dir, prompt \| promptFile, command, harness, model, enabled, keep } }` — scheduled sessions on this host. Read leniently: a bad job is a warning and is skipped |
 | `repos` | [`fleet repos`](cli.md#repos), per machine: `roots` (default `["~/Code"]`; every directory directly under a root with a `.git` is a repo), `every` (default `"24h"`; `30m` / `12h` / `7d`), `overrides` (`{ "<dir name or ~/path>": "30m" }`), `exclude` (dir names or `~/` paths). Read leniently: a bad value is a warning and falls back to its default |
 | `prs` | [`fleet prs`](cli.md#pull-requests), per machine: `orgs` (search only these orgs), `repos` (`owner/name`s; with `orgs`, any of them), `refresh` (default `"5m"`, at least `1m`: how old the cache may get), `worktrees` (default `"~/Code/worktrees"`: where `fleet pr checkout` puts new worktrees). None of `orgs`/`repos` = all of GitHub. Read leniently |
+| `tasks` | [`fleet tasks`](cli.md#productive-tasks), per machine: `organization` (an id; may be left out when the token belongs to one organization), `projects` (ids: only tasks in these), `refresh` (default `"5m"`, at least `1m`), `token` (the Productive API token; `$FLEET_PRODUCTIVE_TOKEN` wins over it, `$PRODUCTIVE_API_TOKEN` is the fallback). Read leniently |
 | `gh` | `gh` binary for `fleet prs`; `null` → `PATH`, then `/opt/homebrew/bin`, `/usr/local/bin` |
 | `grouping` | smart grouping: `enabled` (default `true` — `false` = repository fallback only), `model` (default `haiku`), `host` (the one host whose web server runs it; peers proxy `/api/groups` there), `consolidateMinutes` (default 60) |
 
@@ -362,6 +365,13 @@ rule; `local` and `rotting` are worked out on every call and never cached, and s
 the cache keeps each PR's own column and its `mention`, and every read moves the PRs whose mention
 is neither answered nor marked seen (`prs-seen.json`) there.
 
+### `fleet tasks --json`
+
+See [cli.md](cli.md#productive-tasks) for the shape. Column ids, `Task` and `Status` fields follow
+the add-only rule; `column` is worked out on every call (the due-soon window moves with the date),
+never cached. Each PR's `tasks` (in `fleet prs --json`) holds the task ids its title or description
+links to — the join between the two lists.
+
 ### `fleet restore --json`
 
 `{ host, bootId, dormant: [DormantView…] }`, and the restore / forget results — see
@@ -390,6 +400,9 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | POST | `/api/hosts/:host/prs/seen` | `{ pr: "owner/repo#123" }` → `{ host, pr, seenAt }`: `fleet pr seen --json` on that host — its @mentions of you so far are seen |
 | POST | `/api/hosts/:host/prs/spawn` | `{ pr, prompt?, name?, model?, harness? }` → `{ host, worktree, spawn }`: the checkout, then a new session in the worktree whose first prompt is `worktree.contextLine` + `prompt` (like a stack sibling: the web spawner, not `fleet pr spawn`). Starts an agent |
 | GET | `/api/hosts/:host/prs[?refresh=1]` | the GitHub PRs that need you, as `gh` on that host sees them: `fleet prs --json` + `host` (see [cli.md](cli.md#pull-requests)), and `local.editorUrl` ("Open in VS Code / Cursor" for the worktree, like a session's `editorUrl`); 502 with the CLI's reason (no `gh`, not logged in, GitHub down with nothing cached), 501 when that host's CLI predates `fleet prs` |
+| GET | `/api/hosts/:host/tasks[?refresh=1]` | your open Productive tasks, as that host's token sees them: `fleet tasks --json` + `host` (see [cli.md](cli.md#productive-tasks)); 502 with the CLI's reason (no token, several organizations and none configured, Productive down with nothing cached), 501 when that host's CLI predates `fleet tasks` |
+| POST | `/api/hosts/:host/tasks/status` | `{ task, status }` → `{ host, task }`: `fleet task status --json` on that host — moves the task (for everyone) |
+| POST | `/api/hosts/:host/tasks/spawn` | `{ task, dir, prompt?, name?, model?, harness? }` → `{ host, task, spawn }`: a new session in `dir` (validated like `/spawn`) whose first prompt is the task's `contextLine` (`fleet task show --json`) + `prompt`. Starts an agent |
 | GET | `/api/hosts/:host/spawn-dirs` | that host's stored `spawnDirs` (canonical `{ label, paths }`), whether each of its own paths is a directory there, and what it offers now |
 | PUT | `/api/hosts/:host/spawn-dirs` | `{ spawnDirs, dryRun? }` → validated on that host (its own paths must exist), written with `fleet --local config set spawnDirs`, used at once (no restart); 400 with per-entry `errors`. As powerful as spawn (it widens the spawn allow-list); no auth, like spawn |
 | GET/PUT | `/api/hosts/:host/repos` | Settings → Git repos: that host's `repos` settings, every repo (`fleet --local repos --json --all`) and its sync timer; PUT writes `repos` with `fleet --local config set` |

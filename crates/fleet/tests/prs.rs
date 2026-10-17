@@ -40,10 +40,11 @@ fn page(nodes: Vec<Value>) -> String {
 fn fake_gh(env: &Env) -> std::path::PathBuf {
     std::fs::write(
         env.path("mine.json"),
-        page(vec![
-            pr("app", 1, "me", true, json!([])),
-            pr("app", 2, "me", false, json!([])),
-        ]),
+        page(vec![pr("app", 1, "me", true, json!([])), {
+            let mut p = pr("app", 2, "me", false, json!([]));
+            p["body"] = json!("Task: https://app.productive.io/1-acme/tasks/1001");
+            p
+        }]),
     )
     .unwrap();
     std::fs::write(
@@ -145,6 +146,8 @@ fn prs_json_sorts_into_columns_and_caches() {
     assert_eq!(v["prs"][0]["mention"]["author"], "ana");
     assert_eq!(v["prs"][0]["mention"]["excerpt"], "@me can you look?");
     assert_eq!(v["prs"][1]["checks"], "pending");
+    assert_eq!(v["prs"][2]["tasks"], json!(["1001"]));
+    assert!(v["prs"][1].get("tasks").is_none());
     assert_eq!(v["columns"].as_array().unwrap().len(), 6);
     assert_eq!(v["columns"][0]["id"], "unseenMentions");
     assert_eq!(v["columns"][1]["id"], "waitingOnMe");

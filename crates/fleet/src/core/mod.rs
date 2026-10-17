@@ -15,6 +15,7 @@ pub mod prs;
 pub mod repos;
 pub mod snapshot;
 pub mod stack;
+pub mod tasks;
 pub mod title;
 pub mod tmux;
 pub mod tools;

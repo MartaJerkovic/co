@@ -49,6 +49,8 @@ const READ_ONLY: &[&str] = &[
     "usage",
     "doctor",
     "prs",
+    "tasks",
+    "task show",
     "harness list",
     "stack list",
     "stack show",

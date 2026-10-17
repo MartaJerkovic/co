@@ -293,6 +293,9 @@ pub struct Pr {
     /// The latest time someone else @mentioned you on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mention: Option<Mention>,
+    /// Productive tasks the title or description links to (`app.productive.io/…/tasks/<id>`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<String>,
     /// How long it has waited for its column. Set at read time ([`rotting`]).
     #[serde(default)]
     pub rotting: Rotting,
@@ -441,6 +444,11 @@ fn parse_node(n: &Value, column: Column, me: &str) -> Option<Pr> {
         requested_reviewers,
         my_review,
         mention: None,
+        tasks: crate::core::tasks::task_ids_in(&format!(
+            "{} {}",
+            n["title"].as_str().unwrap_or(""),
+            n["body"].as_str().unwrap_or("")
+        )),
         rotting: Rotting::Fresh,
         local: None,
     })
@@ -624,7 +632,7 @@ pub fn resolve_mentions(prs: &mut Vec<Pr>, seen: &HashMap<String, i64>) {
 
 const FIELDS: &str = r#"
 fragment pr on PullRequest {
-  number title url isDraft createdAt updatedAt additions deletions changedFiles
+  number title body url isDraft createdAt updatedAt additions deletions changedFiles
   baseRefName headRefName isCrossRepository reviewDecision
   repository { name owner { login } }
   author { login }

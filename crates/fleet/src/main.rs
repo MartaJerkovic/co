@@ -6,7 +6,7 @@ use colored::Colorize;
 use fleet::cli::{
     brief as brief_cmd, commands, config_cmd, group, hosts as host_cmds, init, jobs as jobs_cmd,
     mcp, prs as prs_cmd, repos as repos_cmd, restore, skill, stack as stack_cmds,
-    tmux as tmux_cmds, usage as usage_cmd, web,
+    tasks as tasks_cmd, tmux as tmux_cmds, usage as usage_cmd, web,
 };
 use fleet::core::config;
 use fleet::core::discovery::Backend;
@@ -464,6 +464,28 @@ enum Commands {
         cmd: PrCmd,
     },
 
+    /// Your open Productive tasks: due soon / overdue, in progress, to do
+    Tasks {
+        /// Machine-readable output
+        #[arg(long)]
+        json: bool,
+        /// Only this column: due, in-progress, to-do
+        #[arg(long)]
+        column: Option<String>,
+        /// Fetch now, whatever the cache's age
+        #[arg(long, conflicts_with = "cached")]
+        refresh: bool,
+        /// Never fetch: show the cache, however old
+        #[arg(long)]
+        cached: bool,
+    },
+
+    /// One Productive task: show it, move it to another status, or start a session on it
+    Task {
+        #[command(subcommand)]
+        cmd: TaskCmd,
+    },
+
     /// Keep the git repos under the configured roots fresh (fetch + fast-forward only)
     Repos {
         #[command(subcommand)]
@@ -784,6 +806,54 @@ enum PrCmd {
         pr: String,
         /// The first prompt (after the PR's context line)
         prompt: Option<String>,
+        /// Backend to spawn into (default: tmux inside tmux, over ssh or off macOS; else iterm)
+        #[arg(long, value_enum)]
+        backend: Option<BackendArg>,
+        /// Display name for the new session
+        #[arg(long)]
+        name: Option<String>,
+        /// Model for the new session (`<harness> --model <id>`)
+        #[arg(long, value_name = "ID")]
+        model: Option<String>,
+        /// Coding agent to run: claude (default), codex or pi
+        #[arg(long, value_enum)]
+        harness: Option<HarnessArg>,
+        /// Open a window in this tmux session instead of a new session per job (tmux only)
+        #[arg(long)]
+        tmux_session: Option<String>,
+        /// Open a new window instead of a tab (iterm backend only)
+        #[arg(long)]
+        window: bool,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+enum TaskCmd {
+    /// The task: project, status, due date, description
+    Show {
+        /// The task's id or its Productive URL
+        task: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Move the task to another status of its workflow (lists them without STATUS)
+    Status {
+        /// The task's id or its Productive URL
+        task: String,
+        /// A status name (or a unique prefix of one) or id
+        status: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start a session that is told what the task is
+    Spawn {
+        /// The task's id or its Productive URL
+        task: String,
+        /// The first prompt (after the task's context line)
+        prompt: Option<String>,
+        /// Directory to start in (default: the current one)
+        #[arg(short = 'C', long)]
+        dir: Option<String>,
         /// Backend to spawn into (default: tmux inside tmux, over ssh or off macOS; else iterm)
         #[arg(long, value_enum)]
         backend: Option<BackendArg>,
@@ -1433,6 +1503,51 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
                 prompt,
                 commands::SpawnOpts {
                     dir: None,
+                    backend: backend.map(Into::into),
+                    name,
+                    model,
+                    harness: harness.map(Into::into).unwrap_or_default(),
+                    tmux_session,
+                    window,
+                },
+            )?,
+        },
+        Commands::Tasks {
+            json,
+            column,
+            refresh,
+            cached,
+        } => tasks_cmd::run(tasks_cmd::Opts {
+            json,
+            column,
+            mode: if refresh {
+                fleet::core::tasks::Mode::Refresh
+            } else if cached {
+                fleet::core::tasks::Mode::Cached
+            } else {
+                fleet::core::tasks::Mode::Auto
+            },
+        })?,
+        Commands::Task { cmd } => match cmd {
+            TaskCmd::Show { task, json } => tasks_cmd::show(&task, json)?,
+            TaskCmd::Status { task, status, json } => {
+                tasks_cmd::status(&task, status.as_deref(), json)?
+            }
+            TaskCmd::Spawn {
+                task,
+                prompt,
+                dir,
+                backend,
+                name,
+                model,
+                harness,
+                tmux_session,
+                window,
+            } => tasks_cmd::spawn(
+                &task,
+                prompt,
+                commands::SpawnOpts {
+                    dir,
                     backend: backend.map(Into::into),
                     name,
                     model,

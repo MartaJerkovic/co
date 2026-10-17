@@ -433,18 +433,47 @@ graphql`, its auth — run `gh auth login` once). Config: `prs` in [the config](
 (times in ms epoch; `columns` in display order; `truncated`: a search had more than 200 hits). A `Pr` is
 `{ column, owner, repo, number, title, url, author, draft, createdAt, updatedAt, additions, deletions,
 changedFiles, size, baseBranch, headBranch, crossRepository, headOid, reviewDecision, checks, comments,
-requestedReviewers, myReview, mention?, rotting, local? }`: `size` is `XS`…`XL` by lines changed (≤10, ≤100, ≤500, ≤1000);
+requestedReviewers, myReview, mention?, tasks?, rotting, local? }`: `size` is `XS`…`XL` by lines changed (≤10, ≤100, ≤500, ≤1000);
 `reviewDecision` `approved` · `changesRequested` · `reviewRequired` · `null`; `checks` (the head
 commit's combined CI) `success` · `failure` · `error` · `pending` · `expected` · `null`;
 `requestedReviewers` logins and `@team` slugs; `myReview` `{ state, at, newCommits }` (your latest
 review, `newCommits`: the head moved since) or `null`; `mention` `{ at, author, url, excerpt, answered, seen }`
 (the latest @mention of you by someone else: where, the line it is on, whether you commented or
-reviewed after it, whether that or `fleet pr seen` makes it seen) when there is one; `rotting`
+reviewed after it, whether that or `fleet pr seen` makes it seen) when there is one; `tasks` the
+[Productive task](#productive-tasks) ids its title or description links to
+(`app.productive.io/<org>/tasks/<id>`), left out when none; `rotting`
 `fresh` · `warming` · `stale` · `rotting` · `critical` — how long it has waited (since it was
 opened; in **unseenMentions** since the mention), by its column: **waitingOnMe** / **unseenMentions**
 4h · 1d · 2d · 4d, **reviewMine** / **readyToMergeMine** 1d · 3d · 7d · 14d, **waitingOnAuthor**
 2d · 5d · 10d · 14d, **draftMine** 3d · 7d · 14d · 30d (the age cell's colour in the text output); `local` `{ repoPath, worktree }` when the repo
 is checked out here (`worktree`: where the head branch is checked out, or `null`).
+
+## Productive tasks
+
+Your open [Productive](https://productive.io) tasks — assigned to you, in projects that are not
+archived — sorted into columns, cached, with each workflow's statuses so a task can be moved
+along. Productive is reached over its REST API with `curl`; the token goes to `curl` on stdin,
+never on its command line. Token: `$FLEET_PRODUCTIVE_TOKEN`, else `tasks.token` in
+[the config](architecture.md#config), else `$PRODUCTIVE_API_TOKEN` (Productive → Settings → API
+integrations). Config: `tasks`.
+
+| command | does |
+| --- | --- |
+| `fleet tasks [--json] [--column C] [--refresh \| --cached]` | looks you up (`organization_memberships`: your person in `tasks.organization`, or in the only organization you belong to — several and none configured → error listing them), then your open tasks (`filter[assignee_id]`, `filter[status]=1`, `tasks.projects` when set; 200 per page up to 5 pages) with their project, workflow status and task list, and every workflow's statuses. Tasks in archived projects are left out. Columns, set at read time: **due** (due within 3 days, or overdue), else by the status's category: **inProgress** (started) · **toDo** (not started). Due by date, the rest by latest activity first. Fetches when the cache is older than `tasks.refresh` (default `5m`); `--refresh` always fetches, `--cached` never does. A failed fetch serves the cache with a warning (`stale`, `error`). `--column` takes `in-progress`, `inProgress`, … Cache: `${XDG_CACHE_HOME:-~/.cache}/fleet/tasks.json` (`FLEET_TASKS_CACHE`) |
+| `fleet task show <task> [--json]` | one task: project, task list, status, due date, todos, description. `<task>` is its id (`1234`, `#1234`) or its Productive URL. From the cache, else fetched (any task, open or not). `--json`: the `Task` plus `contextLine` (the first prompt `task spawn` gives) and `statuses` (its workflow's) |
+| `fleet task status <task> [status] [--json]` | without `status`, its workflow's statuses (`●` the current one). With one — an id, a name (any case) or a unique prefix of one; ambiguous or unknown → exit 2 with the candidates — moves the task there and updates the cache (a closed task leaves it). `-n` changes nothing. `--json`: `{ task, applied }` (the task as it is now) |
+| `fleet task spawn <task> [prompt] [-C DIR] [--name] [--model] [--harness] [--backend] [--tmux-session] [--window]` | `spawn` in `DIR` (default: here) with the first prompt `contextLine` + `prompt`: `Productive task #<number> <url> — “<title>” (<project>, <status>).` (the URL early: the web UI links a session to a task by it, and sees only the first ~300 characters of a first prompt) Starts an agent — confirm like `spawn` |
+
+`--json`: `{ user: { id, name }, organization: { id, name, slug }, scope, fetchedAt, stale, error,
+truncated, columns: [{ id, title, count }], tasks: [Task…], statuses: { <workflowId>: [Status…] } }`
+(times in ms epoch; `columns` in display order; `truncated`: more than 1000 open tasks). A `Task` is
+`{ column, id, number, title, url, project: { id, name }, taskList, status, workflowId, dueDate,
+startDate, createdAt, updatedAt, lastActivityAt, todos, openTodos, tags, description }`: `number`
+is the project's task number; `url` `https://app.productive.io/<organization.slug>/tasks/<id>`;
+`dueDate` / `startDate` `YYYY-MM-DD` or `null`; `description` plain text, at most 600 characters.
+A `Status` is `{ id, name, category: "notStarted" | "started" | "closed", position }`; a
+workflow's statuses are in position order, closed ones last. `column` is `closed` only on a task
+`fleet task status` just closed.
 
 ## Repos
 
@@ -598,6 +627,9 @@ fleet mcp --http [--bind 127.0.0.1] [--port 7778] --token-file ~/.config/fleet/m
 | `FLEET_GH` | `gh` binary for [`fleet prs`](#pull-requests) (over config `gh`) |
 | `FLEET_PRS_CACHE` | the [`fleet prs`](#pull-requests) cache file |
 | `FLEET_PRS_SEEN` | where [`fleet pr seen`](#pull-requests) keeps its marks |
+| `FLEET_PRODUCTIVE_TOKEN` / `PRODUCTIVE_API_TOKEN` | Productive API token for [`fleet tasks`](#productive-tasks) (the first over config `tasks.token`, the second under it) |
+| `FLEET_TASKS_CACHE` | the [`fleet tasks`](#productive-tasks) cache file |
+| `FLEET_CURL`, `FLEET_PRODUCTIVE_API` | `curl` binary and API base URL for [`fleet tasks`](#productive-tasks) (tests) |
 | `FLEET_JOB_RUN` | `<job>/<run>`: the [job](#jobs) run a session belongs to — set in job sessions; a spawn with it set joins that run (and is forwarded to `-H` hosts) |
 | `FLEET_JOBS_DIR` | [job](#jobs) state (default `${XDG_STATE_HOME:-~/.local/state}/fleet/jobs`) |
 | `FLEET_STACKS_DIR` | where [stacks](#stacks) live (default `${XDG_STATE_HOME:-~/.local/state}/fleet/stacks`) |
