@@ -26,6 +26,7 @@ export type ShortcutAction =
   | 'operator'
   | 'memos'
   | 'prs'
+  | 'tasks'
   | 'jobs'
   | 'usage'
   | 'settings'
@@ -93,6 +94,7 @@ export const BINDINGS: readonly Binding[] = [
   { action: 'operator', combo: ['mod', 'shift', 'K'] },
   { action: 'memos', combo: ['mod', 'shift', 'M'] },
   { action: 'prs', combo: ['mod', 'shift', 'P'] },
+  { action: 'tasks', combo: ['mod', 'shift', 'Y'] },
   { action: 'jobs', combo: ['mod', 'shift', 'L'] },
   { action: 'usage', combo: ['mod', 'shift', 'U'] },
   { action: 'settings', combo: ['mod', ','] },
@@ -270,6 +272,7 @@ export const SHORTCUT_HELP: { title: string; items: ShortcutHelp[] }[] = [
       { action: 'operator', label: 'Operator: talk to the fleet' },
       { action: 'memos', label: 'Voice memos: record a conversation' },
       { action: 'prs', label: 'Pull requests' },
+      { action: 'tasks', label: 'Tasks (Productive)' },
       { action: 'jobs', label: 'Scheduled jobs' },
       { action: 'usage', label: 'Usage limits' },
       { action: 'settings', label: 'Settings' },

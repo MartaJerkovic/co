@@ -6,6 +6,7 @@ import { EditableTitle } from '@/components/EditableTitle'
 import { HostBadge } from '@/components/HostBadge'
 import { JobChip } from '@/components/JobChip'
 import { PrChip } from '@/components/PrChip'
+import { TaskChip } from '@/components/TaskChip'
 import { StackChip } from '@/components/stack/StackChip'
 import { StatusDot } from '@/components/StatusDot'
 import { useLongPress } from '@/hooks/useLongPress'
@@ -71,6 +72,7 @@ export function SessionRow({ session: s, now, selected, cursor }: SessionRowProp
         <StackChip session={s} />
         <JobChip session={s} />
         <PrChip session={s} />
+        <TaskChip session={s} />
         {cwd ? <span className="min-w-0 truncate font-mono">{cwd}</span> : null}
         {harness !== 'claude' ? (
           <span className={cn(chip, 'border-primary/40 text-primary')} title={s.model ?? undefined}>

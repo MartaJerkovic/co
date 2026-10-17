@@ -1,7 +1,7 @@
 // The one place the web server talks to the `fleet` CLI. Everything the server needs
 // from the CLI goes through here, so an alternative UI/TUI server can reuse it and the
 // contracts (`fleet list --json`, `fleet rename --json`, `fleet name --all --apply`, `fleet name <id> --apply`, `fleet group` (+ `--rename` / `--move`),
-// `fleet usage --json`, `fleet --local prs --json`, `fleet --local pr checkout --json`, `fleet config set`, `fleet --local repos …`, `fleet --local jobs …`, `fleet --local stack … --json`, `fleet --local restore … --json`) are documented in one
+// `fleet usage --json`, `fleet --local prs --json`, `fleet --local pr checkout --json`, `fleet --local tasks --json`, `fleet --local task show|status --json`, `fleet config set`, `fleet --local repos …`, `fleet --local jobs …`, `fleet --local stack … --json`, `fleet --local restore … --json`) are documented in one
 // spot (see ARCHITECTURE.md).
 //
 // Peek/send/keys are NOT done through the CLI: `fleet peek` truncates to terminal width
@@ -265,6 +265,60 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
   }
 
   /**
+   * Your open Productive tasks: `fleet --local tasks --json [--refresh]` (docs/cli.md → Tasks).
+   * A fetch is a few Productive API calls; a fresh cache is instant.
+   */
+  async function tasks({ refresh = false, timeoutMs: t = 120 * 1000 } = {}) {
+    const args = ['--local', 'tasks', '--json'];
+    if (refresh) args.push('--refresh');
+    let stdout;
+    try {
+      ({ stdout } = await run(bin, args, { timeout: t, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, NO_COLOR: '1' } }));
+    } catch (err) {
+      const e = wrap(err, 'fleet tasks', t);
+      const why = lastReason(err);
+      if (why && !e.timedOut) e.message = why;
+      e.missing = !e.timedOut && /unrecognized subcommand 'tasks'/i.test(String(err?.stderr ?? ''));
+      throw e;
+    }
+    return parseObject(stdout, 'fleet tasks');
+  }
+
+  /** One task and its context line: `fleet --local task show <id> --json` → `{ ...task, contextLine }`. */
+  async function taskShow(id, { timeoutMs: t = 60 * 1000 } = {}) {
+    return taskCommand('show', [id], t);
+  }
+
+  /** Move a task to another status: `fleet --local task status <id> <status> --json` → `{ task }`. */
+  async function taskStatus(id, status, { timeoutMs: t = 60 * 1000 } = {}) {
+    return taskCommand('status', [id, status], t);
+  }
+
+  async function taskCommand(sub, rest, t) {
+    let stdout;
+    try {
+      ({ stdout } = await run(bin, ['--local', 'task', sub, '--json', '--', ...rest.map(String)], { timeout: t, env: { ...process.env, NO_COLOR: '1' } }));
+    } catch (err) {
+      const e = wrap(err, `fleet task ${sub}`, t);
+      const why = lastReason(err);
+      if (why && !e.timedOut) e.message = why;
+      e.missing = !e.timedOut && new RegExp(`unrecognized subcommand '(task|${sub})'`, 'i').test(String(err?.stderr ?? ''));
+      throw e;
+    }
+    return parseObject(stdout, `fleet task ${sub}`);
+  }
+
+  /** The last stderr line that is not a warning, without the `fleet: Error:` prefix. */
+  function lastReason(err) {
+    return String(err?.stderr ?? '')
+      .split('\n')
+      .filter((l) => l.trim() && !l.startsWith('warning:'))
+      .pop()
+      ?.replace(/^(fleet:\s*)?(Error:\s*)?/i, '')
+      .trim();
+  }
+
+  /**
    * The harnesses this machine can spawn (claude, codex, pi) and their model pickers:
    * `fleet --local harness list --json` → `[{ id, label, command, installed, models }]`.
    */
@@ -482,6 +536,9 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
     prs,
     prCheckout,
     prSeen,
+    tasks,
+    taskShow,
+    taskStatus,
     configSet,
     repos,
     reposSync,

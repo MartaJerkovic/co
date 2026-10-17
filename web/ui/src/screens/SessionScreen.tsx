@@ -20,6 +20,7 @@ import { DropOverlay } from '@/components/DropOverlay'
 import { EditableTitle } from '@/components/EditableTitle'
 import { HostBadge } from '@/components/HostBadge'
 import { PrChip } from '@/components/PrChip'
+import { TaskChip } from '@/components/TaskChip'
 import { NewSessionDialog, NewSessionDrawer, type SpawnPrefill } from '@/components/NewSessionDrawer'
 import { StatusDot } from '@/components/StatusDot'
 import { StackBar } from '@/components/stack/StackBar'
@@ -513,6 +514,7 @@ export function SessionScreen({
               <span className={cn('shrink-0', STATUS_TEXT[meta.key])}>{gone ? 'gone' : meta.label}</span>
               <HostBadge host={host} className="h-4 px-1 text-[0.625rem]" />
               {session?.session_id ? <PrChip session={{ host, session_id: session.session_id }} className="h-4" /> : null}
+              {session?.session_id ? <TaskChip session={{ host, session_id: session.session_id }} className="h-4" /> : null}
               {session?.context?.model ? (
                 <span className="shrink-0 text-dim" title={session.context.model}>
                   {modelLabel(session.context.model)}

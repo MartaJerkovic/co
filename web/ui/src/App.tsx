@@ -12,6 +12,7 @@ import { PrefsProvider } from '@/providers/PrefsProvider'
 import { PrsProvider } from '@/providers/PrsProvider'
 import { SettingsProvider } from '@/providers/SettingsProvider'
 import { SpeechProvider } from '@/providers/SpeechProvider'
+import { TasksProvider } from '@/providers/TasksProvider'
 import { usePreventFileNavigation } from '@/hooks/useAttach'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { ThemeProvider } from '@/providers/ThemeProvider'
@@ -25,11 +26,12 @@ import { PrsScreen } from '@/screens/PrsScreen'
 import { ReviewScreen } from '@/screens/ReviewScreen'
 import { SessionScreen } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
+import { TasksScreen } from '@/screens/TasksScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
 
 /**
  * Hash routing: `#/` (list), `#/s/<host>/<session_id>` (detail),
- * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer) and `#/review/<host>/<session_id>` (the diff reviewer).
+ * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/tasks` (your open Productive tasks), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer) and `#/review/<host>/<session_id>` (the diff reviewer).
  * No server-side SPA fallback needed; the PWA start_url is `/#/`. Desktop and mobile use the
  * same routes, so links work across both.
  */
@@ -47,6 +49,7 @@ export default function App() {
         <FleetProvider>
         <DormantProvider>
         <PrsProvider>
+        <TasksProvider>
           <TooltipProvider>
             <Router hook={useHashLocation}>
               {desktop ? (
@@ -74,6 +77,9 @@ export default function App() {
                   <Route path={/^\/prs(?:\/.*)?$/}>
                     <PrsScreen />
                   </Route>
+                  <Route path={/^\/tasks(?:\/.*)?$/}>
+                    <TasksScreen />
+                  </Route>
                   <Route path={/^\/notes(?:\/.*)?$/}>
                     <NotesScreen />
                   </Route>
@@ -97,6 +103,7 @@ export default function App() {
             </Router>
             <Toaster position={desktop ? 'bottom-right' : 'top-center'} offset={desktop ? { bottom: 112, right: 16 } : undefined} />
           </TooltipProvider>
+        </TasksProvider>
         </PrsProvider>
         </DormantProvider>
         </FleetProvider>

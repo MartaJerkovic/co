@@ -940,6 +940,8 @@ export interface PullRequest {
   /** Where the repo / head branch is checked out on the answering host. */
   /** `editorUrl`: "Open in VS Code / Cursor" for the worktree, from the server the browser asked (null: no link). */
   local?: { repoPath: string; worktree: string | null; editorUrl?: string | null }
+  /** Productive task ids its description / title links to (absent from older servers). */
+  tasks?: string[]
 }
 
 export type PrRotting = 'fresh' | 'warming' | 'stale' | 'rotting' | 'critical'
@@ -969,6 +971,74 @@ export interface PrsResponse {
   truncated: boolean
   columns: PrColumn[]
   prs: PullRequest[]
+}
+
+/** A `fleet tasks` column id (docs/cli.md → Tasks). */
+export type TaskColumnId = 'due' | 'inProgress' | 'toDo'
+
+export interface TaskColumn {
+  id: TaskColumnId
+  title: string
+  count: number
+}
+
+export type TaskStatusCategory = 'notStarted' | 'started' | 'closed'
+
+/** A workflow status (a stage in a project's task workflow). */
+export interface TaskStatus {
+  id: string
+  name: string
+  category: TaskStatusCategory | string
+  position: number
+}
+
+/** One of your open Productive tasks (`fleet tasks --json` → `tasks[]`). */
+export interface Task {
+  id: string
+  /** The project-scoped number (`#123`). */
+  number: string
+  title: string
+  url: string
+  column: TaskColumnId
+  project: { id: string; name: string }
+  taskList: string | null
+  status: TaskStatus
+  /** Key into `TasksResponse.statuses`: the statuses it can move to. */
+  workflowId: string
+  /** `YYYY-MM-DD` */
+  dueDate: string | null
+  startDate: string | null
+  /** ms epoch */
+  createdAt: number
+  updatedAt: number
+  lastActivityAt: number | null
+  todos: number
+  openTodos: number
+  tags: string[]
+  /** Plain-text excerpt of the description ('' when none). */
+  description: string
+}
+
+/** GET /api/hosts/:host/tasks */
+export interface TasksResponse {
+  host: string
+  user: { id: string; name: string }
+  organization: { id: string; name: string; slug: string }
+  fetchedAt: number
+  stale: boolean
+  error: string | null
+  truncated: boolean
+  columns: TaskColumn[]
+  tasks: Task[]
+  /** workflow id → its statuses. */
+  statuses: Record<string, TaskStatus[]>
+}
+
+/** POST /api/hosts/:host/tasks/spawn */
+export interface TaskSpawnResponse {
+  host: string
+  task: Task & { contextLine: string }
+  spawn: SpawnResponse
 }
 
 /** A PR checked out in a worktree (`fleet pr checkout --json`). */

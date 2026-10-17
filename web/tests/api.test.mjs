@@ -69,6 +69,20 @@ function fakeHost(self, sessions) {
     calls.push(['prSeen', ref]);
     return { pr: ref, seenAt: 1000, applied: true };
   };
+  cli.tasks = async ({ refresh }) => {
+    calls.push(['tasks', refresh]);
+    if (self === 'broken') throw new Error('no Productive API token: set tasks.token in config or $PRODUCTIVE_API_TOKEN');
+    return { user: { id: '7', name: `Ada@${self}` }, columns: [{ id: 'inProgress', title: 'In progress', count: 1 }], tasks: [{ id: '1001', column: 'inProgress', title: 'Fix it' }], statuses: {} };
+  };
+  cli.taskShow = async (id) => {
+    calls.push(['taskShow', id]);
+    if (id === '404') throw new Error('no task 404 among your open tasks');
+    return { id, title: 'Fix it', contextLine: `Productive task #12 “Fix it”: https://app.productive.io/1-acme/tasks/${id}.` };
+  };
+  cli.taskStatus = async (id, status) => {
+    calls.push(['taskStatus', id, status]);
+    return { task: { id, status: { id: '5', name: status, category: 'started' } } };
+  };
   return { calls, cli, backend, transcripts, spawner, killer, autoNamer, fleet: createFleet({ cli, self }) };
 }
 
@@ -512,6 +526,93 @@ test('fleet CLI prCheckout runs `fleet --local pr checkout --json -- <ref>`', as
   assert.deepEqual(calls.at(-1), ['--local', 'pr', 'seen', '--json', '--', 'acme/app#3']);
   stderr = "error: unrecognized subcommand 'seen'\n";
   await assert.rejects(cli.prSeen('acme/app#3'), (e) => e.missing === true);
+});
+
+test('tasks is GET-only, served locally or proxied, with ?refresh=1 passed through', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  const here = await get(`${urls.laptop}/api/hosts/laptop/tasks`);
+  assert.equal(here.status, 200);
+  assert.deepEqual([here.body.host, here.body.user.name, here.body.tasks[0].id], ['laptop', 'Ada@laptop', '1001']);
+  const there = await get(`${urls.laptop}/api/hosts/workstation/tasks?refresh=1`);
+  assert.deepEqual([there.body.host, there.body.user.name], ['workstation', 'Ada@workstation']);
+  assert.deepEqual(lap.calls.filter((c) => c[0] === 'tasks'), [['tasks', false]]);
+  assert.deepEqual(remote.calls.filter((c) => c[0] === 'tasks'), [['tasks', true]]);
+  assert.equal((await post(`${urls.laptop}/api/hosts/laptop/tasks`, {})).status, 405);
+  assert.equal((await get(`${urls.laptop}/api/hosts/laptop/tasks/status`)).status, 405);
+});
+
+test('tasks: a CLI failure is a 502 with its reason; a CLI without the command is a 501', async () => {
+  const host = fakeHost('broken', []);
+  const config = normalizeConfig({ self: 'broken' }, { env: {}, home: '/home/tester' });
+  const api = createApi({ config, ...host, warmFleet: false });
+  await assert.rejects(api({ method: 'GET', headers: {} }, new URL('http://x/api/hosts/broken/tasks')), (e) => e.status === 502 && /tasks\.token/.test(e.message));
+  host.cli.tasks = async () => {
+    throw Object.assign(new Error('x'), { missing: true });
+  };
+  await assert.rejects(api({ method: 'GET', headers: {} }, new URL('http://x/api/hosts/broken/tasks')), (e) => e.status === 501);
+  delete host.cli.tasks;
+  await assert.rejects(api({ method: 'GET', headers: {} }, new URL('http://x/api/hosts/broken/tasks')), (e) => e.status === 501);
+});
+
+test('tasks/status moves a task on the host it was fetched on; ids or links only', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  const r = await post(`${urls.laptop}/api/hosts/workstation/tasks/status`, { task: 'https://app.productive.io/1-acme/tasks/1001', status: 'Working' });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.host, r.body.task.id, r.body.task.status.name], ['workstation', '1001', 'Working']);
+  assert.deepEqual(remote.calls.filter((c) => c[0] === 'taskStatus'), [['taskStatus', '1001', 'Working']]);
+  for (const task of ['abc', '0', '../1', 'https://evil.example/tasks/1', null]) {
+    assert.equal((await post(`${urls.laptop}/api/hosts/laptop/tasks/status`, { task, status: 'Working' })).status, 400, String(task));
+  }
+  assert.equal((await post(`${urls.laptop}/api/hosts/laptop/tasks/status`, { task: '1001' })).status, 400);
+  assert.equal(lap.calls.filter((c) => c[0] === 'taskStatus').length, 0);
+});
+
+test('tasks/spawn: a session in a spawn dir whose first prompt is the task context line + the prompt', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  const sp = await post(`${urls.laptop}/api/hosts/workstation/tasks/spawn`, { task: '1001', dir: os.tmpdir(), prompt: '  Plan it. ', name: 'task-1001', model: 'opus' });
+  assert.equal(sp.status, 200);
+  assert.deepEqual([sp.body.host, sp.body.task.id, sp.body.spawn.tmuxSession], ['workstation', '1001', 'task-1001']);
+  const [, req] = remote.calls.find((c) => c[0] === 'spawn');
+  assert.equal(req.prompt, 'Productive task #12 “Fix it”: https://app.productive.io/1-acme/tasks/1001. Plan it.');
+  assert.equal(req.model, 'opus');
+  assert.equal(lap.calls.filter((c) => c[0] === 'spawn').length, 0);
+
+  // Bad input: 400 before anything is looked up; outside the spawn dirs: refused.
+  assert.equal((await post(`${urls.laptop}/api/hosts/laptop/tasks/spawn`, { task: 'x', dir: os.tmpdir() })).status, 400);
+  assert.equal((await post(`${urls.laptop}/api/hosts/laptop/tasks/spawn`, { task: '1001', dir: os.tmpdir(), model: 'x y' })).status, 400);
+  assert.equal(lap.calls.filter((c) => c[0] === 'taskShow').length, 0);
+  const outside = await post(`${urls.laptop}/api/hosts/laptop/tasks/spawn`, { task: '1001', dir: '/' });
+  assert.ok(outside.status >= 400, String(outside.status));
+  const gone = await post(`${urls.laptop}/api/hosts/laptop/tasks/spawn`, { task: '404', dir: os.tmpdir() });
+  assert.equal(gone.status, 502);
+  assert.equal(lap.calls.filter((c) => c[0] === 'spawn').length, 0);
+});
+
+test('fleet CLI tasks / task show / task status run the CLI and flag a missing command', async () => {
+  const calls = [];
+  let stderr = null;
+  const run = async (bin, args) => {
+    calls.push(args);
+    if (stderr) throw Object.assign(new Error('exit 1'), { code: 1, stderr });
+    return { stdout: JSON.stringify({ tasks: [] }), stderr: '' };
+  };
+  const cli = createFleetCli({ run, bin: '/x/fleet' });
+  await cli.tasks();
+  await cli.tasks({ refresh: true });
+  await cli.taskShow('1001');
+  await cli.taskStatus('1001', 'Peer Review');
+  assert.deepEqual(calls, [
+    ['--local', 'tasks', '--json'],
+    ['--local', 'tasks', '--json', '--refresh'],
+    ['--local', 'task', 'show', '--json', '--', '1001'],
+    ['--local', 'task', 'status', '--json', '--', '1001', 'Peer Review'],
+  ]);
+  stderr = 'warning: tasks.refresh: 1s is too short\nError: no Productive API token: set tasks.token\n';
+  await assert.rejects(cli.tasks(), /^FleetCliError: no Productive API token: set tasks.token$/);
+  stderr = "error: unrecognized subcommand 'tasks'\n";
+  await assert.rejects(cli.tasks(), (e) => e.missing === true);
+  stderr = "error: unrecognized subcommand 'task'\n";
+  await assert.rejects(cli.taskShow('1'), (e) => e.missing === true);
 });
 
 test('harnesses: per host, cached, Claude models from the config, proxied to peers', async (t) => {

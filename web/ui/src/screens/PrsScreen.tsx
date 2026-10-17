@@ -17,6 +17,7 @@ import { ChecksIcon, PrSessionLink } from '@/components/PrChip'
 import { PrDialog } from '@/components/PrDialog'
 import { PrMention } from '@/components/PrMention'
 import { ScreenHeader } from '@/components/ScreenHeader'
+import { PrTaskChips } from '@/components/TaskChip'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -332,6 +333,11 @@ function PrCard({ pr: p, now, onOpen, sessions }: { pr: PullRequest; now: number
           ) : null}
         </div>
       </button>
+      {p.tasks?.length ? (
+        <div className="flex flex-wrap gap-1 px-3 pb-2 empty:hidden">
+          <PrTaskChips pr={p} />
+        </div>
+      ) : null}
       {p.column === 'unseenMentions' ? <PrMention pr={p} className="border-t px-3 py-2" /> : null}
       {sessions?.length ? (
         <div className="flex flex-col gap-0.5 border-t px-2 py-1.5">

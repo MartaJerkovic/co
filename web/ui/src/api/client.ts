@@ -55,6 +55,9 @@ import type {
   PrSpawnResponse,
   PrWorktree,
   PrsResponse,
+  Task,
+  TasksResponse,
+  TaskSpawnResponse,
   UsageResponse,
 } from './types'
 import type { GroupEdit } from '@/lib/groups'
@@ -314,6 +317,16 @@ export const api = {
   /** Check it out, then start a session in the worktree whose first prompt says what the PR is. */
   prSpawn: (host: string, body: { pr: string; prompt?: string; name?: string; model?: string; harness?: string }, o: Opts = {}) =>
     request<PrSpawnResponse>(`${hostPath(host)}/prs/spawn`, { ...o, method: 'POST', body }),
+
+  /** Your open Productive tasks, as that host's token sees them (`refresh` skips its cache). */
+  tasks: (host: string, { refresh = false, ...o }: Opts & { refresh?: boolean } = {}) =>
+    request<TasksResponse>(`${hostPath(host)}/tasks${refresh ? '?refresh=1' : ''}`, o),
+  /** Move a task to another status (its id or name). */
+  taskStatus: (host: string, task: string, status: string, o: Opts = {}) =>
+    request<{ host: string; task: Task | null }>(`${hostPath(host)}/tasks/status`, { ...o, method: 'POST', body: { task, status } }),
+  /** A new session in `dir` (a spawn dir) whose first prompt says what the task is. */
+  taskSpawn: (host: string, body: { task: string; dir: string; prompt?: string; name?: string; model?: string; harness?: string }, o: Opts = {}) =>
+    request<TaskSpawnResponse>(`${hostPath(host)}/tasks/spawn`, { ...o, method: 'POST', body }),
 
   /** Sessions a reboot left dormant on `host` (404 / 501 on servers or CLIs that predate session recovery). */
   dormant: (host: string, o: Opts = {}) => request<DormantResponse>(`${hostPath(host)}/dormant`, o),

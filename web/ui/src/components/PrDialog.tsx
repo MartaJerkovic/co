@@ -9,6 +9,8 @@ import { watchForSpawned } from '@/api/spawnWatch'
 import { HostDot } from '@/components/HostBadge'
 import { PrSessionLink } from '@/components/PrChip'
 import { PrMention } from '@/components/PrMention'
+import { PrTaskChips } from '@/components/TaskChip'
+import { usePrTasks } from '@/hooks/useTasks'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -47,6 +49,7 @@ export function PrDialog({
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState<null | 'spawn' | 'checkout'>(null)
   const [error, setError] = useState<string | null>(null)
+  const tasks = usePrTasks(pr ?? { url: '' })
   if (!pr || !host) return null
   const ref = prRef(pr)
   const worktree = pr.local?.worktree ?? null
@@ -136,6 +139,15 @@ export function PrDialog({
           <dd>
             @{pr.author} · +{pr.additions} −{pr.deletions} in {pr.changedFiles} files
           </dd>
+          {tasks.length ? (
+            <>
+              <dt className="text-muted-foreground">Tasks</dt>
+              <dd className="flex flex-wrap items-center gap-1.5" onClickCapture={onClose}>
+                <PrTaskChips pr={pr} />
+                <span className="min-w-0 truncate text-xs text-muted-foreground">{tasks.map((t) => t.title).join(' · ')}</span>
+              </dd>
+            </>
+          ) : null}
           <dt className="text-muted-foreground">Checks</dt>
           <dd>{CHECKS_LABEL[tone]}</dd>
           <dt className="text-muted-foreground">Worktree</dt>

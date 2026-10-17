@@ -27,6 +27,7 @@ import {
   SquareTerminalIcon,
   SunIcon,
   GitPullRequestIcon,
+  SquareCheckBigIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Redirect, useLocation, useRoute } from 'wouter'
@@ -85,8 +86,10 @@ import { sessionTitle } from '@/lib/title'
 import { cn } from '@/lib/utils'
 import { NotesScreen } from '@/screens/NotesScreen'
 import { PrsScreen } from '@/screens/PrsScreen'
+import { TasksScreen } from '@/screens/TasksScreen'
 import { ReviewScreen } from '@/screens/ReviewScreen'
 import { isPrsLocation } from '@/lib/prs'
+import { isTasksLocation } from '@/lib/tasks'
 import { parseReviewLocation, reviewHref } from '@/lib/review'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
@@ -118,6 +121,8 @@ export function DesktopShell() {
   const settings = useSettings()
   // `#/prs`: the pull requests board takes the whole window too.
   const prsOpen = isPrsLocation(location)
+  // `#/tasks`: the tasks board too.
+  const tasksOpen = isTasksLocation(location)
   // `#/notes…`: the notes explorer takes the whole window (no sidebar / board).
   const notesLoc = parseNotesLocation(location)
   const notesOpen = notesLoc !== null
@@ -267,7 +272,8 @@ export function DesktopShell() {
     // The session list isn't on screen in the notes explorer: its keys do nothing there.
     if (notesOpen && !['search', 'new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
     if (reviewOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
-    if (prsOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
+    if (prsOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'tasks'].includes(action)) return false
+    if (tasksOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'prs'].includes(action)) return false
     switch (action) {
       case 'next':
         moveCursor(1)
@@ -297,7 +303,7 @@ export function DesktopShell() {
           navigate(sessionHref({ host: reviewLoc.host, session_id: reviewLoc.id }))
           return true
         }
-        if (selectedKey || settingsOpen || usageOpen || jobsOpen || operatorOpen || memosOpen || notesOpen || prsOpen) {
+        if (selectedKey || settingsOpen || usageOpen || jobsOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen) {
           navigate('/')
           return true
         }
@@ -336,6 +342,9 @@ export function DesktopShell() {
         return true
       case 'prs':
         navigate(prsOpen ? '/' : '/prs')
+        return true
+      case 'tasks':
+        navigate(tasksOpen ? '/' : '/tasks')
         return true
       case 'jobs':
         navigate(jobsOpen ? '/' : '/jobs')
@@ -534,6 +543,14 @@ export function DesktopShell() {
           keywords: ['pull requests', 'prs', 'github', 'review', 'code review', 'drafts'],
           run: () => navigate('/prs'),
         },
+        {
+          id: 'tasks',
+          label: 'Tasks…',
+          icon: <SquareCheckBigIcon />,
+          shortcut: shortcutHint('tasks'),
+          keywords: ['tasks', 'productive', 'todo', 'issues', 'tickets', 'status'],
+          run: () => navigate('/tasks'),
+        },
         ...(settings.memos
           ? [{ id: 'memos', label: 'Voice memos…', icon: <CircleDotIcon />, shortcut: shortcutHint('memos'), keywords: ['memo', 'record', 'voice', 'transcribe', 'conversation', 'meeting'], run: () => navigate('/memos') }]
           : []),
@@ -590,8 +607,8 @@ export function DesktopShell() {
     },
   ]
 
-  // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/prs`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
+  // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/prs`, `/tasks`, notes and `/s/:host/:id` → the list (same as mobile).
+  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -634,6 +651,10 @@ export function DesktopShell() {
       ) : prsOpen ? (
         <main className="flex min-w-0 flex-1">
           <PrsScreen layout="pane" />
+        </main>
+      ) : tasksOpen ? (
+        <main className="flex min-w-0 flex-1">
+          <TasksScreen layout="pane" />
         </main>
       ) : reviewOpen ? (
         <main className="flex min-w-0 flex-1">
@@ -757,7 +778,7 @@ export function DesktopShell() {
         />
       )}
 
-      {board || notesOpen || prsOpen || reviewOpen ? null : (
+      {board || notesOpen || prsOpen || tasksOpen || reviewOpen ? null : (
         <main className="flex min-w-0 flex-1" style={titlebarOffset(sidebarOpen ? sidebarW : '3rem')}>
           {pane ?? (
             <EmptyPane

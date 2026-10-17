@@ -104,6 +104,13 @@ const PR_REF_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9_-][A-Za-z0-9._
 const PR_CHECKOUT_PROXY_MS = 5 * 60 * 1000;
 /** A PR fetch is four `gh` searches, up to 4 pages each: give a peer as long as its CLI gets. */
 const PRS_PROXY_MS = 130 * 1000;
+const TASKS_ROUTE = /^\/api\/hosts\/([^/]+)\/tasks(?:\/(status|spawn))?$/;
+/** A Productive task: its numeric id. */
+const TASK_ID_RE = /^[1-9][0-9]{0,14}$/;
+/** A Productive task link: `https://app.productive.io/<org>-<slug>/tasks/<id>`. */
+const TASK_URL_RE = /^https?:\/\/app\.productive\.io\/\d+-[\w-]+\/tasks?\/([1-9][0-9]{0,14})(?:[/?#].*)?$/;
+/** A task fetch is a few API calls; status changes and spawns one more. */
+const TASKS_PROXY_MS = 130 * 1000;
 const HARNESSES_ROUTE = /^\/api\/hosts\/([^/]+)\/harnesses$/;
 /** `fleet harness list` runs `pi --list-models` (a node start): keep its answer a while. */
 const HARNESSES_TTL_MS = 10 * 60 * 1000;
@@ -129,7 +136,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   transcripts lib/transcript.mjs reader
  *   spawner     lib/spawn.mjs spawner
  *   killer      lib/kill.mjs killer (kill action; absent → 501)
- *   cli         lib/fleet-cli.mjs instance — `rename`, `usage`, `prs`, `prCheckout` (absent → 501)
+ *   cli         lib/fleet-cli.mjs instance — `rename`, `usage`, `prs`, `prCheckout`, `tasks`, `taskShow`, `taskStatus` (absent → 501)
  *   autoNamer   lib/autoname.mjs instance (autoname route + health; absent → 501)
  *   spawnNamer  lib/autoname.mjs#createSpawnNamer — a targeted naming pass after an unnamed
  *               spawn with a first prompt (only when web.autoName is enabled; absent → none)
@@ -803,6 +810,14 @@ export function createApi({
       return withPrEditors(r, editorViewer(config, req), host);
     }
 
+    const tk = TASKS_ROUTE.exec(url.pathname);
+    if (tk) {
+      const action = tk[2] ?? null;
+      if (req.method !== (action ? 'POST' : 'GET')) throw new HttpError('method not allowed', 405);
+      const host = decodeURIComponent(tk[1]);
+      return forHost({ req, url, host, timeoutMs: TASKS_PROXY_MS, local: () => (action ? localTaskAction(req, action) : localTasks(url)) });
+    }
+
     const u = UPLOAD_ROUTE.exec(url.pathname);
     if (u) {
       if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
@@ -1169,6 +1184,80 @@ export function createApi({
       if (err?.missing) throw new HttpError('this host’s fleet CLI has no `pr seen` command — update it', 501);
       throw new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
     }
+  }
+
+  /** `fleet --local tasks --json` on this host (its Productive token and organization). */
+  async function localTasks(url) {
+    if (typeof cli?.tasks !== 'function') throw new HttpError('tasks are not available on this server', 501);
+    try {
+      const tasks = await cli.tasks({ refresh: url.searchParams.get('refresh') === '1' });
+      return { status: 200, body: { host: config.self, ...tasks } };
+    } catch (err) {
+      if (err?.missing) throw new HttpError('this host’s fleet CLI has no `tasks` command — update it', 501);
+      throw new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
+    }
+  }
+
+  /**
+   * POST tasks/status `{ task, status }` → `{ host, task }`; POST tasks/spawn `{ task, dir,
+   * prompt?, name?, model?, harness? }` → `{ host, task, spawn }`: a new session in `dir` (a
+   * spawn dir, like a plain spawn) whose first prompt is the task's context line + `prompt`.
+   */
+  async function localTaskAction(req, action) {
+    if (typeof cli?.taskShow !== 'function' || typeof cli?.taskStatus !== 'function') {
+      throw new HttpError('tasks are not available on this server', 501);
+    }
+    const body = await readJsonBody(req);
+    const id = taskId(body?.task);
+    if (!id) throw new HttpError('task must be a Productive task id or link', 400);
+    const cliError = (err) => {
+      if (err?.missing) return new HttpError('this host’s fleet CLI has no `task` command — update it', 501);
+      return new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
+    };
+    if (action === 'status') {
+      const status = typeof body?.status === 'string' ? body.status.trim() : '';
+      if (!status || status.length > 200) throw new HttpError('status must be a status id or name', 400);
+      try {
+        const r = await cli.taskStatus(id, status);
+        return { status: 200, body: { host: config.self, task: r?.task ?? null } };
+      } catch (err) {
+        throw cliError(err);
+      }
+    }
+
+    const roots = config.spawnDirs.map((d) => d.path);
+    const check = validateSpawnRequest(body, { spawnDirs: roots });
+    if (!check.ok) throw new HttpError(check.error, 400);
+    let task;
+    try {
+      task = await cli.taskShow(id);
+    } catch (err) {
+      throw cliError(err);
+    }
+    if (typeof task?.contextLine !== 'string' || !task.contextLine.trim()) {
+      throw new HttpError('fleet task show returned no context line — update fleet on this host', 502);
+    }
+    const userPrompt = check.prompt.trim();
+    const prompt = userPrompt ? `${task.contextLine} ${userPrompt}` : task.contextLine;
+    const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
+    let result;
+    try {
+      const dir = await resolveAllowedDir(check.dir, roots);
+      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness });
+    } catch (err) {
+      if (err?.status) throw new HttpError(err.message, err.status);
+      throw err;
+    }
+    refreshFleet();
+    if (!nameGiven && spawnNamer && check.harness === 'claude') spawnNamer.schedule(result.tmuxSession).catch(() => {});
+    return { status: 200, body: { host: config.self, task, spawn: { ok: true, host: config.self, ...result } } };
+  }
+
+  /** A task id from `123` or its Productive link; null when it is neither. */
+  function taskId(v) {
+    const s = typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
+    if (TASK_ID_RE.test(s)) return s;
+    return TASK_URL_RE.exec(s)?.[1] ?? null;
   }
 
   async function localUsage(url) {

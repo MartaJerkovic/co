@@ -48,6 +48,7 @@ describe('matchShortcut', () => {
     expect(cmd('S', { shiftKey: true })).toBe('scratchpad')
     expect(cmd('K', { shiftKey: true })).toBe('operator')
     expect(cmd('P', { shiftKey: true })).toBe('prs')
+    expect(cmd('Y', { shiftKey: true })).toBe('tasks')
     expect(cmd('L', { shiftKey: true })).toBe('jobs')
     expect(cmd('U', { shiftKey: true })).toBe('usage')
     expect(cmd(',')).toBe('settings')
