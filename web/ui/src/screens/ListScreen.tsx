@@ -10,6 +10,7 @@ import { HostDot } from '@/components/HostBadge'
 import { StatusFilterLabel } from '@/components/JobChip'
 import { NewSessionDrawer } from '@/components/NewSessionDrawer'
 import { MemoRecordFab } from '@/components/MemoRecorder'
+import { FocusMenuItem } from '@/components/FocusToggle'
 import { ModuleMenuItems } from '@/components/ModuleNav'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
@@ -127,6 +128,7 @@ export function ListScreen() {
             <DropdownMenuContent align="end" className="w-48">
               {/* Pull requests stay in the header, the operator is the mic button. */}
               <ModuleMenuItems exclude={['prs', 'operator']} />
+              <FocusMenuItem />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

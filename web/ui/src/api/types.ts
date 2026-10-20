@@ -174,6 +174,18 @@ export interface ModelOption {
 }
 
 /** GET /api/settings */
+/** GET/POST /api/hosts/:host/focus: that host's `focus` session (Do Not Disturb + quit apps). */
+export interface FocusStatus {
+  host: string
+  active: boolean
+  remainingMs: number
+  /** Epoch ms (null when off). */
+  endsAt: number | null
+  apps: string[]
+  /** State left behind by a dead watchdog: `focus stop` cleans it up. */
+  stale: boolean
+}
+
 export interface Settings {
   apiVersion: number
   self: string
@@ -189,6 +201,8 @@ export interface Settings {
   models?: ModelOption[]
   /** This server's notes explorer (older servers: absent). */
   notes?: { enabled: boolean; name?: string | null }
+  /** The host whose `focus` CLI the Focus toggle drives (`web.focus.host`; null/absent: no toggle). */
+  focus?: { host: string | null }
   /** Session stacks on this server (older servers: absent); `generate` = creating one calls `model`. */
   stacks?: { enabled: boolean; model?: string; generate?: boolean }
   /** Spoken replies (POST /api/speak): this server has the key (older servers: absent). */

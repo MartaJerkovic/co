@@ -3,6 +3,7 @@ import { NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, Sear
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
+import { FocusToggle } from '@/components/FocusToggle'
 import { HostDot } from '@/components/HostBadge'
 import { StatusFilterLabel } from '@/components/JobChip'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
@@ -219,6 +220,7 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
         <nav aria-label="Modules" className="flex items-center gap-1">
           <ModuleButtons size="icon-sm" group="work" />
           <span className="ml-auto" />
+          <FocusToggle size="icon-sm" />
           <ModuleButtons size="icon-sm" group="utility" />
         </nav>
       </div>
@@ -260,6 +262,7 @@ export function SidebarRail({
         </span>
       ) : null}
       <div className="mt-auto flex flex-col items-center gap-1">
+        <FocusToggle />
         <ModuleButtons />
       </div>
     </div>

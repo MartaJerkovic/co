@@ -16,6 +16,7 @@ import type {
   CompleteResponse,
   DormantResponse,
   FileOpenResponse,
+  FocusStatus,
   ForgetResponse,
   FileStatResponse,
   FleetResponse,
@@ -300,6 +301,10 @@ export const api = {
     request<StackSpawnResponse>(`${hostPath(host)}/stacks/${enc(stackId)}/spawn`, { ...o, method: 'POST', body }),
   syncStacks: (host: string, o: Opts = {}) =>
     request<{ host?: string; changed: string[]; stacks: StackView[] }>(`${hostPath(host)}/stacks/sync`, { ...o, method: 'POST', body: {} }),
+  /** That host's focus session; `setFocus` starts (its default length, or `minutes`) or stops one. */
+  focus: (host: string, o: Opts = {}) => request<FocusStatus>(`${hostPath(host)}/focus`, o),
+  setFocus: (host: string, on: boolean, minutes?: number, o: Opts = {}) =>
+    request<FocusStatus>(`${hostPath(host)}/focus`, { ...o, method: 'POST', body: minutes ? { on, minutes } : { on } }),
   /** The Claude subscription limits of the account logged in on that host (`refresh` skips its 60s cache). */
   usage: (host: string, { refresh = false, ...o }: Opts & { refresh?: boolean } = {}) =>
     request<UsageResponse>(`${hostPath(host)}/usage${refresh ? '?refresh=1' : ''}`, o),

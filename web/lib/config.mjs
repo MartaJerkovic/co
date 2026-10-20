@@ -484,6 +484,13 @@ export function normalizeConfig(
     dir: path.join(fleetStateDir(env, home), 'operator'),
   };
 
+  // web.focus.host: the machine whose `focus` CLI the Focus toggle drives — the one you sit at
+  // (unset: no toggle). Every host's server proxies there.
+  const wfo = web.focus == null ? {} : web.focus;
+  if (!isObject(wfo)) throw new Error('config.web.focus must be an object { host }');
+  if (wfo.host != null && (typeof wfo.host !== 'string' || !wfo.host.trim())) throw new Error('config.web.focus.host must be a host name');
+  const focus = { host: wfo.host?.trim() || null };
+
   // restore.onBoot: at start, bring back what the last boot left dormant (lib/dormant.mjs).
   const rs = raw.restore == null ? {} : raw.restore;
   if (!isObject(rs)) throw new Error('config.restore must be an object { onBoot }');
@@ -523,6 +530,7 @@ export function normalizeConfig(
     stacks,
     restore,
     operator,
+    focus,
   };
 }
 

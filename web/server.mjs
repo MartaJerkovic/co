@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { configPath, fleetStateDir, loadConfig, ensurePath, ensureUtf8Locale, resolveBinary } from './lib/config.mjs';
 import { run } from './lib/run.mjs';
 import { createFleetCli } from './lib/fleet-cli.mjs';
+import { createFocus } from './lib/focus.mjs';
 import { createFleet } from './lib/fleet.mjs';
 import { createBackend } from './lib/backends.mjs';
 import { createTranscriptReader, locateTranscript } from './lib/transcript.mjs';
@@ -155,6 +156,7 @@ const handleApi = createApi({
   autoNamer,
   spawnNamer,
   uploader,
+  focus: createFocus({ run }),
   transcriber,
   memos,
   speaker: createSpeaker({ getKey: speechKey, voice: config.operator.voice ?? undefined, log }),

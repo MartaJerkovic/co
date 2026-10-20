@@ -83,7 +83,14 @@ function fakeHost(self, sessions) {
     calls.push(['taskStatus', id, status]);
     return { task: { id, status: { id: '5', name: status, category: 'started' } } };
   };
-  return { calls, cli, backend, transcripts, spawner, killer, autoNamer, fleet: createFleet({ cli, self }) };
+  let focusOn = false;
+  const focusStatus = () => ({ active: focusOn, remainingMs: focusOn ? 60000 : 0, endsAt: null, apps: [], stale: false });
+  const focus = {
+    status: async () => focusStatus(),
+    start: async (minutes) => (calls.push(['focusStart', minutes]), (focusOn = true), focusStatus()),
+    stop: async () => (calls.push(['focusStop']), (focusOn = false), focusStatus()),
+  };
+  return { calls, cli, backend, transcripts, spawner, killer, autoNamer, focus, fleet: createFleet({ cli, self }) };
 }
 
 async function startPair(t) {
@@ -539,6 +546,33 @@ test('tasks is GET-only, served locally or proxied, with ?refresh=1 passed throu
   assert.deepEqual(remote.calls.filter((c) => c[0] === 'tasks'), [['tasks', true]]);
   assert.equal((await post(`${urls.laptop}/api/hosts/laptop/tasks`, {})).status, 405);
   assert.equal((await get(`${urls.laptop}/api/hosts/laptop/tasks/status`)).status, 405);
+});
+
+test('focus: status and start/stop on the host it names, proxied there; bad bodies are 400s', async (t) => {
+  const { urls, lap, remote } = await startPair(t);
+  assert.deepEqual((await get(`${urls.laptop}/api/settings`)).body.focus, { host: null });
+  const r = await post(`${urls.laptop}/api/hosts/workstation/focus`, { on: true, minutes: 25 });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.host, r.body.active], ['workstation', true]);
+  assert.equal((await get(`${urls.laptop}/api/hosts/workstation/focus`)).body.active, true);
+  assert.equal((await get(`${urls.laptop}/api/hosts/laptop/focus`)).body.active, false);
+  await post(`${urls.workstation}/api/hosts/workstation/focus`, { on: false });
+  assert.deepEqual(remote.calls.filter((c) => c[0].startsWith('focus')), [['focusStart', 25], ['focusStop']]);
+  for (const body of [{}, { on: 'yes' }, { on: true, minutes: 0 }, { on: true, minutes: 2.5 }]) {
+    assert.equal((await post(`${urls.laptop}/api/hosts/laptop/focus`, body)).status, 400, JSON.stringify(body));
+  }
+  assert.equal(lap.calls.filter((c) => c[0].startsWith('focus')).length, 0);
+});
+
+test('focus: no focus CLI is a 501', async () => {
+  const host = fakeHost('solo', []);
+  const config = normalizeConfig({ self: 'solo', web: { focus: { host: 'solo' } } }, { env: {}, home: '/home/tester' });
+  assert.equal(config.focus.host, 'solo');
+  host.focus.status = async () => {
+    throw Object.assign(new Error('focus not found on this host'), { missing: true });
+  };
+  const api = createApi({ config, ...host, warmFleet: false });
+  await assert.rejects(api({ method: 'GET', headers: {} }, new URL('http://x/api/hosts/solo/focus')), (e) => e.status === 501);
 });
 
 test('tasks: a CLI failure is a 502 with its reason; a CLI without the command is a 501', async () => {

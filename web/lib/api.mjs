@@ -111,6 +111,9 @@ const TASK_ID_RE = /^[1-9][0-9]{0,14}$/;
 const TASK_URL_RE = /^https?:\/\/app\.productive\.io\/\d+-[\w-]+\/tasks?\/([1-9][0-9]{0,14})(?:[/?#].*)?$/;
 /** A task fetch is a few API calls; status changes and spawns one more. */
 const TASKS_PROXY_MS = 130 * 1000;
+const FOCUS_ROUTE = /^\/api\/hosts\/([^/]+)\/focus$/;
+/** `focus start` runs Shortcuts and quits apps: a few seconds. */
+const FOCUS_PROXY_MS = 45 * 1000;
 const HARNESSES_ROUTE = /^\/api\/hosts\/([^/]+)\/harnesses$/;
 /** `fleet harness list` runs `pi --list-models` (a node start): keep its answer a while. */
 const HARNESSES_TTL_MS = 10 * 60 * 1000;
@@ -156,6 +159,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   repos       lib/repos.mjs#createRepos (GET/PUT repos, POST repos/sync|service; absent → 501)
  *   jobs        lib/jobs.mjs#createJobs (GET jobs[/:name], POST jobs/:name/run|enabled; absent → 501)
  *   stacks      lib/stacks.mjs#createStacks (…/stacks routes, sibling spawn, sync after kill; absent → 501)
+ *   focus       lib/focus.mjs instance (/api/hosts/:host/focus; absent → 501)
  *   dormant     lib/dormant.mjs#createDormant (…/dormant routes: list / restore / forget; absent → 501)
  *   grouper     lib/grouping.mjs instance when THIS host runs grouping (absent → proxy to the
  *               grouping host, or a disabled response)
@@ -192,6 +196,7 @@ export function createApi({
   jobs = null,
   stacks = null,
   dormant = null,
+  focus = null,
   grouper = null,
   groupingDiscoveryMs = 5 * 60 * 1000,
   name = 'fleet-web',
@@ -610,6 +615,7 @@ export function createApi({
           memos: { enabled: Boolean(memos && (await transcriber?.enabled())) },
           operator: { enabled: Boolean(operator), hosts: config.operator?.hosts ?? [config.self] },
           notes: notes ? { enabled: true, name: notes.name ?? null } : { enabled: false },
+          focus: { host: config.focus?.host ?? null },
           // `generate`: whether creating a stack calls the model (the CLI's `stacks.enabled`).
           stacks: { enabled: Boolean(stacks), model: config.stacks?.model ?? DEFAULT_STACKS_MODEL, generate: config.stacks?.generate !== false },
         },
@@ -785,6 +791,13 @@ export function createApi({
         return { ...r, body: jobName == null && Array.isArray(r.body.jobs) ? { ...r.body, jobs: r.body.jobs.map(withLink) } : withLink(r.body) };
       }
       return r;
+    }
+
+    const fo = FOCUS_ROUTE.exec(url.pathname);
+    if (fo) {
+      if (req.method !== 'GET' && req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      const host = decodeURIComponent(fo[1]);
+      return forHost({ req, url, host, timeoutMs: FOCUS_PROXY_MS, local: () => localFocus(req) });
     }
 
     const hr = HARNESSES_ROUTE.exec(url.pathname);
@@ -1258,6 +1271,29 @@ export function createApi({
     const s = typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
     if (TASK_ID_RE.test(s)) return s;
     return TASK_URL_RE.exec(s)?.[1] ?? null;
+  }
+
+  /** GET → this host's focus status; POST `{ on, minutes? }` starts or stops a session. */
+  async function localFocus(req) {
+    if (!focus) throw new HttpError('focus mode is not available on this server', 501);
+    let on = null;
+    let minutes = null;
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req);
+      if (typeof body?.on !== 'boolean') throw new HttpError('on must be true or false', 400);
+      on = body.on;
+      if (body.minutes != null) {
+        minutes = Number(body.minutes);
+        if (!Number.isInteger(minutes) || minutes < 1 || minutes > 600) throw new HttpError('minutes must be a whole number from 1 to 600', 400);
+      }
+    }
+    try {
+      const status = on === null ? await focus.status() : on ? await focus.start(minutes) : await focus.stop();
+      return { status: 200, body: { host: config.self, ...status } };
+    } catch (err) {
+      if (err?.missing) throw new HttpError('the focus CLI is not installed on this host', 501);
+      throw new HttpError(String(err?.message ?? err), err?.timedOut ? 504 : 502);
+    }
   }
 
   async function localUsage(url) {
