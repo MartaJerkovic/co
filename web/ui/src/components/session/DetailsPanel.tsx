@@ -4,7 +4,6 @@ import {
   GitForkIcon,
   LayersIcon,
   Loader2Icon,
-  MessageSquareTextIcon,
   PowerIcon,
   SparklesIcon,
   SquareTerminalIcon,
@@ -17,11 +16,9 @@ import type { AutoNameRun, Session } from '@/api/types'
 import { BriefSection, type BriefSectionProps } from '@/components/session/BriefSection'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useSessionTitle } from '@/hooks/useTitles'
 import { autoNameSummary, autoNameToast } from '@/lib/autoname'
 import { canAttachInApp, copyWithToast, sessionAttachCommand, sessionAttachLink } from '@/lib/clipboard'
-import type { DetailMode } from '@/lib/chat'
 import { ctxLevel, ctxSummary, relTime, shortCwd } from '@/lib/format'
 import { harnessLabel } from '@/lib/harness'
 import { withHint } from '@/lib/shortcuts'
@@ -39,10 +36,6 @@ export interface DetailsPanelProps {
   id: string
   session: Session | null
   isSelfHost: boolean
-  mode: DetailMode
-  onMode: (m: DetailMode) => void
-  termLines: number
-  onTermLines: (n: number) => void
   /** Called after a successful close (navigate away). */
   onClosed: () => void
   /** The brief at the top of the panel. */
@@ -55,9 +48,6 @@ export interface DetailsPanelProps {
    */
   stack?: { label: string | null; onOpen: () => void } | { label: null; onSpawnSibling: () => void } | null
 }
-
-const segItem =
-  'h-9 flex-1 gap-1.5 rounded-md px-3 text-[0.8125rem] text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent'
 
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
@@ -225,43 +215,6 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
           </Header>
 
           <BriefSection {...p.brief} desktop={panel} cancelEditRef={p.cancelEditRef} />
-
-          <Section title="View">
-            <div className="py-2">
-              <ToggleGroup
-                type="single"
-                value={p.mode}
-                onValueChange={(v) => v && p.onMode(v as DetailMode)}
-                spacing={0}
-                aria-label="View mode"
-                className="w-full rounded-lg bg-muted p-1"
-              >
-                <ToggleGroupItem value="chat" className={segItem}>
-                  <MessageSquareTextIcon /> Chat
-                </ToggleGroupItem>
-                <ToggleGroupItem value="term" className={segItem}>
-                  <SquareTerminalIcon /> Terminal
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-            {p.mode === 'term' ? (
-              <Row label="Scrollback" hint="Lines captured from the pane">
-                <ToggleGroup
-                  type="single"
-                  value={String(p.termLines)}
-                  onValueChange={(v) => v && p.onTermLines(Number(v))}
-                  spacing={0}
-                  className="rounded-lg bg-muted p-1"
-                >
-                  {[200, 600].map((n) => (
-                    <ToggleGroupItem key={n} value={String(n)} className={cn(segItem, 'h-8 flex-none px-3 tabular-nums')}>
-                      {n}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </Row>
-            ) : null}
-          </Section>
 
           <Section title="Session">
             {p.stack ? (

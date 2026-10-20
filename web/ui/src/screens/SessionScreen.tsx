@@ -129,7 +129,7 @@ export function SessionScreen({
   // View prefs (localStorage). Text size, terminal text and
   // progress notes are global (the Settings screen).
   const [mode, setMode] = usePersistentState<DetailMode>('fleet.detailMode', 'chat', parseMode)
-  const [termLines, setTermLines] = usePersistentState<number>('fleet.termLines', 200, parseSize(TERM_LINES))
+  const [termLines] = usePersistentState<number>('fleet.termLines', 200, parseSize(TERM_LINES))
   const { termFont, hideNotes, sendDelay } = usePrefs()
 
   const [menuOpen, setMenuOpen] = useState(false)
@@ -461,10 +461,6 @@ export function SessionScreen({
     id,
     session,
     isSelfHost: settings.self != null && settings.self === host,
-    mode,
-    onMode: setMode,
-    termLines,
-    onTermLines: setTermLines,
     brief: { host, brief, fileLinks, onContinue: continueInNew },
     onClose: pane ? onToggleInspector : undefined,
     stack: stackMenu,
