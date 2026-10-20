@@ -28,6 +28,8 @@ export interface SessionRowProps {
   selected?: boolean
   /** Desktop sidebar: the keyboard cursor (↑/↓) is on this row. */
   cursor?: boolean
+  /** Shown inside its stack's group (StackGroup): no stack chip of its own. */
+  inStack?: boolean
 }
 
 /**
@@ -35,7 +37,7 @@ export interface SessionRowProps {
  * stack chip (opens the Stack sheet), job chip (started by a scheduled job), cwd, backend, context, age. The title is editable in place: the pencil on hover
  * (desktop), ⌘E / F2 on the cursor row, or a long press (touch). Clicking the row opens it.
  */
-export function SessionRow({ session: s, now, selected, cursor }: SessionRowProps) {
+export function SessionRow({ session: s, now, selected, cursor, inStack }: SessionRowProps) {
   const meta = statusMeta(s.status)
   const { title } = useSessionTitle(s)
   const prompt = sessionSubtitle(s)
@@ -69,7 +71,7 @@ export function SessionRow({ session: s, now, selected, cursor }: SessionRowProp
       </div>
       {subtitle ? <p className="mt-1 line-clamp-2 text-[0.8125rem] break-words text-muted-foreground">{subtitle}</p> : null}
       <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-dimmer">
-        <StackChip session={s} />
+        {inStack ? null : <StackChip session={s} />}
         <JobChip session={s} />
         <PrChip session={s} />
         <TaskChip session={s} />

@@ -15,6 +15,7 @@ import { ModuleMenuItems } from '@/components/ModuleNav'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
 import { SessionRow } from '@/components/SessionRow'
+import { StackGroup } from '@/components/stack/StackGroup'
 import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -27,7 +28,7 @@ import { useSettings } from '@/hooks/useSettings'
 import { useNow } from '@/hooks/useNow'
 import { ALL_HOSTS, useSessionList } from '@/hooks/useSessionList'
 import { pullIntent } from '@/lib/gestures'
-import { allSessions, visibleStatusFilters, findStatusFilter, type StatusFilterId } from '@/lib/sessions'
+import { allSessions, stackRuns, visibleStatusFilters, findStatusFilter, type StatusFilterId } from '@/lib/sessions'
 import { cn } from '@/lib/utils'
 
 const chipClass = cn(
@@ -273,9 +274,17 @@ export function ListScreen() {
             <GroupedList columns={columns} now={now} />
           ) : view.sessions.length > 0 ? (
             <div className="flex flex-col gap-2">
-              {view.sessions.map((s) => (
-                <SessionRow key={`${s.host}/${s.session_id}`} session={s} now={now} />
-              ))}
+              {stackRuns(view.sessions).map((e) =>
+                e.kind === 'stack' ? (
+                  <StackGroup key={e.key} sessions={e.sessions}>
+                    {e.sessions.map((s) => (
+                      <SessionRow key={`${s.host}/${s.session_id}`} session={s} now={now} inStack />
+                    ))}
+                  </StackGroup>
+                ) : (
+                  <SessionRow key={`${e.session.host}/${e.session.session_id}`} session={e.session} now={now} />
+                ),
+              )}
             </div>
           ) : unreachable.length === 0 ? (
             <EmptyState anySessions={allSessions(fleet).length > 0} />

@@ -7,7 +7,9 @@ import { FocusToggle } from '@/components/FocusToggle'
 import { HostDot } from '@/components/HostBadge'
 import { StatusFilterLabel } from '@/components/JobChip'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
+import type { Session } from '@/api/types'
 import { SessionRow } from '@/components/SessionRow'
+import { StackGroup } from '@/components/stack/StackGroup'
 import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ModuleButtons } from '@/components/ModuleNav'
@@ -19,7 +21,7 @@ import { ViewToggle } from '@/components/ViewToggle'
 import { useNotesHosts } from '@/hooks/useNotes'
 import { ALL_HOSTS, type SessionListState } from '@/hooks/useSessionList'
 import type { ViewMode } from '@/lib/groups'
-import { allSessions, visibleStatusFilters, type StatusFilterId } from '@/lib/sessions'
+import { allSessions, stackRuns, visibleStatusFilters, type StatusFilterId } from '@/lib/sessions'
 import { ariaShortcut, sessionKey, shortcutHint, withHint } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 
@@ -201,9 +203,18 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
           <SessionListSkeleton />
         ) : view.sessions.length > 0 ? (
           <nav aria-label="Sessions" className="flex flex-col gap-1.5">
-            {view.sessions.map((s) => {
-              const key = sessionKey(s)
-              return <SessionRow key={key} session={s} now={now} selected={key === selectedKey} cursor={key === cursorKey && key !== selectedKey} />
+            {stackRuns(view.sessions).map((e) => {
+              const row = (s: Session, inStack?: boolean) => {
+                const key = sessionKey(s)
+                return <SessionRow key={key} session={s} now={now} selected={key === selectedKey} cursor={key === cursorKey && key !== selectedKey} inStack={inStack} />
+              }
+              return e.kind === 'stack' ? (
+                <StackGroup key={e.key} sessions={e.sessions}>
+                  {e.sessions.map((s) => row(s, true))}
+                </StackGroup>
+              ) : (
+                row(e.session)
+              )
             })}
           </nav>
         ) : unreachable.length === 0 ? (

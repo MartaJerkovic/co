@@ -124,9 +124,14 @@ export function statusSummary(fleet: FleetResponse | null | undefined): Record<'
  * member (members keep their relative order), everything else stays where it was. Stable, pure;
  * rows without `stack` (older servers) come back unchanged.
  */
+/** A stack's identity across hosts: its home host + id; null when the session is in none. */
+function stackKey(s: Session): string | null {
+  return s.stack?.id ? `${s.stack.host || s.host}/${s.stack.id}` : null
+}
+
 export function clusterByStack(sessions: Session[]): Session[] {
   // Keyed by the stack's home host: members on other hosts cluster with it.
-  const key = (s: Session) => (s.stack?.id ? `${s.stack.host || s.host}/${s.stack.id}` : null)
+  const key = stackKey
   const members = new Map<string, Session[]>()
   for (const s of sessions) {
     const k = key(s)
@@ -185,4 +190,24 @@ export function withoutSession(fleet: FleetResponse, host: string, id: string): 
     ...fleet,
     hosts: fleet.hosts.map((h) => (h.name === host ? { ...h, sessions: h.sessions.filter((s) => s.session_id !== id) } : h)),
   }
+}
+
+/** A list entry: one session, or the adjacent members of one stack (2 or more) shown as a group. */
+export type ListEntry = { kind: 'session'; session: Session } | { kind: 'stack'; key: string; sessions: Session[] }
+
+/**
+ * Split a (clustered) list into entries: each run of 2+ adjacent members of one stack becomes a
+ * `stack` entry, a lone member stays a plain `session`. Order is kept as given.
+ */
+export function stackRuns(sessions: Session[]): ListEntry[] {
+  const out: ListEntry[] = []
+  for (let i = 0; i < sessions.length; ) {
+    const k = stackKey(sessions[i])
+    let j = i + 1
+    while (k && j < sessions.length && stackKey(sessions[j]) === k) j += 1
+    if (k && j - i > 1) out.push({ kind: 'stack', key: k, sessions: sessions.slice(i, j) })
+    else out.push({ kind: 'session', session: sessions[i] })
+    i = j
+  }
+  return out
 }

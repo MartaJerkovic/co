@@ -3,6 +3,7 @@ import { expect, test } from 'vitest'
 import type { FleetResponse, Session } from '@/api/types'
 import {
   clusterByStack,
+  stackRuns,
   findSession,
   findSpawned,
   hiddenAsScheduled,
@@ -196,4 +197,12 @@ test('listView: job sessions only under Scheduled, except waiting ones', () => {
   expect(visibleStatusFilters(all.counts, 'all').map((x) => x.id)).toContain('scheduled')
   expect(visibleStatusFilters({ ...all.counts, scheduled: 0 }, 'all').map((x) => x.id)).not.toContain('scheduled')
   expect(visibleStatusFilters({ ...all.counts, scheduled: 0 }, 'scheduled').map((x) => x.id)).toContain('scheduled')
+})
+
+test('stackRuns: 2+ adjacent members of one stack form a group; a lone member stays a row', () => {
+  const st = { id: 'st-1', label: 'Login fix' }
+  const rows = [s({ session_id: 'a', stack: st }), s({ session_id: 'b', stack: st }), s({ session_id: 'c' }), s({ session_id: 'd', stack: { id: 'st-2', label: 'x' } })]
+  const runs = stackRuns(rows)
+  expect(runs.map((r) => (r.kind === 'stack' ? r.sessions.map((x) => x.session_id).join('+') : r.session.session_id))).toEqual(['a+b', 'c', 'd'])
+  expect(runs[0]).toMatchObject({ kind: 'stack', key: 'laptop/st-1' })
 })
