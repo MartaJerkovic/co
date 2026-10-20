@@ -148,11 +148,11 @@ export function buildPrompt({ brief, delta, host, cwd, branch, todosFromSession,
     `Where the session runs: ${where || 'unknown'}.`,
     `The current brief.${edited}\n<brief>\n${capText(current, maxBriefChars)}\n</brief>`,
     `${recap ? 'The recent conversation' : 'What happened since the brief was last updated'} (user prompts and the assistant's replies, truncated):\n<conversation>\n${delta.text || '(nothing)'}\n</conversation>`,
-    'Update the brief: keep what is still true, fix what changed, add what is new. Do not rewrite it from scratch.',
+    'Update the brief: keep what is still true, fix what changed, add what is new. Do not rewrite it from scratch — unless the session has clearly moved on to a different task, then write the Summary for that task.',
     'Answer with ONLY the following markdown, nothing before or after it:',
     todosFromSession
-      ? '## Summary\n<at most 2 sentences, under 60 words: what exactly the session is doing and where (repo or directory, branch, host), and where it stands now>'
-      : '## Summary\n<at most 2 sentences, under 60 words: what exactly the session is doing and where (repo or directory, branch, host), and where it stands now>\n\n## Todos\n- [x] <done todo>\n- [ ] <open todo>\n(3–8 short todos in order; keep existing todos and their wording while accurate, tick finished ones, add what comes next)',
+      ? '## Summary\n<at most 3 sentences, under 80 words: what exactly the session is doing and why, where it stands now, and what comes next; name the repo, branch or host only where it adds something beyond the location above>'
+      : '## Summary\n<at most 3 sentences, under 80 words: what exactly the session is doing and why, where it stands now, and what comes next; name the repo, branch or host only where it adds something beyond the location above>\n\n## Todos\n- [x] <done todo>\n- [ ] <open todo>\n(3–8 short todos in order; keep existing todos and their wording while accurate, tick finished ones, add what comes next)',
   ];
   return out.join('\n\n');
 }

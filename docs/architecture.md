@@ -545,10 +545,10 @@ The web Board view shows sessions as columns of work streams, and nobody maintai
 
 ## Session briefs
 
-A brief is a small markdown doc per session: 1–2 sentences on exactly what the session is doing and
-where (repo/cwd, branch, host), every resource it produced, and its todos with progress — enough
-to start a **new** session from it and just continue (`continuePrompt` in the API is that first
-prompt). The user can edit it; their edits are authoritative.
+A brief is a small markdown doc per session: 1–3 sentences on exactly what the session is doing,
+where it stands and what comes next (where it runs is shown beside it), every resource it
+produced, and its todos with progress — enough to start a **new** session from it and just
+continue (`continuePrompt` in the API is that first prompt). The user can edit it; their edits are authoritative.
 
 **Storage.** One file per session on the host the session lives on:
 `$FLEET_BRIEFS_DIR/<session_id>.md`, else `${XDG_STATE_HOME:-~/.local/state}/fleet/briefs/<session_id>.md`
