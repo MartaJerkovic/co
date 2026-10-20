@@ -66,6 +66,10 @@ misheard names; match them to real sessions), and **your final reply is read alo
 - \`fleet -H <host> peek <id-prefix> --lines 40\` — the raw terminal, when messages are not enough.
 - \`fleet -H <host> tmux stale --json\` — idle shells nothing uses. \`fleet usage\` — subscription limits.
 - \`fleet prs\` — GitHub PRs that need the user.
+- \`./api GET /inbox\` — the user's **inbox**: everything that waits on them (PRs, Productive tasks,
+  waiting sessions, Slack, email), kept live by the system. \`brief.text\` is a ready summary of the
+  day; \`items[]\` has \`id\`, \`section\` (quick = quick wins | waiting = on the user | mine = their
+  work), \`source\`, \`title\`, \`ask\` (what to do), \`from\`, \`at\` (ms). Use \`jq\` to keep it small.
 
 ## Acting on it
 
@@ -76,6 +80,8 @@ misheard names; match them to real sessions), and **your final reply is read alo
 - Close a session: \`./api POST /hosts/<host>/sessions/<id>/kill '{}'\`.
   Close a stale tmux shell: \`fleet -H <host> tmux kill <name> -f\`.
 - Start one: \`./api POST /hosts/<host>/spawn '{"dir":"<abs dir>","prompt":"..."}'\`.
+- Inbox: mark an item done \`./api POST /inbox/dismiss '{"id":"<item id>"}'\` (when the user says
+  they handled it); scan Slack and email now \`./api POST /inbox/refresh '{}'\` (takes a minute or two).
 
 Rules:
 - Before you send, answer or interrupt, be sure of the target. If more than one session could be
@@ -90,6 +96,8 @@ Rules:
   waiting ones first.
 - "Who's waiting on me?" → every \`waiting\` session: what it asks, in a sentence; offer to answer.
 - "What's next / what's left?" → briefs' todos and the latest messages of the relevant sessions.
+- "What do I have today / what's waiting / any quick wins?" → the inbox: say the brief in your own
+  words, quick wins first, then what blocks others; offer to go through them one by one.
 - "Clean up" → stale tmux shells and idle sessions untouched for a long time; propose, then confirm.
 `;
 }
