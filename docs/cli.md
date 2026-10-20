@@ -454,7 +454,8 @@ Your open [Productive](https://productive.io) tasks — assigned to you, in proj
 archived — sorted into columns, cached, with each workflow's statuses so a task can be moved
 along. Productive is reached over its REST API with `curl`; the token goes to `curl` on stdin,
 never on its command line. Token: `$FLEET_PRODUCTIVE_TOKEN`, else `tasks.token` in
-[the config](architecture.md#config), else `$PRODUCTIVE_API_TOKEN` (Productive → Settings → API
+[the config](architecture.md#config), else the macOS keychain item whose service is `tasks.keychain`,
+else `$PRODUCTIVE_API_TOKEN` (Productive → Settings → API
 integrations). Config: `tasks`.
 
 | command | does |

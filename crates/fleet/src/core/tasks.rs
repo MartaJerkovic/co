@@ -4,7 +4,8 @@
 //!
 //! Productive is reached over its REST API (`api.productive.io/api/v2`, JSON:API) with `curl`;
 //! the token goes in on stdin, never on the command line. Token: `$FLEET_PRODUCTIVE_TOKEN`, then
-//! config `tasks.token`, then `$PRODUCTIVE_API_TOKEN`. A fetch is:
+//! config `tasks.token`, then the macOS keychain item named by `tasks.keychain` (its service),
+//! then `$PRODUCTIVE_API_TOKEN`. A fetch is:
 //!
 //! - `organization_memberships?include=person.organization` → you (a person per organization)
 //!   and the organization (`tasks.organization`; may be left out when you belong to one)
@@ -19,7 +20,7 @@
 //! Config (`tasks` in config.json — per machine, read leniently):
 //!
 //! ```json
-//! "tasks": { "organization": "1", "projects": ["42"], "refresh": "5m", "token": "…" }
+//! "tasks": { "organization": "1", "projects": ["42"], "refresh": "5m", "keychain": "PRODUCTIVE_TOKEN" }
 //! ```
 //!
 //! Cache (`$FLEET_TASKS_CACHE`, else `${XDG_CACHE_HOME:-~/.cache}/fleet/tasks.json`): the last
@@ -60,6 +61,8 @@ pub struct Settings {
     /// Max cache age in seconds.
     pub refresh: i64,
     pub token: Option<String>,
+    /// A macOS keychain item (its service name) that holds the token.
+    pub keychain: Option<String>,
     /// What was wrong with the section; the bad parts fall back to defaults.
     pub problems: Vec<String>,
 }
@@ -119,16 +122,20 @@ impl Settings {
                 }
             },
         };
-        let token = v["token"]
-            .as_str()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(String::from);
+        let text = |k: &str| {
+            v[k].as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        };
+        let token = text("token");
+        let keychain = text("keychain");
         Settings {
             organization,
             projects,
             refresh,
             token,
+            keychain,
             problems,
         }
     }
@@ -146,7 +153,8 @@ impl Settings {
         s
     }
 
-    /// `$FLEET_PRODUCTIVE_TOKEN`, config `tasks.token`, `$PRODUCTIVE_API_TOKEN`.
+    /// `$FLEET_PRODUCTIVE_TOKEN`, config `tasks.token`, the keychain item `tasks.keychain`,
+    /// `$PRODUCTIVE_API_TOKEN`.
     pub fn token(&self) -> Result<String> {
         let env = |k: &str| {
             std::env::var(k)
@@ -156,14 +164,30 @@ impl Settings {
         };
         env("FLEET_PRODUCTIVE_TOKEN")
             .or_else(|| self.token.clone())
+            .or_else(|| self.keychain.as_deref().and_then(keychain_token))
             .or_else(|| env("PRODUCTIVE_API_TOKEN"))
             .ok_or_else(|| {
                 Error::exit(
                     1,
-                    "no Productive API token: run `fleet config set tasks.token <token>` (Productive → Settings → API integrations) or set $PRODUCTIVE_API_TOKEN",
+                    "no Productive API token: run `fleet config set tasks.token <token>` (Productive → Settings → API integrations), or `fleet config set tasks.keychain <service>` for a macOS keychain item that holds it, or set $PRODUCTIVE_API_TOKEN",
                 )
             })
     }
+}
+
+/// `security find-generic-password -s <service> -w`: the item's secret, from the default
+/// keychain search list. `None` when there is no such item (or no `security`).
+fn keychain_token(service: &str) -> Option<String> {
+    let o = Command::new("security")
+        .args(["find-generic-password", "-s", service, "-w"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    o.status
+        .success()
+        .then(|| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|t| !t.is_empty())
 }
 
 // ---------- model ----------

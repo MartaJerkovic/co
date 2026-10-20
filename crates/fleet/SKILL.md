@@ -181,7 +181,7 @@ A **stack** is a set of sessions — on one host or across hosts — that share 
 
 ## Productive tasks
 
-`fleet tasks` lists the user's open Productive tasks (assigned to them, not in archived projects) in three columns: **due** (due within 3 days or overdue), **inProgress** (a started status), **toDo** (not started). Each has its project, `status` (name + category), `dueDate`, todos and `url`. Needs a token (`tasks.token` in the config, or `$PRODUCTIVE_API_TOKEN`) and, when the user is in several organizations, `tasks.organization`. Cached for `tasks.refresh` (5m); `--cached` never fetches.
+`fleet tasks` lists the user's open Productive tasks (assigned to them, not in archived projects) in three columns: **due** (due within 3 days or overdue), **inProgress** (a started status), **toDo** (not started). Each has its project, `status` (name + category), `dueDate`, todos and `url`. Needs a token (`tasks.token` in the config, `tasks.keychain` naming a macOS keychain item, or `$PRODUCTIVE_API_TOKEN`) and, when the user is in several organizations, `tasks.organization`. Cached for `tasks.refresh` (5m); `--cached` never fetches.
 
 - `<task>` is the task's id or its Productive URL.
 - **`fleet task show <task>`** — project, status, due date, todos, description.
