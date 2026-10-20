@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
+  ArrowRightIcon,
   CopyIcon,
-  GitForkIcon,
   LayersIcon,
   Loader2Icon,
   PowerIcon,
@@ -36,11 +36,10 @@ export interface DetailsPanelProps {
   brief: Omit<BriefSectionProps, 'desktop' | 'cancelEditRef'>
   /** Desktop panel: the ✕ in the top-right corner. */
   onClose?: () => void
-  /**
-   * Session stacks (absent: the host predates them): in a stack → StackBrief (the sheet);
-   * not in one → Spawn sibling… (creates the stack).
-   */
-  stack?: { label: string | null; onOpen: () => void } | { label: null; onSpawnSibling: () => void } | null
+  /** "New session from here…": the form with Hand off / Sibling (absent: no session row yet). */
+  onNewFromHere?: () => void
+  /** In a session stack: its label and the StackBrief sheet. */
+  stack?: { label: string | null; onOpen: () => void } | null
 }
 
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
@@ -86,7 +85,7 @@ export function DetailsDrawer(p: DetailsPanelProps) {
 
 /**
  * Details: header (name + regenerate, host · cwd, context), the Brief (summary,
- * todos, resources, continue), Session (attach, ids, close). `drawer` = inside the mobile drawer; `panel` = the desktop
+ * todos, resources), New session from here…, Session (attach, ids, close). `drawer` = inside the mobile drawer; `panel` = the desktop
  * details column (click-to-confirm wording, ✕ to close, no drawer chrome).
  */
 export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel'; cancelEditRef?: React.RefObject<(() => void) | null> }) {
@@ -187,23 +186,21 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
 
           <BriefSection {...p.brief} desktop={panel} cancelEditRef={p.cancelEditRef} />
 
+          {p.onNewFromHere ? (
+            <Button variant="outline" className="mt-1 h-10 w-full rounded-xl" onClick={p.onNewFromHere}>
+              New session from here…
+              <ArrowRightIcon />
+            </Button>
+          ) : null}
+
           <Section title="Session">
             {p.stack ? (
-              'onOpen' in p.stack ? (
-                <Row label="Session stack" hint={p.stack.label ?? undefined}>
-                  <Button variant="outline" className="h-9 px-3" onClick={p.stack.onOpen}>
-                    <LayersIcon />
-                    StackBrief
-                  </Button>
-                </Row>
-              ) : (
-                <Row label="Sibling session" hint="Starts a new stack around this session (one Sonnet call)">
-                  <Button variant="outline" className="h-9 px-3" onClick={p.stack.onSpawnSibling}>
-                    <GitForkIcon />
-                    Spawn sibling…
-                  </Button>
-                </Row>
-              )
+              <Row label="Session stack" hint={p.stack.label ?? undefined}>
+                <Button variant="outline" className="h-9 px-3" onClick={p.stack.onOpen}>
+                  <LayersIcon />
+                  StackBrief
+                </Button>
+              </Row>
             ) : null}
             {s ? (
               <div className="py-1.5">

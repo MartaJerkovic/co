@@ -44,7 +44,7 @@ import { usePersistentState } from '@/hooks/usePersistentState'
 import { usePoller } from '@/hooks/usePoller'
 import { usePrefs } from '@/hooks/usePrefs'
 import { useSettings } from '@/hooks/useSettings'
-import { openSiblingSpawn, openStackSheet } from '@/hooks/useStackUi'
+import { openStackSheet, type SiblingTarget } from '@/hooks/useStackUi'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { useSessionTitle } from '@/hooks/useTitles'
 import { CHAT_LIMITS, CHAT_POLL_MS, PEEK_POLL_MS, TERM_LINES, nextChatLimit, parseMode, parseSize, type DetailMode } from '@/lib/chat'
@@ -429,30 +429,34 @@ export function SessionScreen({
   const { title: shownTitle } = useSessionTitle(session, titleKey)
   const name = session ? shownTitle : chat?.name || id.slice(0, 8)
 
-  const continueInNew = (prompt: string) => {
-    const prefill: SpawnPrefill = { host, dir: session?.cwd ?? null, prompt: continueDraft(prompt) }
-    if (pane) return setContinueWith(prefill)
-    // One drawer at a time: Details closes, then the New session form opens.
-    setMenuOpen(false)
-    setTimeout(() => setContinueWith(prefill), 300)
-  }
-
-  // Session stacks: open the sheet / the sibling form (mobile: the Details drawer closes first).
+  // Mobile: one drawer at a time — Details closes, then the next one opens.
   const fromMenu = (fn: () => void) => {
     if (pane) return fn()
     setMenuOpen(false)
     setTimeout(fn, 300)
   }
   const stackRef = session?.stack ?? null
-  const stackMenu: DetailsPanelProps['stack'] = !session || !stacksKnown(session)
+  const stackHome = stackRef ? stackRef.host || host : host
+  // The form's Sibling mode (hosts that predate stacks: Hand off only). A member off the
+  // stack's home host spawns from the stack; otherwise from this session (creating the stack).
+  const siblingTarget: SiblingTarget | null = !session || !stacksKnown(session)
     ? null
-    : stackRef
-      ? { label: stackRef.label, onOpen: () => fromMenu(() => openStackSheet(stackRef.host || host, stackRef.id)) }
-      : {
-          label: null,
-          onSpawnSibling: () =>
-            fromMenu(() => openSiblingSpawn({ host, sessionId: id, cwd: session.cwd ?? null, label: shownTitle, creates: true })),
-        }
+    : {
+        host: stackHome,
+        ...(stackRef && stackHome !== host ? { stackId: stackRef.id } : { sessionId: id }),
+        cwd: session.cwd ?? null,
+        cwdHost: host,
+        label: stackRef ? stackRef.label : shownTitle,
+        creates: !stackRef,
+      }
+  const newFromHere = () => {
+    const prompt = brief.brief?.continuePrompt
+    const prefill: SpawnPrefill = { host, dir: session?.cwd ?? null, prompt: prompt ? continueDraft(prompt) : '', sibling: siblingTarget }
+    fromMenu(() => setContinueWith(prefill))
+  }
+  const stackMenu: DetailsPanelProps['stack'] = stackRef
+    ? { label: stackRef.label, onOpen: () => fromMenu(() => openStackSheet(stackHome, stackRef.id)) }
+    : null
 
   const menuProps: DetailsPanelProps = {
     open: menuOpen,
@@ -460,7 +464,8 @@ export function SessionScreen({
     host,
     id,
     session,
-    brief: { host, brief, fileLinks, onContinue: continueInNew },
+    brief: { host, brief, fileLinks },
+    onNewFromHere: session ? newFromHere : undefined,
     onClose: pane ? onToggleInspector : undefined,
     stack: stackMenu,
     onClosed: () => {

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  ArrowRightIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   CircleDotIcon,
@@ -53,8 +52,6 @@ export interface BriefSectionProps {
   brief: BriefState
   /** Chat paths on the session's host: file resources open the in-app preview through it. */
   fileLinks: FileStats
-  /** "Continue in new session": the prompt to prefill. */
-  onContinue: (prompt: string) => void
   /** Desktop wording (click, ⌘/Ctrl+Enter hints). */
   desktop?: boolean
   /** Filled with "cancel the edit" while editing (the drawer's Esc cancels it instead of closing). */
@@ -64,10 +61,9 @@ export interface BriefSectionProps {
 /**
  * The session brief, the top of the Details panel: a toolbar (updated / edited, Regenerate,
  * Edit), then Summary, Todos (clickable checkboxes, "3/7"), Resources grouped by kind (files
- * open the in-app preview, URLs a new tab; Files collapsed by default) and Continue in new
- * session. Edit = the body markdown in a textarea (⌘/Ctrl+Enter saves, Esc cancels).
+ * open the in-app preview, URLs a new tab; Files collapsed by default). Edit = the body markdown in a textarea (⌘/Ctrl+Enter saves, Esc cancels).
  */
-export function BriefSection({ host, brief: st, fileLinks, onContinue, desktop = false, cancelEditRef }: BriefSectionProps) {
+export function BriefSection({ host, brief: st, fileLinks, desktop = false, cancelEditRef }: BriefSectionProps) {
   const now = useNow(15_000)
   const b = st.brief
   const [draft, setDraft] = useState<string | null>(null)
@@ -238,11 +234,6 @@ export function BriefSection({ host, brief: st, fileLinks, onContinue, desktop =
               </div>
             </Part>
           ) : null}
-
-          <Button variant="outline" className="h-10 w-full rounded-xl" onClick={() => onContinue(b.continuePrompt)}>
-            Continue in new session
-            <ArrowRightIcon />
-          </Button>
         </div>
       </FileLinksContext.Provider>
     )

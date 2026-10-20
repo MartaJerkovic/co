@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckIcon, FolderIcon, GitForkIcon, LayersIcon, Loader2Icon, MicIcon, PaperclipIcon, PlayIcon, SquareIcon } from 'lucide-react'
+import { ArrowRightIcon, CheckIcon, FolderIcon, GitForkIcon, LayersIcon, Loader2Icon, MicIcon, PaperclipIcon, PlayIcon, SquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api, ApiError } from '@/api/client'
@@ -34,6 +34,8 @@ import { appendTranscript, formatElapsed } from '@/lib/voice'
 const HOST_KEY = 'fleet.spawnHost'
 const dirKey = (host: string) => `fleet.spawnDirLabel.${host}`
 const HARNESS_KEY = 'fleet.spawnHarness'
+// "New session from here": the last mode picked (Hand off / Sibling).
+const FROM_MODE_KEY = 'fleet.spawnFromMode'
 // Past this many models a harness's picker is a dropdown, not chips (pi lists dozens).
 const MODEL_CHIPS_MAX = 8
 // The unsent first prompt of a plain New session (not a prefilled "continue"), so closing the form,
@@ -76,12 +78,14 @@ const DEFAULT_MODEL_VALUE = '__default'
 // The extra directory row a prefill adds when its dir is not one of the host's spawnDirs.
 const PREFILL_DIR_LABEL = 'Same as the session'
 
-/** "Continue in new session": start on this host, in this directory, with this first prompt. Nothing is remembered. */
+/** "New session from here": start on this host, in this directory, with this first prompt. Nothing is remembered. */
 export interface SpawnPrefill {
   host: string
   /** Absolute on `host` (a session's cwd); must be one of its spawnDirs or beneath one, else the spawn is a 400. */
   dir?: string | null
   prompt?: string
+  /** Offer Sibling beside Hand off: the same prompt, spawned into this session's stack instead. */
+  sibling?: SiblingTarget | null
 }
 
 export interface NewSessionDrawerProps {
@@ -142,7 +146,7 @@ function NewSessionForm({
   onOpenSession,
   variant = 'drawer',
   prefill = null,
-  sibling = null,
+  sibling: siblingProp = null,
 }: {
   onDone: () => void
   onOpenSession: (href: string) => void
@@ -156,6 +160,15 @@ function NewSessionForm({
   const Description = dialog ? DialogDescription : DrawerDescription
   const { fleet, applyFleet } = useFleet()
   const hosts = spawnTargets(fleet)
+  // From a session: Hand off (a separate session) or Sibling (in its stack), same prompt either way.
+  const offersSibling = !siblingProp && !!prefill?.sibling
+  const [fromMode, setFromMode] = useState<'handoff' | 'sibling'>(() => (storage.get(FROM_MODE_KEY) === 'sibling' ? 'sibling' : 'handoff'))
+  const sibling = siblingProp ?? (offersSibling && fromMode === 'sibling' ? (prefill?.sibling ?? null) : null)
+  const pickFromMode = (m: 'handoff' | 'sibling') => {
+    setFromMode(m)
+    storage.set(FROM_MODE_KEY, m)
+    setError(null)
+  }
 
   const [host, setHost] = useState(() => {
     // A sibling starts where the user is looking (the source session's host); the stack's home may differ.
@@ -552,15 +565,43 @@ function NewSessionForm({
       }}
     >
       <Header className="px-0 pt-3 pb-2 text-left">
-        <Title className="text-left text-base font-semibold">{sibling ? 'Spawn sibling' : prefill ? 'Continue in new session' : 'New session'}</Title>
+        <Title className="text-left text-base font-semibold">{offersSibling ? 'New session from here' : sibling ? 'Spawn sibling' : prefill ? 'Continue in new session' : 'New session'}</Title>
         <Description className="text-left text-xs">
           {sibling
             ? sibling.creates
               ? `This starts a new stack around this session (one Sonnet call), then a sibling session${siblingSameHost ? ' in the same directory' : ` on ${host}`} that reads the shared StackBrief first.`
               : `A new session in the stack ${sibling.label ? `“${sibling.label}”` : ''}${siblingSameHost ? ', in the same directory' : ` on ${host}`}. It reads the shared StackBrief first${siblingSameHost ? '' : ` (through fleet, from ${sibling.host})`}.`
-            : `Starts ${who} in a new tmux session. A first-run folder trust prompt is accepted for you.`}
+            : offersSibling
+              ? `A separate ${who} session that picks up where this one is, on its own.`
+              : `Starts ${who} in a new tmux session. A first-run folder trust prompt is accepted for you.`}
         </Description>
       </Header>
+
+      {offersSibling ? (
+        <ToggleGroup
+          type="single"
+          value={fromMode}
+          onValueChange={(v) => v && pickFromMode(v as 'handoff' | 'sibling')}
+          spacing={0}
+          aria-label="How"
+          className="mt-1 mb-3 w-full rounded-lg bg-muted p-1"
+        >
+          {(
+            [
+              ['handoff', 'Hand off', ArrowRightIcon],
+              ['sibling', 'Sibling', GitForkIcon],
+            ] as const
+          ).map(([v, label, Icon]) => (
+            <ToggleGroupItem
+              key={v}
+              value={v}
+              className="h-9 flex-1 gap-1.5 rounded-md px-3 text-[0.8125rem] text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent"
+            >
+              <Icon /> {label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      ) : null}
 
       {sibling ? (
         <div className="space-y-4 pt-1">
