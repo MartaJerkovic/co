@@ -23,6 +23,7 @@ export type ShortcutAction =
   | 'rename'
   | 'notes'
   | 'scratchpad'
+  | 'inbox'
   | 'operator'
   | 'memos'
   | 'prs'
@@ -91,6 +92,7 @@ export const BINDINGS: readonly Binding[] = [
   { action: 'scratchpad', combo: ['mod', 'shift', 'S'] },
   // The modules (again → back to the sessions). ⌘, is the macOS settings key: Fleet.app and
   // Safari pass it to the page, Chrome keeps it for its own settings.
+  { action: 'inbox', combo: ['mod', 'shift', 'I'] },
   { action: 'operator', combo: ['mod', 'shift', 'K'] },
   { action: 'memos', combo: ['mod', 'shift', 'M'] },
   { action: 'prs', combo: ['mod', 'shift', 'P'] },
@@ -269,6 +271,7 @@ export const SHORTCUT_HELP: { title: string; items: ShortcutHelp[] }[] = [
   {
     title: 'Modules (again: back to the sessions)',
     items: [
+      { action: 'inbox', label: 'Inbox: everything waiting on you' },
       { action: 'operator', label: 'Operator: talk to the fleet' },
       { action: 'memos', label: 'Voice memos: record a conversation' },
       { action: 'prs', label: 'Pull requests' },

@@ -25,3 +25,4 @@ import './memos.test.mjs';
 import './diff.test.mjs';
 import './reviews.test.mjs';
 import './focus.test.mjs';
+import './inbox.test.mjs';

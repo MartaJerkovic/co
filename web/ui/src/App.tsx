@@ -17,6 +17,7 @@ import { usePreventFileNavigation } from '@/hooks/useAttach'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { DesktopShell } from '@/screens/DesktopShell'
+import { InboxScreen } from '@/screens/InboxScreen'
 import { JobsScreen } from '@/screens/JobsScreen'
 import { MemosScreen } from '@/screens/MemosScreen'
 import { ListScreen } from '@/screens/ListScreen'
@@ -31,7 +32,7 @@ import { UsageScreen } from '@/screens/UsageScreen'
 
 /**
  * Hash routing: `#/` (list), `#/s/<host>/<session_id>` (detail),
- * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/tasks` (your open Productive tasks), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer) and `#/review/<host>/<session_id>` (the diff reviewer).
+ * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/inbox` (everything waiting on you), `#/jobs` (scheduled jobs), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/tasks` (your open Productive tasks), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer) and `#/review/<host>/<session_id>` (the diff reviewer).
  * No server-side SPA fallback needed; the PWA start_url is `/#/`. Desktop and mobile use the
  * same routes, so links work across both.
  */
@@ -64,6 +65,9 @@ export default function App() {
                   </Route>
                   <Route path="/usage">
                     <UsageScreen />
+                  </Route>
+                  <Route path="/inbox">
+                    <InboxScreen />
                   </Route>
                   <Route path="/jobs">
                     <JobsScreen />

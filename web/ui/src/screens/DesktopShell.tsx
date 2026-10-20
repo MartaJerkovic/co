@@ -6,6 +6,9 @@ import {
   CopyIcon,
   FileTextIcon,
   FilterIcon,
+  GaugeIcon,
+  GitPullRequestIcon,
+  InboxIcon,
   KanbanIcon,
   KeyboardIcon,
   Link2Icon,
@@ -22,13 +25,11 @@ import {
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
-  GaugeIcon,
   Settings2Icon,
   SparklesIcon,
+  SquareCheckBigIcon,
   SquareTerminalIcon,
   SunIcon,
-  GitPullRequestIcon,
-  SquareCheckBigIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Redirect, useLocation, useRoute } from 'wouter'
@@ -98,6 +99,7 @@ import { parseReviewLocation, reviewHref } from '@/lib/review'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
+import { InboxScreen } from '@/screens/InboxScreen'
 import { JobsScreen } from '@/screens/JobsScreen'
 import { MemosScreen } from '@/screens/MemosScreen'
 import { OperatorScreen } from '@/screens/OperatorScreen'
@@ -121,6 +123,7 @@ export function DesktopShell() {
   const [settingsOpen] = useRoute('/settings')
   const [usageOpen] = useRoute('/usage')
   const [jobsOpen] = useRoute('/jobs')
+  const [inboxOpen] = useRoute('/inbox')
   const [operatorOpen] = useRoute('/operator')
   const memosOpen = parseMemosLocation(location) !== null
   const settings = useSettings()
@@ -308,7 +311,7 @@ export function DesktopShell() {
           navigate(sessionHref({ host: reviewLoc.host, session_id: reviewLoc.id }))
           return true
         }
-        if (selectedKey || settingsOpen || usageOpen || jobsOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen) {
+        if (selectedKey || settingsOpen || usageOpen || jobsOpen || inboxOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen) {
           navigate('/')
           return true
         }
@@ -350,6 +353,9 @@ export function DesktopShell() {
         return true
       case 'tasks':
         navigate(tasksOpen ? '/' : '/tasks')
+        return true
+      case 'inbox':
+        navigate(inboxOpen ? '/' : '/inbox')
         return true
       case 'jobs':
         navigate(jobsOpen ? '/' : '/jobs')
@@ -567,6 +573,14 @@ export function DesktopShell() {
           ? [{ id: 'notes', label: 'Notes…', icon: <NotebookTextIcon />, shortcut: shortcutHint('notes'), keywords: ['notes', 'markdown', 'knowledge', 'wiki', 'search'], run: () => navigate(notesHref()) }]
           : []),
         {
+          id: 'inbox',
+          label: 'Inbox…',
+          icon: <InboxIcon />,
+          shortcut: shortcutHint('inbox'),
+          keywords: ['inbox', 'todo', 'to do', 'brief', 'quick wins', 'waiting', 'slack', 'email', 'today'],
+          run: () => navigate('/inbox'),
+        },
+        {
           id: 'prs',
           label: 'Pull requests…',
           icon: <GitPullRequestIcon />,
@@ -637,8 +651,8 @@ export function DesktopShell() {
     },
   ]
 
-  // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/prs`, `/tasks`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
+  // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/inbox`, `/prs`, `/tasks`, notes and `/s/:host/:id` → the list (same as mobile).
+  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -666,6 +680,8 @@ export function DesktopShell() {
     <UsageScreen layout="pane" />
   ) : jobsOpen ? (
     <JobsScreen layout="pane" />
+  ) : inboxOpen ? (
+    <InboxScreen layout="pane" />
   ) : operatorOpen ? (
     <OperatorScreen layout="pane" />
   ) : memosOpen ? (

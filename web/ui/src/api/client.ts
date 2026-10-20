@@ -21,6 +21,7 @@ import type {
   FileStatResponse,
   FleetResponse,
   GroupsResponse,
+  InboxResponse,
   HarnessesResponse,
   Job,
   JobEnabledResponse,
@@ -357,6 +358,10 @@ export const api = {
   runGroups: (o: Opts = {}) => request<GroupsResponse>('/api/groups/run', { ...o, method: 'POST', body: {} }),
   /** Rename a group / move a session (409: the id or label was refused). */
   editGroups: (edit: GroupEdit, o: Opts = {}) => request<GroupsResponse>('/api/groups/edit', { ...o, method: 'POST', body: edit }),
+  /** The live inbox: brief + everything waiting on you, from the inbox host (proxied). */
+  inbox: (o: Opts = {}) => request<InboxResponse>('/api/inbox', o),
+  /** Re-read the sources now; the Slack & email scan starts in the background. */
+  refreshInbox: (o: Opts = {}) => request<InboxResponse>('/api/inbox/refresh', { ...o, method: 'POST', body: {} }),
 }
 
 /** GET …/files/raw — for <img>, <iframe>, fetch and download links. */

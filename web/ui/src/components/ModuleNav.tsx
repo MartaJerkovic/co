@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AudioLinesIcon, CalendarClockIcon, CircleDotIcon, GaugeIcon, GitPullRequestIcon, NotebookPenIcon, SquareCheckBigIcon, NotebookTextIcon, Settings2Icon } from 'lucide-react'
+import { AudioLinesIcon, InboxIcon, CalendarClockIcon, CircleDotIcon, GaugeIcon, GitPullRequestIcon, NotebookPenIcon, SquareCheckBigIcon, NotebookTextIcon, Settings2Icon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -9,7 +9,7 @@ import { scratchpad } from '@/lib/scratchpad'
 import { withHint, type ShortcutAction } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 
-export type ModuleId = 'scratchpad' | 'memos' | 'operator' | 'prs' | 'tasks' | 'notes' | 'jobs' | 'usage' | 'settings'
+export type ModuleId = 'inbox' | 'scratchpad' | 'memos' | 'operator' | 'prs' | 'tasks' | 'notes' | 'jobs' | 'usage' | 'settings'
 
 export interface Module {
   id: ModuleId
@@ -32,6 +32,7 @@ function useModules(): Module[] {
   const notesHosts = useNotesHosts()
   const settings = useSettings()
   const all: (Module | null)[] = [
+    { id: 'inbox', label: 'Inbox', icon: <InboxIcon />, href: '#/inbox', hint: 'inbox', group: 'work' },
     settings.operator ? { id: 'operator', label: 'Operator', icon: <AudioLinesIcon />, href: '#/operator', hint: 'operator', group: 'work' } : null,
     { id: 'prs', label: 'Pull requests', icon: <GitPullRequestIcon />, href: '#/prs', hint: 'prs', group: 'work' },
     { id: 'tasks', label: 'Tasks', icon: <SquareCheckBigIcon />, href: '#/tasks', hint: 'tasks', group: 'work' },

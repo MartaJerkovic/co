@@ -33,6 +33,7 @@ import { createTouchedIndex } from './lib/touched.mjs';
 import { createBriefExtractor } from './lib/brief-extract.mjs';
 import { createBriefStore, createBriefs, createClaudeAsk, gitInfo } from './lib/briefs.mjs';
 import { createStacks } from './lib/stacks.mjs';
+import { createAgentAsk, createInbox } from './lib/inbox.mjs';
 import { fetchPeerHost } from './lib/peers.mjs';
 import { createDormant } from './lib/dormant.mjs';
 import { createMemos } from './lib/memos.mjs';
@@ -128,6 +129,18 @@ const stacks = createStacks({
   syncIntervalMs: config.stacks.syncMinutes * 60 * 1000,
   log,
 });
+// Inbox: the live to-do list, run by the `inbox.host` server only (the others proxy to it).
+const inbox = config.inbox.enabled
+  ? createInbox({
+      settings: config.inbox,
+      cli,
+      getFleet: async () => fleetAccess.peekFleet() ?? (await fleetAccess.buildFleet()),
+      ask: createClaudeAsk({ bin: claudeBin, run }),
+      agent: createAgentAsk({ bin: claudeBin, run }),
+      file: path.join(fleetStateDir(process.env), 'inbox.json'),
+      log,
+    })
+  : null;
 // Session recovery: dormant sessions after a reboot (`fleet --local restore … --json`).
 const dormant = createDormant({ cli, log });
 // Voice: an OpenAI key for speech-to-text (voice prompts) and one for text-to-speech (the
@@ -182,6 +195,7 @@ const handleApi = createApi({
   stacks,
   dormant,
   grouper,
+  inbox,
   name: NAME,
   version: VERSION,
   logError,
@@ -228,6 +242,13 @@ server.listen(config.port, config.bind, () => {
   } else {
     log(`[fleet-web] briefs: background generation off (web.briefs.enabled = false); ${config.briefs.dir}`);
   }
+  if (inbox) {
+    inbox.start();
+    const ib = config.inbox;
+    log(`[fleet-web] inbox on (${ib.comms ? `Slack + mail every ${ib.scanMinutes}m in work hours, ${ib.model}` : 'no Slack + mail'}; brief ${ib.briefModel}, ≥ ${ib.briefMinutes}m apart)`);
+  } else if (config.inbox.host) {
+    log(`[fleet-web] inbox: served by ${config.inbox.host}`);
+  }
   // The sync judges members on other hosts with the merged fleet (the warm snapshot when someone
   // is watching, else one fresh build); a sibling started on a peer is found in that peer's list.
   stacks.attach({
@@ -260,6 +281,7 @@ function shutdown(signal) {
   spawnNamer?.stop();
   grouper?.stop();
   briefs.stop();
+  inbox?.stop();
   stacks.stop();
   operator.stop();
   uploader.stop();

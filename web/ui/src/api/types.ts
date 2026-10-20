@@ -1359,3 +1359,69 @@ export interface DiffsResponse {
   unchanged: boolean
   repos?: DiffRepo[]
 }
+
+/** One source of GET /api/inbox — a missing key in `sources` means that source is off. */
+export interface InboxSource {
+  /** ms epoch of the last read */
+  at: number | null
+  ok: boolean
+  error: string | null
+  count: number
+  /** comms: the next Slack & email scan (ms epoch) */
+  nextAt?: number | null
+  /** comms: a scan is running now */
+  running?: boolean
+}
+
+export type InboxSection = 'quick' | 'waiting' | 'mine'
+
+/** One thing waiting on you. The list is the server's: items leave it when their source resolves them. */
+export interface InboxItem {
+  /** stable: `pr:<url>`, `task:<id>`, `session:<host>/<id>`, `slack:…`, `email:…` */
+  id: string
+  source: 'github' | 'productive' | 'session' | 'slack' | 'email'
+  kind: 'review' | 'mention' | 'myPr' | 'task' | 'session' | 'message'
+  section: InboxSection
+  title: string
+  /** one line: what to do */
+  ask: string | null
+  /** external link (GitHub, Productive, Slack, Gmail) */
+  url: string | null
+  /** in-app hash route (`#/s/<host>/<id>`) — preferred over `url` */
+  href: string | null
+  from: string | null
+  /** ms epoch, latest activity */
+  at: number
+  /** ms epoch, when the inbox first saw it */
+  firstSeen: number
+  effort: 'quick' | 'medium' | 'deep' | null
+  meta: {
+    repo?: string
+    number?: number
+    size?: string
+    additions?: number
+    deletions?: number
+    checks?: string | null
+    draft?: boolean
+    project?: string
+    /** YYYY-MM-DD */
+    due?: string
+    overdue?: boolean
+    status?: string
+    host?: string
+    sessionId?: string
+  }
+}
+
+/** GET /api/inbox — served by the inbox host (`inbox.host`), proxied from everywhere else. */
+export interface InboxResponse {
+  /** false: no inbox host configured or reachable */
+  enabled: boolean
+  host: string | null
+  error?: string
+  updatedAt: number | null
+  brief: { text: string; at: number; model: string } | null
+  sources: { github?: InboxSource; productive?: InboxSource; sessions?: InboxSource; comms?: InboxSource }
+  /** sorted: section order, then `at` newest first */
+  items: InboxItem[]
+}

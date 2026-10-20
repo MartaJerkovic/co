@@ -164,6 +164,8 @@ export const DEFAULT_QUICK_REPLIES = [
  *   dormant     lib/dormant.mjs#createDormant (…/dormant routes: list / restore / forget; absent → 501)
  *   grouper     lib/grouping.mjs instance when THIS host runs grouping (absent → proxy to the
  *               grouping host, or a disabled response)
+ *   inbox       lib/inbox.mjs instance when THIS host runs the inbox (absent → proxy to
+ *               config.inbox.host, or a disabled response)
  *   warmFleet   keep the merged /api/fleet warm in the background (lib/snapshot.mjs)
  *   name, version, startedAt   for /api/health
  *   fetchPeerHost, proxyToPeer, streamToPeer, streamFromPeer (optional, for tests)
@@ -199,6 +201,7 @@ export function createApi({
   dormant = null,
   focus = null,
   grouper = null,
+  inbox = null,
   groupingDiscoveryMs = 5 * 60 * 1000,
   name = 'fleet-web',
   version = '0.0.0',
@@ -495,6 +498,30 @@ export function createApi({
     throw new HttpError(target.error ?? 'smart grouping is not enabled on this fleet (web.grouping.enabled)', 501);
   }
 
+  // --- /api/inbox: served by the inbox host (config inbox.host), proxied from everywhere else
+  async function handleInbox(req, url, action) {
+    if (action === 'refresh') await readJsonBody(req);
+    if (inbox) {
+      if (action === 'get') return { status: 200, body: inbox.response() };
+      return { status: 200, body: await inbox.refresh() };
+    }
+    const host = config.inbox?.host ?? null;
+    const off = (error) => ({ status: 200, body: { enabled: false, host, ...(error ? { error } : {}), updatedAt: null, brief: null, sources: {}, items: [] } });
+    if (!host) return off(null);
+    if (host === config.self) return off('the inbox is off on this server (FLEET_WEB_INBOX)');
+    if (url.searchParams.get('local') === '1') return off(null); // never chain
+    const peerUrl = config.peers[host];
+    if (!peerUrl) return off(`inbox.host "${host}" is not a peer with a web URL`);
+    const r = await proxyToPeer(peerUrl, {
+      method: action === 'get' ? 'GET' : 'POST',
+      pathname: action === 'get' ? '/api/inbox' : '/api/inbox/refresh',
+      ...(action === 'get' ? {} : { body: '{}' }),
+      timeoutMs: action === 'get' ? peerProxyTimeoutMs : 3 * 60 * 1000,
+    });
+    if (r.status === 200) return { status: 200, body: r.body };
+    return off(r.body?.error ?? `HTTP ${r.status} from ${host}`);
+  }
+
   /** POST /api/groups/edit — rename a group / move a session, on the grouping host. */
   async function handleGroupEdit(req, url) {
     const op = groupEditOp(await readJsonBody(req));
@@ -613,6 +640,7 @@ export function createApi({
             lastRun: grouper?.lastRun ?? null,
           },
           briefs: briefs?.status() ?? { enabled: false },
+          inbox: inbox?.status() ?? { enabled: false, host: config.inbox?.host ?? null },
           stacks: stacks?.status() ?? { sync: false, lastSync: null },
         },
       };
@@ -702,6 +730,16 @@ export function createApi({
     if (url.pathname === '/api/groups') {
       if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
       return handleGroups(req, url, 'get');
+    }
+
+    if (url.pathname === '/api/inbox') {
+      if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
+      return handleInbox(req, url, 'get');
+    }
+
+    if (url.pathname === '/api/inbox/refresh') {
+      if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      return handleInbox(req, url, 'refresh');
     }
 
     if (url.pathname === '/api/groups/edit') {

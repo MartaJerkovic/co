@@ -11,6 +11,7 @@
 //            stacks: { syncMinutes } },
 //     stacks: { enabled, model },         (read by the CLI; the server only reports them)
 //     grouping: { enabled, model, host },   (enabled/model are read by the CLI)
+//     inbox: { host, scanMinutes, workHours, workDays, model, briefModel, briefMinutes, language, comms },
 //     tmux, fleetBin, claude, spawnDirs: [ { label, paths: { host: dir } } ] }
 //
 // A missing config file is not an error: the server runs as a single local host
@@ -45,6 +46,18 @@ export const DEFAULT_BRIEFS = Object.freeze({
   minNewTurns: 2, // new user prompts needed for a background call …
   minNewChars: 2000, // … or this much new conversation text
   maxBriefChars: 3000, // the previous Summary + Plan fed back
+});
+
+/** inbox defaults (lib/inbox.mjs). Runs only on the host named by `inbox.host`. */
+export const DEFAULT_INBOX = Object.freeze({
+  scanMinutes: 30, // Slack + email scan (a `claude -p` with the claude.ai connectors), in work hours
+  workHours: [8, 19], // local time, [from, to)
+  workDays: [1, 2, 3, 4, 5], // 0 = Sunday
+  model: 'haiku', // the Slack + email scan
+  briefModel: 'haiku', // the brief over all items
+  briefMinutes: 45, // at least this long between two briefs (only when the items changed)
+  language: 'English', // the brief's language
+  comms: true, // false: no Slack + email scan (no model calls but the brief)
 });
 
 /** Where brief files live: $FLEET_BRIEFS_DIR, else ${XDG_STATE_HOME:-~/.local/state}/fleet/briefs. */
@@ -345,6 +358,45 @@ export function normalizeConfig(
     host: groupingHost,
   };
 
+  // inbox: the live to-do list (lib/inbox.mjs). One host runs it (`inbox.host`); the others
+  // proxy /api/inbox there. FLEET_WEB_INBOX=0 turns it off on this server.
+  const ib = raw.inbox == null ? {} : raw.inbox;
+  if (!isObject(ib)) throw new Error('config.inbox must be an object { host, scanMinutes, workHours, workDays, … }');
+  if (ib.host != null && (typeof ib.host !== 'string' || !ib.host.trim())) throw new Error('config.inbox.host must be a host name');
+  const inbox = { ...DEFAULT_INBOX, host: ib.host == null ? null : ib.host.trim() };
+  for (const key of ['scanMinutes', 'briefMinutes']) {
+    if (ib[key] == null) continue;
+    const n = Number(ib[key]);
+    if (!Number.isFinite(n) || n < 1) throw new Error(`config.inbox.${key} must be a number >= 1: ${ib[key]}`);
+    inbox[key] = n;
+  }
+  if (ib.workHours != null) {
+    const h = ib.workHours;
+    if (!Array.isArray(h) || h.length !== 2 || !h.every((x) => Number.isInteger(x) && x >= 0 && x <= 24) || h[0] >= h[1]) {
+      throw new Error('config.inbox.workHours must be [from, to] hours, 0–24, from < to');
+    }
+    inbox.workHours = h;
+  }
+  if (ib.workDays != null) {
+    if (!Array.isArray(ib.workDays) || !ib.workDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
+      throw new Error('config.inbox.workDays must be an array of weekdays 0–6 (0 = Sunday)');
+    }
+    inbox.workDays = ib.workDays;
+  }
+  for (const key of ['model', 'briefModel']) {
+    if (ib[key] == null) continue;
+    if (typeof ib[key] !== 'string' || !MODEL_ID_RE.test(ib[key])) throw new Error(`config.inbox.${key} must be a model id (letters, digits and ._[]-)`);
+    inbox[key] = ib[key];
+  }
+  if (ib.language != null) {
+    if (typeof ib.language !== 'string' || !ib.language.trim()) throw new Error('config.inbox.language must be a non-empty string');
+    inbox.language = ib.language.trim();
+  }
+  if (ib.comms != null && typeof ib.comms !== 'boolean') throw new Error('config.inbox.comms must be true or false');
+  if (ib.comms != null) inbox.comms = ib.comms;
+  inbox.enabled = inbox.host != null && inbox.host === self.trim();
+  if (env.FLEET_WEB_INBOX != null && env.FLEET_WEB_INBOX !== '' && /^(0|false|off|no)$/i.test(env.FLEET_WEB_INBOX)) inbox.enabled = false;
+
   // web.uploads: where dropped/pasted files are stored (lib/uploads.mjs).
   const wu = web.uploads == null ? {} : web.uploads;
   if (!isObject(wu)) throw new Error('config.web.uploads must be an object { dir, maxMB, retentionDays }');
@@ -522,6 +574,7 @@ export function normalizeConfig(
     models,
     autoName,
     grouping,
+    inbox,
     uploads,
     files,
     notes,
