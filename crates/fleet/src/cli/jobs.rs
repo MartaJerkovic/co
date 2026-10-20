@@ -33,9 +33,9 @@ fn job<'a>(s: &'a Settings, name: &str) -> Result<&'a Job> {
     s.get(name).ok_or_else(|| {
         let names: Vec<&str> = s.jobs.iter().map(|j| j.name.as_str()).collect();
         Error::Other(if names.is_empty() {
-            format!("no job `{name}` — none configured (config `jobs`)")
+            format!("no bot `{name}` — none configured (config `bots`)")
         } else {
-            format!("no job `{name}` — configured: {}", names.join(", "))
+            format!("no bot `{name}` — configured: {}", names.join(", "))
         })
     })
 }
@@ -122,7 +122,7 @@ pub fn list(json_out: bool) -> Result<()> {
     }
     if s.jobs.is_empty() {
         println!(
-            "no jobs — add one under `jobs` in {}",
+            "no bots — add one under `bots` in {}",
             home_rel(&config::path().display().to_string())
         );
         return Ok(());
@@ -499,7 +499,7 @@ pub fn tick(quiet: bool) -> Result<()> {
         cleanup(j, now, quiet, &mut rows)?;
     }
     if failed > 0 {
-        return Err(Error::exit(1, format!("{failed} job(s) failed to start")));
+        return Err(Error::exit(1, format!("{failed} bot(s) failed to start")));
     }
     Ok(())
 }
@@ -572,11 +572,11 @@ fn cleanup(
     Ok(())
 }
 
-/// `fleet jobs enable|disable <name>`.
+/// `fleet bots enable|disable <name>`.
 pub fn set_enabled(name: &str, enabled: bool) -> Result<()> {
     let s = Settings::load();
-    job(&s, name)?;
-    config::patch(&format!("jobs.{name}.enabled"), Value::Bool(enabled))?;
+    let section = job(&s, name)?.section;
+    config::patch(&format!("{section}.{name}.enabled"), Value::Bool(enabled))?;
     if enabled {
         let j = Settings::load();
         let next = j
@@ -637,7 +637,7 @@ pub fn install_service(o: ServiceOpts) -> Result<()> {
     if !cfg!(target_os = "macos") {
         return Err(Error::exit(
             1,
-            "install-service is macOS-only — elsewhere run `fleet jobs tick --quiet` every minute from cron or a systemd timer",
+            "install-service is macOS-only — elsewhere run `fleet bots tick --quiet` every minute from cron or a systemd timer",
         ));
     }
     let exe = crate::cli::hosts::current_exe()?;
@@ -651,7 +651,7 @@ pub fn install_service(o: ServiceOpts) -> Result<()> {
     let plist = launchd_plist(&exe, &config::path(), &path, &log);
     web::launchd_agent(LAUNCHD_LABEL, &plist, &log, &o)?;
     if !o.uninstall && !o.print && !o.no_load && !crate::core::hosts::dry_run() {
-        println!("runs due jobs every minute — see them with: fleet jobs");
+        println!("runs due bots every minute — see them with: fleet bots");
     }
     Ok(())
 }

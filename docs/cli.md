@@ -491,15 +491,20 @@ left alone. Config: `repos` in [the config](architecture.md#config), or the web 
 `--json` of `sync` is the list of results `{ name, path, branch, outcome, pulled, defaultBranch?: { branch, pulled }, detail? }`;
 of `repos` the rows `{ name, path, every, excluded, due, branch, upstream, ahead, behind, dirty, busy, lastAttempt, lastFetch, outcome, detail }` (times in ms epoch, `every` in seconds).
 
-## Jobs
+## Bots
 
-Scheduled agent sessions, like Claude Code routines but on your own machines: a cron schedule that
-spawns a session on the host whose config lists the job. Everything that session spawns in turn
-(`fleet spawn`, `fleet stack spawn`, a handoff — on this host or, through `-H`, another) belongs to
-the same **run**. Config: `jobs` in [the config](architecture.md#config).
+Agent sessions started from a recipe, like Claude Code routines but on your own machines: a prompt
+and a cron schedule that spawn a session on the host whose config lists the bot. Everything that
+session spawns in turn (`fleet spawn`, `fleet stack spawn`, a handoff — on this host or, through
+`-H`, another) belongs to the same **run**. Config: `bots` in [the config](architecture.md#config).
+
+Bots used to be called **jobs**: `fleet jobs` is an alias of `fleet bots`, a `jobs` config
+section is still read (a name in both: the `bots` one wins), and the names below that carry `job`
+— the web API (`/api/hosts/:host/jobs`), `--json` fields, `origin.job`, `FLEET_JOB_RUN`,
+`FLEET_JOBS_DIR`, the state dir and the launchd label `fleet.jobs` — keep it.
 
 ```json
-"jobs": {
+"bots": {
   "triage": {
     "schedule": "0 7 * * 1-5",
     "dir": "~/Code/project",
@@ -516,39 +521,39 @@ the same **run**. Config: `jobs` in [the config](architecture.md#config).
 | `schedule` | 5-field cron in local time: `*`, lists, ranges, steps (`*/15`, `5/20`), names (`mon-fri`, `jan`), `7` = Sunday, `@hourly` / `@daily` / `@weekly` / `@monthly`. Both day fields set → either matches (classic cron) |
 | `dir` | where the session starts (must exist) |
 | `prompt` / `promptFile` | the first prompt, inline or read from a file at run time (one of them, or neither); a file's YAML frontmatter (`---` … `---`) is left out, so a note can be the prompt |
-| `command` | launcher for the job's sessions **and everything they spawn** (it travels as `FLEET_CMD`); default config `claude` |
+| `command` | launcher for the bot's sessions **and everything they spawn** (it travels as `FLEET_CMD`); default config `claude` |
 | `harness`, `model` | as for `fleet spawn` |
-| `enabled` | `false` pauses the job (`fleet jobs disable`). `fleet config set jobs.<name> null` removes it |
+| `enabled` | `false` pauses the bot (`fleet bots disable`). `fleet config set bots.<name> null` removes it |
 | `keep` | default `24h`, or `"never"`: once a run is older than this, its sessions that are idle and quiet for an hour are closed (their tmux session is killed). A session waiting for input is never closed |
 
-A job never fires on the tick that first sees it (a job added at 08:00 with a 07:00 schedule first
+A bot never fires on the tick that first sees it (a bot added at 08:00 with a 07:00 schedule first
 runs tomorrow). A slot more than 6 hours old when a tick sees it (the machine was off) is recorded
-as `missed`; a slot that comes while a session of the job is still working is `skipped`.
+as `missed`; a slot that comes while a session of the bot is still working is `skipped`.
 
 | command | does |
 | --- | --- |
-| `fleet jobs [list] [--json]` | each job: schedule, next run, last run, live sessions (working / needs you) |
-| `fleet jobs show <name> [--json]` | settings and the latest runs, each with its sessions as a tree (`└` = spawned by a job session) and their state (`busy` / `idle` / `waiting` / `closed` / `gone`) |
-| `fleet jobs run <name> [--force]` | start a run now (`trigger: manual`); refuses while a session of the job is working unless `--force` |
-| `fleet jobs tick [-q]` | fire due jobs, record missed / skipped slots, close sessions past `keep` — what the service runs. Exits 1 when a job failed to start |
-| `fleet jobs enable\|disable <name>` | set `jobs.<name>.enabled` |
-| `fleet jobs install-service` | macOS: a launchd agent `fleet.jobs` that runs `fleet --local jobs tick -q` every minute and at login (`--uninstall`, `--no-load`, `--print`); logs to `~/Library/Logs/fleet.jobs.log` |
+| `fleet bots [list] [--json]` | each bot: schedule, next run, last run, live sessions (working / needs you) |
+| `fleet bots show <name> [--json]` | settings and the latest runs, each with its sessions as a tree (`└` = spawned by a bot session) and their state (`busy` / `idle` / `waiting` / `closed` / `gone`) |
+| `fleet bots run <name> [--force]` | start a run now (`trigger: manual`); refuses while a session of the bot is working unless `--force` |
+| `fleet bots tick [-q]` | fire due bots, record missed / skipped slots, close sessions past `keep` — what the service runs. Exits 1 when a bot failed to start |
+| `fleet bots enable\|disable <name>` | set `<section>.<name>.enabled` (`bots`, or `jobs` for a bot still there) |
+| `fleet bots install-service` | macOS: a launchd agent `fleet.jobs` that runs `fleet --local jobs tick -q` every minute and at login (`--uninstall`, `--no-load`, `--print`); logs to `~/Library/Logs/fleet.jobs.log` |
 
-A run's first session is the tmux session `<job>-<MMDD>-<HHMM>` (Claude `-n` the same). Every job
-session has `FLEET_JOB_RUN=<job>/<run>` in its tmux environment and the pane option
+A run's first session is the tmux session `<bot>-<MMDD>-<HHMM>` (Claude `-n` the same). Every bot
+session has `FLEET_JOB_RUN=<bot>/<run>` in its tmux environment and the pane option
 `@fleet_job_run`; `fleet list` reports it as `origin: { job, run }`.
 
-`--json` of `jobs` / `jobs show` is `{ name, schedule, scheduleText (the schedule in plain English), enabled, dir, harness, model, command, keep,
-prompt: { inline } | { file } | null, nextRun, lastSlot, runs, live }` per job (`runs`: the latest one
-for `jobs`, all kept for `show`, newest first: `{ id, trigger, startedAt, slot, outcome, reason,
+`--json` of `bots` / `bots show` is `{ name, schedule, scheduleText (the schedule in plain English), enabled, dir, harness, model, command, keep,
+prompt: { inline } | { file } | null, nextRun, lastSlot, runs, live }` per bot (`runs`: the latest one
+for `bots`, all kept for `show`, newest first: `{ id, trigger, startedAt, slot, outcome, reason,
 promptFile, sessions: [{ tmuxSession, name, parent, at, closedAt }] }`; `live`: `{ run, sessionId,
 tmuxSession, status, title }`; times in ms epoch, `keep` in seconds). State:
-`${XDG_STATE_HOME:-~/.local/state}/fleet/jobs/<job>.json` plus each run's prompt in `<job>/<run>.md`
+`${XDG_STATE_HOME:-~/.local/state}/fleet/jobs/<bot>.json` plus each run's prompt in `<bot>/<run>.md`
 (`FLEET_JOBS_DIR`); the last 50 runs are kept.
 
-In the web UI, the **Jobs** screen (`#/jobs`) lists every host's jobs with Run now and the
-enabled switch, and each run's sessions as a tree; job sessions wear a job chip and stay out of the
-session list unless they need you — the **Scheduled** status filter (clock icon) lists only them ([Web API](architecture.md#web-api)).
+In the web UI, the **Bots** screen (`#/bots`; `#/jobs` still opens it) lists every host's bots with
+Run now and the enabled switch, and each run's sessions as a tree; bot sessions wear a bot chip and
+stay out of the session list unless they need you — the **Bots** status filter (bot icon) lists only them ([Web API](architecture.md#web-api)).
 
 ## Web
 
@@ -631,8 +636,8 @@ fleet mcp --http [--bind 127.0.0.1] [--port 7778] --token-file ~/.config/fleet/m
 | `FLEET_PRODUCTIVE_TOKEN` / `PRODUCTIVE_API_TOKEN` | Productive API token for [`fleet tasks`](#productive-tasks) (the first over config `tasks.token`, the second under it) |
 | `FLEET_TASKS_CACHE` | the [`fleet tasks`](#productive-tasks) cache file |
 | `FLEET_CURL`, `FLEET_PRODUCTIVE_API` | `curl` binary and API base URL for [`fleet tasks`](#productive-tasks) (tests) |
-| `FLEET_JOB_RUN` | `<job>/<run>`: the [job](#jobs) run a session belongs to — set in job sessions; a spawn with it set joins that run (and is forwarded to `-H` hosts) |
-| `FLEET_JOBS_DIR` | [job](#jobs) state (default `${XDG_STATE_HOME:-~/.local/state}/fleet/jobs`) |
+| `FLEET_JOB_RUN` | `<bot>/<run>`: the [bot](#bots) run a session belongs to — set in bot sessions; a spawn with it set joins that run (and is forwarded to `-H` hosts) |
+| `FLEET_JOBS_DIR` | [bot](#bots) state (default `${XDG_STATE_HOME:-~/.local/state}/fleet/jobs`) |
 | `FLEET_STACKS_DIR` | where [stacks](#stacks) live (default `${XDG_STATE_HOME:-~/.local/state}/fleet/stacks`) |
 | `VISUAL`, `EDITOR` | the editor for `fleet brief --edit`, `fleet stack edit` and `fleet config edit` (default `vi`) |
 | `FLEET_SNAPSHOT` | the [session-recovery](#session-recovery) snapshot (default `${XDG_STATE_HOME:-~/.local/state}/fleet/snapshot.json`) |

@@ -1,7 +1,8 @@
-// Jobs screen (`#/jobs`): scheduled agent sessions per host (docs/cli.md → Jobs) — pure helpers.
+// Bots screen (`#/bots`, formerly `#/jobs`): agent sessions from a recipe per host (docs/cli.md → Bots) — pure helpers.
+// In code a bot is still a job: the API, the types and `origin.job` keep that name.
 import type { FleetResponse, Job, JobRun, JobRunSession, Session } from '@/api/types'
 
-export const isJobsLocation = (location: string) => location === '/jobs' || location.startsWith('/jobs/')
+export const isJobsLocation = (location: string) => /^\/(?:bots|jobs)(?:\/|$)/.test(location)
 
 /** One host's answer to GET …/jobs. `error`: the host could not list its jobs (older CLI, down). */
 export interface HostJobs {

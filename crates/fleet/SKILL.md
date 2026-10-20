@@ -190,11 +190,11 @@ A **stack** is a set of sessions — on one host or across hosts — that share 
 - **If your first prompt starts with "Productive task #…"** — you were spawned on that task: read it in full (description, todos, comments) from its URL with the Productive tools you have, and link it from the PR you open (`app.productive.io/…/tasks/<id>` in the description) so fleet links the two.
 - PRs link to tasks through such URLs in their title or description (`tasks` in `fleet prs --json`). The web UI's Tasks screen shows the same columns, moves tasks, starts sessions, and marks sessions and PRs that belong to a task.
 
-## Scheduled jobs
+## Bots
 
-`fleet jobs` lists the cron jobs configured on a host (config `jobs`): each spawns a session on schedule, and that session's own spawns join the same run. `fleet jobs show <name>` has the latest runs as session trees; `fleet jobs run <name>` starts one now (it starts an agent: **confirm like `spawn`**); `enable` / `disable` pause and resume. A session a job started has `origin: { job, run }` in `fleet list --json`.
+`fleet bots` lists the bots configured on a host (config `bots`; `jobs` is their old name, still read, and `fleet jobs` an alias): each is a recipe — a prompt and a schedule — that spawns a session, and that session's own spawns join the same run. `fleet bots show <name>` has the latest runs as session trees; `fleet bots run <name>` starts one now (it starts an agent: **confirm like `spawn`**); `enable` / `disable` pause and resume. A session a bot started has `origin: { job, run }` in `fleet list --json`.
 
-- **If `FLEET_JOB_RUN` is set in your environment, you are a job session** — nobody is watching live. Don't stop to ask; finish what the prompt says, and leave your result as your last message (that is the report). Sessions you spawn join your run automatically.
+- **If `FLEET_JOB_RUN` is set in your environment, you are a bot session** — nobody is watching live. Don't stop to ask; finish what the prompt says, and leave your result as your last message (that is the report). Sessions you spawn join your run automatically.
 
 ## Session names
 

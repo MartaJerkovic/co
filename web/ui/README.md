@@ -64,7 +64,7 @@ src/
                       swipeAxis() / swipeBackIntent() / swipeBackBlocked() (session swipe-back)
   lib/prefs.ts        Settings screen prefs: TEXT_SIZES (Small / Default / Large), rootFontSize() (the <html>
                       font-size that scales every rem), CHAT_FONT_REM, termFontRem(), storage keys
-  lib/jobs.ts         Jobs screen (`#/jobs`): flattenJobs() (every host's jobs), runTree() (a run's sessions under their
+  lib/jobs.ts         Bots screen (`#/bots`, old `#/jobs`): flattenJobs() (every host's jobs), runTree() (a run's sessions under their
                       `parent`), liveSession() (host + tmux session → the /api/fleet row), whenLabel(), outcomeTone(),
                       liveSummary(), keepLabel(), promptLabel(), isJobsLocation()
   lib/repos.ts        Settings → Git repos: per-repo interval in a draft (rowInterval()/setRowInterval(), repoKey():
@@ -145,7 +145,7 @@ src/
   screens/            ListScreen (`#/`), SessionScreen (`#/s/:host/:id`; `layout="pane"` on desktop),
                       SettingsScreen (`#/settings`; `layout="pane"` on desktop),
                       NotesScreen (`#/notes[/<host>[/<path>]]`; `layout="pane"` on desktop),
-                      JobsScreen (`#/jobs`; `layout="pane"` on desktop),
+                      JobsScreen (`#/bots`; `layout="pane"` on desktop),
                       ReviewScreen (`#/review/:host/:id`; desktop: file tree | diff | the session),
                       DesktopShell (≥ lg master–detail + the keyboard handler)
   App.tsx             providers + wouter hash router; picks DesktopShell or the mobile screens
@@ -191,13 +191,13 @@ src/
   field) or tap the handle to open, swipe up / tap to close; the list itself scrolls as usual.
   While closed, active filters show on the handle ("Needs you · workstation") with ✕ to clear.
   The List | Board toggle stays next to the search field.
-- **Scheduled sessions**: a session a scheduled job started (`origin` on its row) wears a job chip
-  (clock + job name; the run id in a tooltip) on list rows and board cards. **Scheduled** is a status
-  filter (the clock-icon chip after Idle, shown when there are job sessions): it lists only job
+- **Bot sessions**: a session a bot started (`origin` on its row) wears a bot chip
+  (bot icon + bot name; the run id in a tooltip) on list rows and board cards. **Bots** is a status
+  filter (the bot-icon chip after Idle, shown when there are job sessions): it lists only job
   sessions. Every other filter leaves them out, except ones waiting on you (they always show, and
   every "needs you" counter counts them); the header counters count every session.
-- **Jobs** (`#/jobs`; the ⋯ More menu in the mobile list header, the clock icon on desktop, ⌘K → Scheduled jobs…): every
-  host's jobs — name, host, schedule, next run, an enabled switch (`POST …/jobs/:name/enabled`,
+- **Bots** (`#/bots`, `#/jobs` still works; the ⋯ More menu in the mobile list header, the bot icon on desktop, ⌘K → Bots…): every
+  host's bots — name, host, schedule, next run, an enabled switch (`POST …/jobs/:name/enabled`,
   optimistic), Run now (a confirm dialog; a 409 because a job session still works offers Run
   anyway = `force`) and the last run's outcome + live sessions. Expanding a job shows its settings
   and its runs (newest first: outcome, when, trigger, reason) with each run's sessions as a tree

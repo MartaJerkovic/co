@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { CalendarClockIcon, ChevronDownIcon, ChevronLeftIcon, Loader2Icon, PlayIcon, RefreshCwIcon, XIcon } from 'lucide-react'
+import { BotIcon, ChevronDownIcon, ChevronLeftIcon, Loader2Icon, PlayIcon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
 
@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
 type HostedJob = Job & { host: string }
 
 /**
- * `#/jobs`: the scheduled jobs of every host (`fleet jobs`), each with its schedule, next run, an
+ * `#/bots`: the bots of every host (`fleet bots`), each with its schedule, next run, an
  * enabled switch, Run now and its last run; expanding one lists its runs and the sessions each run
  * started, as a tree. `screen` = the mobile page (back, swipe back); `pane` = the desktop main pane.
  */
@@ -71,7 +71,7 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Refresh jobs"
+      aria-label="Refresh bots"
       title="Refresh"
       onClick={() => reload()}
       className={cn('shrink-0', pane ? 'size-11 rounded-xl' : '-my-1.5 size-11 rounded-xl')}
@@ -114,10 +114,10 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
         </ul>
       ) : null}
       {!loading && !jobs.length && !errors.length ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">No scheduled jobs. Add one under <span className="font-mono">jobs</span> in a host’s fleet config.</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">No bots. Add one under <span className="font-mono">bots</span> in a host’s fleet config.</p>
       ) : null}
       <p className="text-xs text-dimmer">
-        Jobs live in each host’s fleet config; that host’s <span className="font-mono">fleet jobs tick</span> service starts them on schedule.
+        Bots live in each host’s fleet config; that host’s <span className="font-mono">fleet bots tick</span> service starts them on schedule.
       </p>
     </div>
   )
@@ -138,16 +138,16 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
 
   if (pane) {
     return (
-      <section aria-label="Scheduled jobs" className="flex h-full min-w-0 flex-1 flex-col bg-background">
+      <section aria-label="Bots" className="flex h-full min-w-0 flex-1 flex-col bg-background">
         <header
           data-tauri-drag-region="deep"
           className="titlebar titlebar-lead flex shrink-0 items-center gap-1 border-b py-1.5 pr-2 pl-4 [--titlebar-pad:1rem]"
         >
           <h1 className="flex min-w-0 flex-1 items-center gap-1.5 text-[0.9375rem] leading-tight font-bold">
-            <CalendarClockIcon className="size-4 text-muted-foreground" /> Scheduled jobs
+            <BotIcon className="size-4 text-muted-foreground" /> Bots
           </h1>
           {refreshButton}
-          <Button variant="ghost" size="icon" aria-label="Close jobs" title="Close (Esc)" onClick={back} className="size-11 shrink-0 rounded-xl">
+          <Button variant="ghost" size="icon" aria-label="Close bots" title="Close (Esc)" onClick={back} className="size-11 shrink-0 rounded-xl">
             <XIcon className="size-5" />
           </Button>
         </header>
@@ -164,7 +164,7 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
           <Button variant="ghost" size="icon" aria-label="Back" onClick={back} className="-my-1.5 size-11 shrink-0 rounded-xl">
             <ChevronLeftIcon className="size-6" />
           </Button>
-          <h1 className="flex-1 text-xl font-bold tracking-tight">Jobs</h1>
+          <h1 className="flex-1 text-xl font-bold tracking-tight">Bots</h1>
           {refreshButton}
         </div>
       </ScreenHeader>

@@ -1,12 +1,13 @@
-//! `fleet jobs`: scheduled agent sessions — a cron schedule that spawns a session on this
-//! machine, the way a Claude Code routine runs in the cloud. Everything such a session
-//! spawns in turn (`fleet spawn`, `fleet stack spawn`, a handoff) belongs to the same run.
+//! `fleet bots` (formerly `fleet jobs`): agent sessions started from a recipe — a prompt and a
+//! cron schedule that spawn a session on this machine, the way a Claude Code routine runs in
+//! the cloud. In code a bot is still a [`Job`]. Everything such a session spawns in turn
+//! (`fleet spawn`, `fleet stack spawn`, a handoff) belongs to the same run.
 //!
-//! Config (`jobs` in config.json — per machine: a job runs on the host whose config lists
-//! it; read leniently, a bad job is a problem and is skipped):
+//! Config (`bots` in config.json, or `jobs`, their old name — per machine: a bot runs on the
+//! host whose config lists it; read leniently, a bad bot is a problem and is skipped):
 //!
 //! ```json
-//! "jobs": {
+//! "bots": {
 //!   "triage": {
 //!     "schedule": "0 7 * * 1-5",
 //!     "dir": "~/Code/project",
@@ -397,9 +398,11 @@ pub struct Job {
     pub enabled: bool,
     /// Seconds after a run starts that its idle sessions are closed; `None` = never.
     pub keep: Option<i64>,
+    /// The config section it came from: `bots`, or the legacy `jobs`.
+    pub section: &'static str,
 }
 
-/// The `jobs` config section, parsed.
+/// The `bots` config section (plus the legacy `jobs` one), parsed.
 #[derive(Debug, Clone, Default)]
 pub struct Settings {
     pub jobs: Vec<Job>,
@@ -407,29 +410,49 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn from_value(v: &Value) -> Settings {
+    /// One section (`bots` or `jobs`) of the config.
+    pub fn from_value(v: &Value, section: &'static str) -> Settings {
         let mut s = Settings::default();
         let map = match v {
             Value::Null => return s,
             Value::Object(m) => m,
             other => {
-                s.problems
-                    .push(format!("jobs must be an object of name → job, not {other}"));
+                s.problems.push(format!(
+                    "{section} must be an object of name → bot, not {other}"
+                ));
                 return s;
             }
         };
-        // `fleet config set jobs.<name> null` removes a job.
+        // `fleet config set bots.<name> null` removes a bot.
         for (name, raw) in map.iter().filter(|(_, v)| !v.is_null()) {
             match job_from_value(name, raw) {
-                Ok(j) => s.jobs.push(j),
-                Err(e) => s.problems.push(format!("jobs.{name}: {e}")),
+                Ok(j) => s.jobs.push(Job { section, ..j }),
+                Err(e) => s.problems.push(format!("{section}.{name}: {e}")),
+            }
+        }
+        s
+    }
+
+    /// The whole config: `bots`, then `jobs` — a name in both is the `bots` one.
+    pub fn from_config(raw: &Value) -> Settings {
+        let mut s = Settings::from_value(&raw["bots"], "bots");
+        let legacy = Settings::from_value(&raw["jobs"], "jobs");
+        s.problems.extend(legacy.problems);
+        for j in legacy.jobs {
+            if s.get(&j.name).is_some() {
+                s.problems.push(format!(
+                    "jobs.{}: also in bots — the bots one is used",
+                    j.name
+                ));
+            } else {
+                s.jobs.push(j);
             }
         }
         s
     }
 
     pub fn load() -> Settings {
-        Settings::from_value(&crate::core::config::load().raw["jobs"])
+        Settings::from_config(&crate::core::config::load().raw)
     }
 
     pub fn get(&self, name: &str) -> Option<&Job> {
@@ -496,6 +519,7 @@ fn job_from_value(name: &str, v: &Value) -> std::result::Result<Job, String> {
         command: text("command")?,
         enabled,
         keep,
+        section: "bots",
     })
 }
 
@@ -875,7 +899,8 @@ mod tests {
 
     #[test]
     fn settings_parse_leniently() {
-        let s = Settings::from_value(&json!({
+        let s = Settings::from_value(
+            &json!({
             "triage": {
                 "schedule": "0 7 * * 1-5",
                 "dir": "~/Code/project",
@@ -888,7 +913,9 @@ mod tests {
             "nodir": { "schedule": "@daily" },
             "both": { "schedule": "@daily", "dir": "/tmp", "prompt": "a", "promptFile": "b" },
             "removed": null
-        }));
+            }),
+            "bots",
+        );
         assert_eq!(s.jobs.len(), 2, "{:?}", s.problems);
         assert_eq!(s.problems.len(), 3);
         let t = s.get("triage").unwrap();
@@ -900,8 +927,28 @@ mod tests {
         assert!(!p.enabled);
         assert_eq!(p.keep, None);
         assert_eq!(p.prompt, PromptSrc::Inline("hi".into()));
-        assert!(Settings::from_value(&Value::Null).problems.is_empty());
-        assert_eq!(Settings::from_value(&json!([1])).problems.len(), 1);
+        assert!(
+            Settings::from_value(&Value::Null, "bots")
+                .problems
+                .is_empty()
+        );
+        assert_eq!(Settings::from_value(&json!([1]), "bots").problems.len(), 1);
+    }
+
+    #[test]
+    fn settings_read_bots_and_legacy_jobs() {
+        let bot = json!({ "schedule": "@daily", "dir": "/tmp" });
+        let s = Settings::from_config(&json!({
+            "bots": { "triage": bot, "both": bot },
+            "jobs": { "old": bot, "both": bot }
+        }));
+        let sections: Vec<_> = ["triage", "old", "both"]
+            .iter()
+            .map(|n| s.get(n).unwrap().section)
+            .collect();
+        assert_eq!(sections, ["bots", "jobs", "bots"]);
+        assert_eq!(s.jobs.len(), 3);
+        assert_eq!(s.problems.len(), 1, "{:?}", s.problems);
     }
 
     #[test]

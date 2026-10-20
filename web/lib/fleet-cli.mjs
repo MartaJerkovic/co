@@ -459,7 +459,7 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
       const why = String(err?.stderr ?? '').replace(/^Error:\s*/, '').trim();
       if (why && !e.timedOut) e.message = why.split('\n').filter((l) => !l.startsWith('warning:')).pop()?.replace(/^Error:\s*/, '') || why;
       e.missing = !e.timedOut && /unrecognized subcommand 'jobs'|invalid subcommand 'jobs'/i.test(why);
-      e.notFound = !e.timedOut && /no job `/.test(why);
+      e.notFound = !e.timedOut && /no (?:bot|job) `/.test(why);
       e.busy = !e.timedOut && /pass --force/.test(why);
       throw e;
     }

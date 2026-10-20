@@ -39,11 +39,11 @@ export const STATUS_FILTERS: StatusFilter[] = [
   { id: 'waiting', label: 'Needs you', match: (s) => statusMeta(s.status).key === 'waiting' },
   { id: 'busy', label: 'Busy', match: (s) => statusMeta(s.status).key === 'busy' },
   { id: 'idle', label: 'Idle', match: (s) => statusMeta(s.status).key === 'idle' },
-  // Only the sessions scheduled jobs started (every other filter leaves them out unless waiting).
-  { id: 'scheduled', label: 'Scheduled', match: (s) => isJobSession(s) },
+  // Only the sessions bots started (every other filter leaves them out unless waiting).
+  { id: 'scheduled', label: 'Bots', match: (s) => isJobSession(s) },
 ]
 
-/** The filters worth a chip: "Scheduled" only when there are job sessions, or it is the one picked. */
+/** The filters worth a chip: "Bots" only when there are bot sessions, or it is the one picked. */
 export function visibleStatusFilters(counts: Record<StatusFilterId, number> | null, current: StatusFilterId): StatusFilter[] {
   return STATUS_FILTERS.filter((f) => f.id !== 'scheduled' || current === 'scheduled' || (counts?.scheduled ?? 0) > 0)
 }
@@ -81,7 +81,7 @@ export interface ListView {
   counts: Record<StatusFilterId, number>
 }
 
-/** A session a scheduled job started (`origin`, docs/cli.md → Jobs). */
+/** A session a bot started (`origin`, docs/cli.md → Bots). */
 export function isJobSession(s: Pick<Session, 'origin'>): boolean {
   return Boolean(s.origin?.job)
 }

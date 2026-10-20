@@ -153,7 +153,7 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
           className="no-scrollbar w-full flex-wrap"
         >
           {visibleStatusFilters(fleet ? view.counts : null, status).map((f) => (
-            <ToggleGroupItem key={f.id} value={f.id} className={chip} title={f.id === 'scheduled' ? 'Sessions started by scheduled jobs' : undefined}>
+            <ToggleGroupItem key={f.id} value={f.id} className={chip} title={f.id === 'scheduled' ? 'Sessions started by bots' : undefined}>
               <StatusFilterLabel filter={f} />
               <span className="text-[0.6875rem] text-dimmer tabular-nums group-data-[state=on]/toggle:text-accent-foreground/70">
                 {fleet ? view.counts[f.id] : ''}

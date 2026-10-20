@@ -58,7 +58,7 @@ function fakeRun(h) {
       if (h.old) throw fail("error: unrecognized subcommand 'jobs'\n");
       const name = args.at(-1);
       if (args[2] === '--json') return { stdout: JSON.stringify(h.jobs ?? [JOB]), stderr: '' };
-      if (name !== 'triage') throw fail(`Error: no job \`${name}\` — configured: triage\n`);
+      if (name !== 'triage') throw fail(`Error: no bot \`${name}\` — configured: triage\n`);
       if (args[2] === 'show') return { stdout: JSON.stringify({ ...JOB, enabled: h.enabled }), stderr: '' };
       if (args[2] === 'run') {
         if (h.busy && !args.includes('--force')) throw fail('Error: triage: a session of the job is working — pass --force to start another run anyway\n');
@@ -124,7 +124,7 @@ test('GET jobs and jobs/:name, here and through a peer', async (t) => {
 
   const missing = await call(`${urls.laptop}/api/hosts/workstation/jobs/nope`);
   assert.equal(missing.status, 404);
-  assert.match(missing.body.error, /no job `nope`/);
+  assert.match(missing.body.error, /no bot `nope`/);
 
   assert.equal((await call(`${urls.laptop}/api/hosts/laptop/jobs/bad%20name`)).status, 400);
   assert.equal((await call(`${urls.laptop}/api/hosts/laptop/jobs/${'x'.repeat(41)}`)).status, 400);

@@ -502,8 +502,9 @@ enum Commands {
         all: bool,
     },
 
-    /// Scheduled agent sessions: cron jobs that spawn a session on this host (config `jobs`)
-    Jobs {
+    /// Bots: agent sessions started from a recipe (prompt + schedule) on this host (config `bots`)
+    #[command(visible_alias = "jobs")]
+    Bots {
         #[command(subcommand)]
         cmd: Option<JobsCmd>,
         /// Machine-readable output
@@ -921,12 +922,12 @@ enum ReposCmd {
 
 #[derive(Subcommand, Clone)]
 enum JobsCmd {
-    /// Every job: schedule, next run, last run, live sessions — the default
+    /// Every bot: schedule, next run, last run, live sessions — the default
     List {
         #[arg(long)]
         json: bool,
     },
-    /// One job: its settings and latest runs, each with the sessions it spawned
+    /// One bot: its settings and latest runs, each with the sessions it spawned
     Show {
         name: String,
         #[arg(long)]
@@ -935,21 +936,21 @@ enum JobsCmd {
     /// Start a run now, whatever the schedule says
     Run {
         name: String,
-        /// Start even while a session of the job is still working
+        /// Start even while a session of the bot is still working
         #[arg(long)]
         force: bool,
     },
-    /// Fire due jobs and close finished sessions (what the service runs every minute)
+    /// Fire due bots and close finished sessions (what the service runs every minute)
     Tick {
         /// Print only what happened, timestamped
         #[arg(long, short = 'q')]
         quiet: bool,
     },
-    /// Resume a paused job
+    /// Resume a paused bot
     Enable { name: String },
-    /// Pause a job (its schedule stops firing; live sessions are left alone)
+    /// Pause a bot (its schedule stops firing; live sessions are left alone)
     Disable { name: String },
-    /// Run `jobs tick` every minute and at login (launchd)
+    /// Run `bots tick` every minute and at login (launchd)
     InstallService {
         /// Remove the service instead
         #[arg(long)]
@@ -1588,7 +1589,7 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
                 print,
             })?,
         },
-        Commands::Jobs { cmd, json } => match cmd.unwrap_or(JobsCmd::List { json }) {
+        Commands::Bots { cmd, json } => match cmd.unwrap_or(JobsCmd::List { json }) {
             JobsCmd::List { json: j } => jobs_cmd::list(json || j)?,
             JobsCmd::Show { name, json: j } => jobs_cmd::show(&name, json || j)?,
             JobsCmd::Run { name, force } => jobs_cmd::run_now(&name, force)?,

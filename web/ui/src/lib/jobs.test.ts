@@ -25,6 +25,9 @@ const rs = (tmuxSession: string, parent: string | null, at: number): JobRunSessi
 test('isJobsLocation', () => {
   expect(isJobsLocation('/jobs')).toBe(true)
   expect(isJobsLocation('/jobs/x')).toBe(true)
+  expect(isJobsLocation('/bots')).toBe(true)
+  expect(isJobsLocation('/bots/x')).toBe(true)
+  expect(isJobsLocation('/botsx')).toBe(false)
   expect(isJobsLocation('/jobsx')).toBe(false)
   expect(isJobsLocation('/')).toBe(false)
 })

@@ -32,7 +32,7 @@ lib/backends.mjs      peek/send/keys straight to tmux / iTerm2 (osascript)
 lib/transcript.mjs    transcript JSONL → chat messages (Claude Code; Codex rollouts and pi sessions via the row's `transcript` path)
 lib/spawn-dirs.mjs    Settings → Start directories: validate a `spawnDirs` list, write it via `fleet config set`, hot-reload
 lib/repos.mjs         Settings → Git repos: `fleet repos` list/sync/timer, validate + write the `repos` config key
-lib/jobs.mjs          Jobs screen: `fleet jobs` list / show / run now / enable|disable, job-name validation
+lib/jobs.mjs          Bots screen: `fleet jobs` (alias of `fleet bots`) list / show / run now / enable|disable, job-name validation
 lib/spawn.mjs         new tmux session + `claude [--model <id>] [-n <name>] '<prompt>'`, auto-accept folder trust
 lib/kill.mjs          close a session: SIGTERM/SIGKILL Claude, then its tmux session/window or iTerm tab
 lib/autoname.mjs      periodic `fleet name --all --apply` + generic-tmux-name sync
@@ -283,7 +283,7 @@ or `~/`; intervals `30m`/`12h`/`7d` ≥ 1m; override/exclude keys a dir name or 
 writes the whole `repos` object with `fleet --local config set`, keeping keys it doesn't know. Each
 host has its own settings; the UI's "Save to all hosts" PUTs the same object to each.
 
-**jobs** (the Jobs screen) is a thin layer over `fleet jobs` (docs/cli.md → Jobs): the list, one
+**jobs** (the Bots screen; bots were called jobs, and the API keeps that name) is a thin layer over `fleet jobs` (docs/cli.md → Bots): the list, one
 job's runs, run now and pause / resume all shell out to `fleet --local jobs …`; the server keeps no
 state. Each host lists its own jobs (its config's `jobs`), so the UI asks every host. A successful
 run refreshes the merged fleet so the new session shows at once; its row carries `origin: { job,

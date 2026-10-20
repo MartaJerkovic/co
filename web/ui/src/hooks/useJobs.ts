@@ -14,7 +14,7 @@ let last: HostJobs[] = []
 
 function errorText(err: unknown, what: string): string {
   // 404: that host's server predates the jobs routes; 501: its CLI predates `fleet jobs`.
-  if (err instanceof ApiError && err.status === 404 && !/no job/.test(err.message)) return 'runs an older fleet web — update it to see its jobs'
+  if (err instanceof ApiError && err.status === 404 && !/no (?:bot|job)/.test(err.message)) return 'runs an older fleet web — update it to see its bots'
   return (err as Error)?.message || `could not load ${what}`
 }
 

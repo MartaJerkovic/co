@@ -276,7 +276,7 @@ export const SHORTCUT_HELP: { title: string; items: ShortcutHelp[] }[] = [
       { action: 'memos', label: 'Voice memos: record a conversation' },
       { action: 'prs', label: 'Pull requests' },
       { action: 'tasks', label: 'Tasks (Productive)' },
-      { action: 'jobs', label: 'Scheduled jobs' },
+      { action: 'jobs', label: 'Bots' },
       { action: 'usage', label: 'Usage limits' },
       { action: 'settings', label: 'Settings' },
     ],

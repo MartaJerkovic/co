@@ -88,7 +88,7 @@ Building the whole setup from scratch (always-on Mac, Tailscale, ssh, tmux, phon
 | pull requests | `prs` — the GitHub PRs that need you (unseen @mentions, yours, waiting on your review, waiting on their author), through `gh`, with their local worktrees |
 | Productive tasks | `tasks` · `task show\|status\|spawn` — your open Productive tasks (due soon, in progress, to do), moved between statuses, a session started on one |
 | git repos | `repos` · `repos sync` · `repos install-service` — fetch + fast-forward every repo under `~/Code`, on a timer |
-| scheduled jobs | `jobs` · `jobs show\|run\|enable\|disable` · `jobs install-service` — cron-scheduled agent sessions on a host, like Claude Code routines; everything a job session spawns joins its run |
+| bots | `bots` · `bots show\|run\|enable\|disable` · `bots install-service` — agent sessions a host starts from a recipe (prompt + schedule), like Claude Code routines; everything a bot session spawns joins its run. `jobs` is the old name, still an alias |
 | web | `web serve` · `web build` · `web install-service` |
 | agents | `mcp` — every command above as an MCP tool, for Claude Code and other agents |
 

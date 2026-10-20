@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import {
-  CalendarClockIcon,
+  BotIcon,
   CircleDotIcon,
   CodeXmlIcon,
   CopyIcon,
@@ -122,7 +122,7 @@ export function DesktopShell() {
   const [match, params] = useRoute('/s/:host/:id')
   const [settingsOpen] = useRoute('/settings')
   const [usageOpen] = useRoute('/usage')
-  const [jobsOpen] = useRoute('/jobs')
+  const [jobsOpen] = useRoute(/^\/(?:bots|jobs)$/)
   const [inboxOpen] = useRoute('/inbox')
   const [operatorOpen] = useRoute('/operator')
   const memosOpen = parseMemosLocation(location) !== null
@@ -358,7 +358,7 @@ export function DesktopShell() {
         navigate(inboxOpen ? '/' : '/inbox')
         return true
       case 'jobs':
-        navigate(jobsOpen ? '/' : '/jobs')
+        navigate(jobsOpen ? '/' : '/bots')
         return true
       case 'usage':
         navigate(usageOpen ? '/' : '/usage')
@@ -600,10 +600,10 @@ export function DesktopShell() {
           : []),
         {
           id: 'jobs',
-          label: 'Scheduled jobs…',
-          icon: <CalendarClockIcon />,
-          keywords: ['jobs', 'scheduled', 'cron', 'schedule', 'routines', 'run now'],
-          run: () => navigate('/jobs'),
+          label: 'Bots…',
+          icon: <BotIcon />,
+          keywords: ['bots', 'jobs', 'scheduled', 'cron', 'schedule', 'routines', 'run now'],
+          run: () => navigate('/bots'),
         },
         {
           id: 'usage',
@@ -651,7 +651,7 @@ export function DesktopShell() {
     },
   ]
 
-  // Anything but `/`, `/settings`, `/usage`, `/jobs`, `/inbox`, `/prs`, `/tasks`, notes and `/s/:host/:id` → the list (same as mobile).
+  // Anything but `/`, `/settings`, `/usage`, `/bots`, `/inbox`, `/prs`, `/tasks`, notes and `/s/:host/:id` → the list (same as mobile).
   if (!match && !settingsOpen && !usageOpen && !jobsOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
