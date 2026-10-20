@@ -21,7 +21,7 @@ export function StackGroup({ sessions, children }: { sessions: Session[]; childr
         type="button"
         title={`Session stack: ${label} — open its StackBrief`}
         onClick={() => openStackSheet(home, id)}
-        className="flex min-w-0 items-center gap-1.5 rounded-lg px-2 pt-0.5 text-left text-[0.6875rem] font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="ml-1 mt-0.5 flex max-w-[calc(100%-0.5rem)] min-w-0 items-center gap-1.5 self-start rounded-md px-1.5 py-0.5 text-left text-[0.6875rem] font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <LayersIcon className="size-3 shrink-0" />
         <span className="min-w-0 truncate">{label}</span>
