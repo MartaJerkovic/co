@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   BotIcon,
+  CheckIcon,
   ChevronLeftIcon,
   GitPullRequestIcon,
   InboxIcon,
@@ -23,7 +24,7 @@ import { useInbox } from '@/hooks/useInbox'
 import { useNow } from '@/hooks/useNow'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { relTime } from '@/lib/format'
-import { dueChip, inboxSections, isNewItem, itemTarget, sourceLines } from '@/lib/inbox'
+import { briefMarkdown, dueChip, inboxSections, isNewItem, itemTarget, sourceLines } from '@/lib/inbox'
 import { storage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 
@@ -40,12 +41,12 @@ const SOURCE_ICON: Record<InboxItem['source'], typeof InboxIcon> = {
 /**
  * `#/inbox`: everything waiting on you — PRs, tasks, sessions that need an answer, Slack and email
  * — with a short brief on top. The server keeps the list (`inbox.host`): items come and go with
- * their sources, nothing here adds or dismisses one. `pane` = the desktop layout, `screen` = mobile.
+ * their sources. Done marks one handled at once (it would otherwise wait for its source). `pane` = the desktop layout, `screen` = mobile.
  */
 export function InboxScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }) {
   const pane = layout === 'pane'
   const [, navigate] = useLocation()
-  const { data, error, loading, refresh, refreshing } = useInbox()
+  const { data, error, loading, refresh, refreshing, dismiss } = useInbox()
   const now = useNow(30_000)
   // "New" = first seen since the previous visit: read it once, then this visit is the last one.
   const [lastVisit] = useState(() => Number(storage.get(LAST_VISIT_KEY)) || 0)
@@ -62,17 +63,18 @@ export function InboxScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)
 
+  const scanning = Boolean(data?.sources.comms?.running)
   const refreshButton = (
     <Button
-      variant="ghost"
-      size="icon"
-      aria-label="Refresh inbox"
-      title="Read every source now (Slack & email scan in the background)"
+      variant="outline"
+      size="sm"
+      title="Scan Slack & email now and re-read GitHub, Productive and the sessions"
       onClick={() => void refresh()}
-      disabled={refreshing || data?.enabled === false}
-      className={cn('shrink-0', pane ? 'size-9 rounded-lg' : '-my-1.5 size-11 rounded-xl')}
+      disabled={refreshing || scanning || data?.enabled === false}
+      className={cn('shrink-0', !pane && '-my-1')}
     >
-      <RefreshCwIcon className={cn('size-5', refreshing && 'animate-spin')} />
+      <RefreshCwIcon className={cn((refreshing || scanning) && 'animate-spin')} />
+      {scanning ? 'Scanning…' : 'Scan now'}
     </Button>
   )
 
@@ -107,7 +109,7 @@ export function InboxScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
           {relTime(data.brief.at, now)} ago
         </span>
       </h2>
-      <Markdown text={data.brief.text} />
+      <Markdown text={briefMarkdown(data.brief.text, window.location.origin)} />
     </section>
   ) : null
 
@@ -145,7 +147,7 @@ export function InboxScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
             </h2>
             <div className="space-y-2">
               {s.items.map((it) => (
-                <InboxRow key={it.id} item={it} now={now} fresh={isNewItem(it, lastVisit, now)} />
+                <InboxRow key={it.id} item={it} now={now} fresh={isNewItem(it, lastVisit, now)} onDone={() => void dismiss(it.id)} />
               ))}
             </div>
           </section>
@@ -201,7 +203,7 @@ export function InboxScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
   )
 }
 
-function InboxRow({ item: it, now, fresh }: { item: InboxItem; now: number; fresh: boolean }) {
+function InboxRow({ item: it, now, fresh, onDone }: { item: InboxItem; now: number; fresh: boolean; onDone: () => void }) {
   const Icon = SOURCE_ICON[it.source] ?? InboxIcon
   const target = itemTarget(it)
   const m = it.meta
@@ -250,9 +252,10 @@ function InboxRow({ item: it, now, fresh }: { item: InboxItem; now: number; fres
       </div>
     </>
   )
-  const cls = 'block w-full rounded-lg border bg-card p-3 text-left text-sm outline-none hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50'
-  if (!target) return <div className={cls}>{inner}</div>
-  return target.external ? (
+  const cls = 'block min-w-0 flex-1 p-3 pr-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-l-lg'
+  const link = !target ? (
+    <div className={cls}>{inner}</div>
+  ) : target.external ? (
     <a href={target.href} target="_blank" rel="noreferrer" className={cls}>
       {inner}
     </a>
@@ -260,5 +263,20 @@ function InboxRow({ item: it, now, fresh }: { item: InboxItem; now: number; fres
     <a href={target.href} className={cls}>
       {inner}
     </a>
+  )
+  return (
+    <div className="group flex items-start rounded-lg border bg-card hover:border-primary/40 hover:bg-muted/40">
+      {link}
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Done: ${it.title}`}
+        title="Done — take it off the list"
+        onClick={onDone}
+        className="m-1.5 size-8 shrink-0 rounded-lg text-dimmer hover:text-primary"
+      >
+        <CheckIcon className="size-4" />
+      </Button>
+    </div>
   )
 }

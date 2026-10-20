@@ -16,6 +16,7 @@ import {
 } from './peers.mjs';
 import { createSnapshot } from './snapshot.mjs';
 import { DISABLED_GROUPS } from './grouping.mjs';
+import { checkInboxSettings } from './inbox.mjs';
 import { DEFAULT_MODELS } from './config.mjs';
 import { parseNameOutput } from './autoname.mjs';
 import { SESSION_ID_RE } from './briefs.mjs';
@@ -499,26 +500,46 @@ export function createApi({
   }
 
   // --- /api/inbox: served by the inbox host (config inbox.host), proxied from everywhere else
+  // action: get · refresh (Scan now) · dismiss `{ id }` · settings `{ scanMinutes?, workHours?, workDays? }`
+  const INBOX_PATHS = { get: ['GET', '/api/inbox'], refresh: ['POST', '/api/inbox/refresh'], dismiss: ['POST', '/api/inbox/dismiss'], settings: ['PUT', '/api/inbox/settings'] };
   async function handleInbox(req, url, action) {
-    if (action === 'refresh') await readJsonBody(req);
+    const body = action === 'get' ? null : await readJsonBody(req);
     if (inbox) {
       if (action === 'get') return { status: 200, body: inbox.response() };
-      return { status: 200, body: await inbox.refresh() };
+      if (action === 'refresh') return { status: 200, body: await inbox.refresh() };
+      if (action === 'dismiss') {
+        if (typeof body?.id !== 'string' || !body.id) throw new HttpError('id is required', 400);
+        const r = inbox.dismiss(body.id);
+        if (!r) throw new HttpError(`no inbox item ${body.id}`, 404);
+        return { status: 200, body: r };
+      }
+      const checked = checkInboxSettings(body);
+      if (checked.error) throw new HttpError(checked.error, 400);
+      // The CLI owns the config file: one `fleet config set inbox.<key>` per knob, then live.
+      if (typeof cli?.configSet !== 'function') throw new HttpError('config writes are not available on this server', 501);
+      try {
+        for (const [key, value] of Object.entries(checked.ok)) await cli.configSet({ key: `inbox.${key}`, value, configFile: config.configFile ?? null });
+      } catch (err) {
+        throw new HttpError(`could not save the inbox settings: ${err?.message ?? err}`, 502);
+      }
+      return { status: 200, body: inbox.updateSettings(checked.ok) };
     }
     const host = config.inbox?.host ?? null;
     const off = (error) => ({ status: 200, body: { enabled: false, host, ...(error ? { error } : {}), updatedAt: null, brief: null, sources: {}, items: [] } });
-    if (!host) return off(null);
-    if (host === config.self) return off('the inbox is off on this server (FLEET_WEB_INBOX)');
-    if (url.searchParams.get('local') === '1') return off(null); // never chain
+    const fail = (error) => (action === 'get' ? off(error) : { status: 409, body: { error: error ?? 'no server runs the inbox (inbox.host)' } });
+    if (!host) return fail(null);
+    if (host === config.self) return fail('the inbox is off on this server (FLEET_WEB_INBOX)');
+    if (url.searchParams.get('local') === '1') return fail(null); // never chain
     const peerUrl = config.peers[host];
-    if (!peerUrl) return off(`inbox.host "${host}" is not a peer with a web URL`);
+    if (!peerUrl) return fail(`inbox.host "${host}" is not a peer with a web URL`);
+    const [method, pathname] = INBOX_PATHS[action];
     const r = await proxyToPeer(peerUrl, {
-      method: action === 'get' ? 'GET' : 'POST',
-      pathname: action === 'get' ? '/api/inbox' : '/api/inbox/refresh',
-      ...(action === 'get' ? {} : { body: '{}' }),
-      timeoutMs: action === 'get' ? peerProxyTimeoutMs : 3 * 60 * 1000,
+      method,
+      pathname,
+      ...(body == null ? {} : { body: JSON.stringify(body) }),
+      timeoutMs: action === 'refresh' ? 3 * 60 * 1000 : peerProxyTimeoutMs,
     });
-    if (r.status === 200) return { status: 200, body: r.body };
+    if (action !== 'get' || r.status === 200) return { status: r.status, body: r.body };
     return off(r.body?.error ?? `HTTP ${r.status} from ${host}`);
   }
 
@@ -740,6 +761,16 @@ export function createApi({
     if (url.pathname === '/api/inbox/refresh') {
       if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
       return handleInbox(req, url, 'refresh');
+    }
+
+    if (url.pathname === '/api/inbox/dismiss') {
+      if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      return handleInbox(req, url, 'dismiss');
+    }
+
+    if (url.pathname === '/api/inbox/settings') {
+      if (req.method !== 'PUT') throw new HttpError('method not allowed', 405);
+      return handleInbox(req, url, 'settings');
     }
 
     if (url.pathname === '/api/groups/edit') {

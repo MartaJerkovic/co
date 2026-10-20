@@ -72,3 +72,10 @@ export function dueChip(meta: InboxItem['meta'], now = Date.now()): { label: str
   if (n === 1) return { label: 'due tomorrow', overdue: false }
   return { label: `due in ${n}d`, overdue: false }
 }
+
+/** The brief's in-app links (`](#/s/…)`) as absolute URLs, the only kind Markdown links; it opens them in place. */
+export function briefMarkdown(text: string, origin: string): string {
+  return text.replace(/\]\(#\//g, `](${origin}/#/`)
+}
+
+export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const

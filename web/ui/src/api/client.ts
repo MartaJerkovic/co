@@ -22,6 +22,7 @@ import type {
   FleetResponse,
   GroupsResponse,
   InboxResponse,
+  InboxSettings,
   HarnessesResponse,
   Job,
   JobEnabledResponse,
@@ -360,8 +361,12 @@ export const api = {
   editGroups: (edit: GroupEdit, o: Opts = {}) => request<GroupsResponse>('/api/groups/edit', { ...o, method: 'POST', body: edit }),
   /** The live inbox: brief + everything waiting on you, from the inbox host (proxied). */
   inbox: (o: Opts = {}) => request<InboxResponse>('/api/inbox', o),
-  /** Re-read the sources now; the Slack & email scan starts in the background. */
+  /** Scan now: the Slack & email scan starts in the background, every other source is re-read. */
   refreshInbox: (o: Opts = {}) => request<InboxResponse>('/api/inbox/refresh', { ...o, method: 'POST', body: {} }),
+  /** Done: off the list until its source drops it (messages and sessions: or until newer activity). */
+  dismissInbox: (id: string, o: Opts = {}) => request<InboxResponse>('/api/inbox/dismiss', { ...o, method: 'POST', body: { id } }),
+  /** Change the scan schedule (saved in the inbox host's config). */
+  setInboxSettings: (patch: Partial<InboxSettings>, o: Opts = {}) => request<InboxResponse>('/api/inbox/settings', { ...o, method: 'PUT', body: patch }),
 }
 
 /** GET …/files/raw — for <img>, <iframe>, fetch and download links. */

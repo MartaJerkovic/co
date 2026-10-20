@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, KeyboardIcon, MonitorIcon, MoonIcon, SunIcon, XIcon } from 'lucide-react'
 import { useLocation } from 'wouter'
 
+import { api } from '@/api/client'
+import type { InboxSettings } from '@/api/types'
 import { ReposEditor } from '@/components/ReposEditor'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { SpawnDirsEditor } from '@/components/SpawnDirsEditor'
@@ -9,12 +11,14 @@ import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useInbox } from '@/hooks/useInbox'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useNow } from '@/hooks/useNow'
 import { usePrefs } from '@/hooks/usePrefs'
 import { useSessionList } from '@/hooks/useSessionList'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { useTheme, type ThemeChoice } from '@/hooks/useTheme'
+import { WEEKDAYS } from '@/lib/inbox'
 import { SEND_DELAYS, SEND_DELAY_LABELS } from '@/lib/outbox'
 import { PALETTES, parsePalette } from '@/lib/palettes'
 import { TERM_FONT_SIZES, TEXT_SIZES, TEXT_SIZE_LABELS } from '@/lib/prefs'
@@ -153,6 +157,7 @@ export function SettingsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
       <Section title="Git repos">
         <ReposEditor />
       </Section>
+      <InboxSchedule />
       <FleetStatus />
       <ViewportInfo />
     </div>
@@ -229,6 +234,91 @@ function ThemePicker() {
         )
       })}
     </ToggleGroup>
+  )
+}
+
+const SCAN_EVERY = [15, 30, 60, 120, 240] as const
+const SCAN_EVERY_LABELS: Record<number, string> = { 15: '15m', 30: '30m', 60: '1h', 120: '2h', 240: '4h' }
+const HOURS = Array.from({ length: 25 }, (_, h) => h)
+
+/** Settings → Inbox: when the Slack & email scan runs (saved in the inbox host's config, live at once). */
+function InboxSchedule() {
+  const { data, reload } = useInbox()
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const cur = data?.enabled ? data.settings : undefined
+  if (!cur) return null
+  const save = async (patch: Partial<InboxSettings>) => {
+    setSaving(true)
+    setError(null)
+    try {
+      await api.setInboxSettings(patch)
+      reload()
+    } catch (err) {
+      setError((err as Error)?.message || 'could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
+  const [from, to] = cur.workHours
+  const select = 'h-8 rounded-lg border bg-card px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+  return (
+    <Section title="Inbox">
+      <Stacked label="Scan Slack & email every" hint={`On ${data?.host}; costs one small model call per scan`}>
+        <ToggleGroup
+          type="single"
+          value={String(cur.scanMinutes)}
+          onValueChange={(v) => v && void save({ scanMinutes: Number(v) })}
+          disabled={saving}
+          spacing={0}
+          aria-label="Scan interval"
+          className="w-full rounded-lg bg-muted p-1"
+        >
+          {(SCAN_EVERY.includes(cur.scanMinutes as (typeof SCAN_EVERY)[number]) ? SCAN_EVERY : [...SCAN_EVERY, cur.scanMinutes].sort((a, b) => a - b)).map((m) => (
+            <ToggleGroupItem key={m} value={String(m)} className={segItem}>
+              {SCAN_EVERY_LABELS[m] ?? `${m}m`}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </Stacked>
+      <Stacked label="Between" hint="Local time on the inbox host; outside it only Scan now scans">
+        <div className="flex items-center gap-2 text-sm">
+          <select aria-label="From" value={from} disabled={saving} className={select} onChange={(e) => void save({ workHours: [Number(e.target.value), to] })}>
+            {HOURS.filter((h) => h < to).map((h) => (
+              <option key={h} value={h}>
+                {String(h).padStart(2, '0')}:00
+              </option>
+            ))}
+          </select>
+          <span className="text-dimmer">–</span>
+          <select aria-label="To" value={to} disabled={saving} className={select} onChange={(e) => void save({ workHours: [from, Number(e.target.value)] })}>
+            {HOURS.filter((h) => h > from).map((h) => (
+              <option key={h} value={h}>
+                {String(h).padStart(2, '0')}:00
+              </option>
+            ))}
+          </select>
+        </div>
+      </Stacked>
+      <Stacked label="On">
+        <ToggleGroup
+          type="multiple"
+          value={cur.workDays.map(String)}
+          onValueChange={(v) => v.length && void save({ workDays: v.map(Number) })}
+          disabled={saving}
+          spacing={0}
+          aria-label="Scan days"
+          className="w-full rounded-lg bg-muted p-1"
+        >
+          {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+            <ToggleGroupItem key={d} value={String(d)} className={segItem}>
+              {WEEKDAYS[d]}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </Stacked>
+      {error ? <p className="py-2 text-xs text-status-error">{error}</p> : null}
+    </Section>
   )
 }
 

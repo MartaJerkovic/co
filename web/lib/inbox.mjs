@@ -57,6 +57,40 @@ export const DENIED_TOOLS = [
   'mcp__claude_ai_Gmail__update_message_labels',
 ];
 
+/** The knobs the UI may change (Settings → Inbox), checked. → { ok: {…} } or { error }. Pure. */
+export function checkInboxSettings(body) {
+  const out = {};
+  if (body?.scanMinutes != null) {
+    const n = Number(body.scanMinutes);
+    if (!Number.isInteger(n) || n < 15 || n > 24 * 60) return { error: 'scanMinutes must be a whole number of minutes, 15–1440' };
+    out.scanMinutes = n;
+  }
+  if (body?.workHours != null) {
+    const h = body.workHours;
+    if (!Array.isArray(h) || h.length !== 2 || !h.every((x) => Number.isInteger(x) && x >= 0 && x <= 24) || h[0] >= h[1]) {
+      return { error: 'workHours must be [from, to] hours, 0–24, from < to' };
+    }
+    out.workHours = h;
+  }
+  if (body?.workDays != null) {
+    const d = body.workDays;
+    if (!Array.isArray(d) || !d.length || !d.every((x) => Number.isInteger(x) && x >= 0 && x <= 6)) return { error: 'workDays must be weekdays 0–6 (0 = Sunday), at least one' };
+    out.workDays = [...new Set(d)].sort();
+  }
+  if (!Object.keys(out).length) return { error: 'nothing to change (scanMinutes, workHours, workDays)' };
+  return { ok: out };
+}
+
+/** Done by hand comes back on newer activity for these; the others stay away until their source drops them. */
+const REAPPEAR_SOURCES = new Set(['slack', 'email', 'session']);
+
+/** Is the item hidden by a dismissal `{ at, itemAt }`? Pure. */
+export function isDismissed(item, d) {
+  if (!d) return false;
+  if (REAPPEAR_SOURCES.has(item.source) || item.kind === 'mention') return (item.at ?? 0) <= (d.itemAt ?? 0);
+  return true;
+}
+
 // ------------------------------------------------------------------ items from each source
 
 const fileCount = (n) => `${n} file${n === 1 ? '' : 's'}`;
@@ -187,8 +221,11 @@ export function sessionItems(fleetBody) {
 // ------------------------------------------------------------------ the Slack + mail scan
 
 /** The scan's prompt. Pure. */
-export function commsPrompt({ since, previous = [], now = Date.now() }) {
+export function commsPrompt({ since, previous = [], done = [], now = Date.now() }) {
   const sinceDate = localDate(since);
+  const handled = done.length
+    ? ['', 'The user marked these done — leave them out unless a newer message came after the time given:', ...done.map((d) => `- ${d.id} (done at ${new Date(d.itemAt).toISOString()})`)]
+    : [];
   const prev = previous.length
     ? [
         '',
@@ -208,6 +245,7 @@ export function commsPrompt({ since, previous = [], now = Date.now() }) {
     '',
     'Gmail — search_threads for `in:inbox newer_than:3d -category:promotions -category:social -category:updates -category:forums`; keep only mail from a person that asks the user for something (no newsletters, notifications, calendar invites, automated mail).',
     ...prev,
+    ...handled,
     '',
     'Answer with ONLY a JSON array (no prose, no code fence), one object per thing that still waits on the user:',
     '{"source":"slack"|"email","id":"slack:<channel id>:<thread root ts>" or "email:<gmail thread id>","url":"<the message permalink exactly as a tool returned it; for mail leave empty>","from":"<person>","title":"<what they want, ≤ 80 chars, in the message\'s language>","ask":"<one sentence: what exactly the user should do>","effort":"quick"|"medium"|"deep","at":"<ISO time of the latest message>"}',
@@ -277,20 +315,29 @@ export function briefPrompt({ items, language = 'English', now = Date.now() }) {
   const label = { quick: 'Quick wins', waiting: 'Waiting on you', mine: 'Your work' };
   const lines = [];
   for (const sec of SECTIONS) {
-    const its = items.filter((i) => i.section === sec);
+    const its = items.map((i, n) => [i, n + 1]).filter(([i]) => i.section === sec);
     if (!its.length) continue;
     lines.push(`${label[sec]}:`);
-    for (const i of its) {
-      lines.push(`- [${i.source}] ${i.title}${i.ask ? ` — ${i.ask}` : ''}${i.from ? ` (from ${i.from})` : ''}`);
+    for (const [i, ref] of its) {
+      lines.push(`- #${ref} [${i.source}] ${i.title}${i.ask ? ` — ${i.ask}` : ''}${i.from ? ` (from ${i.from})` : ''}`);
     }
   }
   return [
     `It is ${new Date(now).toString().slice(0, 21)}. Below is everything that waits on the user right now, from GitHub, Productive, Slack, mail and their Claude Code sessions.`,
     `Write their brief for the rest of the day in ${language}: 3–8 short markdown bullets, most urgent first.`,
-    'Start with what to knock out first (quick wins, grouped when alike, e.g. "3 small PR reviews"), then what blocks other people, then deadlines. Name things so they can be found in the list. No intro, no outro, no headings — bullets only.',
+    'Start with what to knock out first (quick wins, grouped when alike, e.g. "3 small PR reviews"), then what blocks other people, then deadlines. Link every thing you name to its item by number: [short name](#12). No intro, no outro, no headings — bullets only.',
     '',
     ...lines,
   ].join('\n');
+}
+
+/** `](#12)` → the 12th item's link (its url, else its in-app href); unknown refs lose the link. Pure. */
+export function linkBrief(text, items) {
+  return String(text ?? '').replace(/\[([^\]]+)\]\(#(\d+)\)/g, (all, label, n) => {
+    const it = items[Number(n) - 1];
+    const href = it?.url || it?.href;
+    return href ? `[${label}](${href})` : label;
+  });
 }
 
 /** A model answer → markdown bullets (code fences and chatter around them dropped), or null. */
@@ -360,9 +407,10 @@ export function loadState(file) {
       firstSeen: s.firstSeen && typeof s.firstSeen === 'object' ? s.firstSeen : {},
       comms: s.comms && Array.isArray(s.comms.items) ? s.comms : { at: null, items: [], error: null },
       brief: s.brief ?? null,
+      dismissed: s.dismissed && typeof s.dismissed === 'object' ? s.dismissed : {},
     };
   } catch {
-    return { firstSeen: {}, comms: { at: null, items: [], error: null }, brief: null };
+    return { firstSeen: {}, comms: { at: null, items: [], error: null }, brief: null, dismissed: {} };
   }
 }
 
@@ -434,7 +482,11 @@ export function createInbox({
       i.firstSeen = state.firstSeen[i.id];
     }
     for (const id of Object.keys(state.firstSeen)) if (!live.has(id)) delete state.firstSeen[id];
-    items = sortItems(all);
+    // A dismissal lasts while its source still reports the item (and, for messages and
+    // sessions, until newer activity on it).
+    for (const id of Object.keys(state.dismissed)) if (!live.has(id)) delete state.dismissed[id];
+    for (const i of all) if (state.dismissed[i.id] && !isDismissed(i, state.dismissed[i.id])) delete state.dismissed[i.id];
+    items = sortItems(all.filter((i) => !state.dismissed[i.id]));
     updatedAt = t;
     persist();
   }
@@ -461,14 +513,16 @@ export function createInbox({
     return at;
   }
 
-  function scan() {
+  function scan({ manual = false } = {}) {
     if (scanning) return scanning;
     const started = now();
     const since = state.comms.at && started - state.comms.at < SCAN_LOOKBACK_MS ? state.comms.at - SCAN_OVERLAP_MS : started - SCAN_LOOKBACK_MS;
     sources.comms.running = true;
     scanning = (async () => {
       try {
-        const { text, costUsd } = await agent({ prompt: commsPrompt({ since, previous: state.comms.items, now: started }), model: settings.model, tools: COMMS_TOOLS });
+        const previous = state.comms.items.filter((i) => !state.dismissed[i.id]);
+        const done = state.comms.items.filter((i) => state.dismissed[i.id]).map((i) => ({ id: i.id, itemAt: state.dismissed[i.id].itemAt }));
+        const { text, costUsd } = await agent({ prompt: commsPrompt({ since, previous, done, now: started }), model: settings.model, tools: COMMS_TOOLS });
         const raw = extractJsonArray(text);
         if (!raw) throw new Error(`the scan answered no JSON array: ${String(text).slice(0, 160)}`);
         state.comms = { at: started, items: commsItems(raw, started), error: null };
@@ -483,13 +537,13 @@ export function createInbox({
         sources.comms.running = false;
         scanning = null;
         merge();
-        maybeBrief();
+        maybeBrief({ skipInterval: manual });
       }
     })();
     return scanning;
   }
 
-  function maybeBrief({ force = false } = {}) {
+  function maybeBrief({ force = false, skipInterval = false } = {}) {
     if (briefing || !items.length) return briefing;
     const t = now();
     const fp = fingerprint(items);
@@ -497,14 +551,17 @@ export function createInbox({
     if (!force) {
       if (b?.fingerprint === fp) return null;
       const sameDay = b && localDate(b.at) === localDate(t);
-      if (sameDay && t - b.at < settings.briefMinutes * 60 * 1000) return null;
-      // Outside work hours the brief only catches up once (the first of the day).
-      if (sameDay && !inWorkHours(t, settings)) return null;
+      if (!skipInterval) {
+        if (sameDay && t - b.at < settings.briefMinutes * 60 * 1000) return null;
+        // Outside work hours the brief only catches up once (the first of the day).
+        if (sameDay && !inWorkHours(t, settings)) return null;
+      }
     }
     briefing = (async () => {
       try {
-        const text = cleanBrief(await ask({ prompt: briefPrompt({ items, language: settings.language, now: t }), model: settings.briefModel }));
-        if (!text) throw new Error('the model answered no bullets');
+        const listed = items;
+        const text = linkBrief(cleanBrief(await ask({ prompt: briefPrompt({ items: listed, language: settings.language, now: t }), model: settings.briefModel })), listed);
+        if (!text.trim()) throw new Error('the model answered no bullets');
         state.brief = { text, at: t, model: settings.briefModel, fingerprint: fp };
         persist();
         log(`[inbox] brief over ${items.length} item(s) (${settings.briefModel})`);
@@ -554,6 +611,7 @@ export function createInbox({
       host: settings.host,
       updatedAt,
       brief: state.brief ? { text: state.brief.text, at: state.brief.at, model: state.brief.model } : null,
+      settings: { scanMinutes: settings.scanMinutes, workHours: settings.workHours, workDays: settings.workDays },
       sources,
       items,
     };
@@ -571,10 +629,23 @@ export function createInbox({
       timer = null;
     },
     response,
-    /** Re-read every source now and start a scan (also outside work hours). */
+    /** Scan now: start a Slack + mail scan (also outside work hours), re-read every other source. */
     async refresh() {
+      if (settings.comms && !scanning) scan({ manual: true });
       await pass({ refresh: true });
-      if (settings.comms && !scanning) scan();
+      return response();
+    },
+    /** Done by hand: off the list until its source drops it (messages, sessions: or it has newer activity). */
+    dismiss(id) {
+      const item = items.find((i) => i.id === id);
+      if (!item) return null;
+      state.dismissed[id] = { at: now(), itemAt: item.at ?? 0 };
+      merge();
+      return response();
+    },
+    /** New knobs (checked by checkInboxSettings), in effect at once. */
+    updateSettings(patch) {
+      Object.assign(settings, patch);
       return response();
     },
     status() {

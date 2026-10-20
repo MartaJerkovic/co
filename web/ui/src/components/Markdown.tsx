@@ -30,6 +30,15 @@ const linkClass =
   'text-primary underline decoration-primary/40 underline-offset-2 break-all active:opacity-70 [overflow-wrap:anywhere]'
 
 function Link({ href, children }: { href: string; children: ReactNode }) {
+  // A link into this app (`<origin>/#/…`, e.g. the inbox brief's session links) opens in place.
+  const inApp = typeof window !== 'undefined' && href.startsWith(`${window.location.origin}/#/`)
+  if (inApp) {
+    return (
+      <a href={href.slice(window.location.origin.length + 1)} className={linkClass}>
+        {children}
+      </a>
+    )
+  }
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" className={linkClass}>
       {children}

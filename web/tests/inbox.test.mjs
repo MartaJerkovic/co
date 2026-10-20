@@ -8,7 +8,10 @@ import path from 'node:path';
 
 import { normalizeConfig } from '../lib/config.mjs';
 import {
+  checkInboxSettings,
   cleanBrief,
+  isDismissed,
+  linkBrief,
   commsItems,
   createInbox,
   extractJsonArray,
@@ -177,4 +180,39 @@ test('no scan outside work hours', async () => {
   await inbox.pass();
   assert.equal(calls.agent, 0);
   assert.ok(inbox.response().sources.comms.nextAt > new Date(2026, 9, 19, 7, 59).getTime());
+});
+
+test('linkBrief: item refs become their links, unknown refs plain text', () => {
+  const items = [{ url: 'https://github.com/a/b/pull/1' }, { url: null, href: '#/s/laptop/x' }];
+  assert.equal(linkBrief('- merge [the PR](#1), answer [fix-login](#2), [ghost](#9)', items), '- merge [the PR](https://github.com/a/b/pull/1), answer [fix-login](#/s/laptop/x), ghost');
+});
+
+test('checkInboxSettings', () => {
+  assert.deepEqual(checkInboxSettings({ scanMinutes: 60, workHours: [8, 18], workDays: [3, 1, 1] }).ok, { scanMinutes: 60, workHours: [8, 18], workDays: [1, 3] });
+  assert.match(checkInboxSettings({ scanMinutes: 5 }).error, /scanMinutes/);
+  assert.match(checkInboxSettings({ workHours: [18, 8] }).error, /workHours/);
+  assert.match(checkInboxSettings({ workDays: [] }).error, /workDays/);
+  assert.match(checkInboxSettings({}).error, /nothing/);
+});
+
+test('isDismissed: messages and sessions come back on newer activity, PRs and tasks do not', () => {
+  const d = { at: 10, itemAt: 5 };
+  assert.equal(isDismissed({ source: 'slack', at: 5 }, d), true);
+  assert.equal(isDismissed({ source: 'slack', at: 6 }, d), false);
+  assert.equal(isDismissed({ source: 'github', kind: 'review', at: 99 }, d), true);
+  assert.equal(isDismissed({ source: 'github', kind: 'mention', at: 99 }, d), false);
+});
+
+test('dismiss: off the list at once, kept across passes, the scan told it is done', async () => {
+  const { inbox, calls, clock } = setup({ now: new Date(2026, 9, 20, 9).getTime(), agentText: '[{"source":"slack","id":"C1:1","title":"Q","effort":"quick","at":"2026-10-20T06:00:00Z"}]' });
+  await inbox.pass();
+  await flush();
+  assert.equal(inbox.dismiss('pr:https://github.com/acme/app/pull/1').items.some((i) => i.source === 'github'), false);
+  assert.equal(inbox.dismiss('slack:C1:1').items.length, 0);
+  assert.equal(inbox.dismiss('nope'), null);
+  clock.t += 2 * 3600 * 1000;
+  await inbox.refresh(); // Scan now
+  await flush();
+  assert.equal(inbox.response().items.length, 0);
+  assert.match(calls.prompts.at(-1).includes('marked these done') ? calls.prompts.at(-1) : calls.prompts.at(-2), /slack:C1:1 \(done at/);
 });

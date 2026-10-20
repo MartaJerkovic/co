@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 
 import type { InboxItem } from '@/api/types'
-import { dueChip, inboxSections, isNewItem, itemTarget, sourceLines } from './inbox'
+import { briefMarkdown, dueChip, inboxSections, isNewItem, itemTarget, sourceLines } from './inbox'
 
 const item = (over: Partial<InboxItem>): InboxItem => ({
   id: 'pr:x',
@@ -64,4 +64,8 @@ test('dueChip', () => {
   expect(dueChip({ due: '2026-10-20' }, now)).toEqual({ label: 'due today', overdue: false })
   expect(dueChip({ due: '2026-10-21' }, now)).toEqual({ label: 'due tomorrow', overdue: false })
   expect(dueChip({}, now)).toBeNull()
+})
+
+test('briefMarkdown makes in-app links absolute and leaves the rest', () => {
+  expect(briefMarkdown('[a](#/s/laptop/x) [b](https://x.y/1)', 'http://h:7777')).toBe('[a](http://h:7777/#/s/laptop/x) [b](https://x.y/1)')
 })

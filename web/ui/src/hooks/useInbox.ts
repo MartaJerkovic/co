@@ -11,7 +11,7 @@ const SCAN_POLL_MS = 10_000
 // Last answer, kept across remounts so reopening the screen paints at once.
 let last: InboxResponse | null = null
 
-/** The live inbox (GET /api/inbox), polled while shown. `refresh` re-reads the sources now. */
+/** The live inbox (GET /api/inbox), polled while shown. `refresh` = Scan now, `dismiss` = done. */
 export function useInbox() {
   const [data, setData] = useState<InboxResponse | null>(last)
   const [error, setError] = useState<string | null>(null)
@@ -50,5 +50,19 @@ export function useInbox() {
     }
   }, [take])
 
-  return { data, error, loading, refresh, refreshing, reload }
+  // Done: gone from the list at once; the server's answer (or the next poll) settles it.
+  const dismiss = useCallback(
+    async (id: string) => {
+      if (last) take({ ...last, items: last.items.filter((i) => i.id !== id) })
+      try {
+        take(await api.dismissInbox(id))
+      } catch (err) {
+        setError((err as Error)?.message || 'could not mark it done')
+        reload()
+      }
+    },
+    [take, reload],
+  )
+
+  return { data, error, loading, refresh, refreshing, reload, dismiss }
 }

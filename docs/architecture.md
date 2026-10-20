@@ -160,7 +160,7 @@ server. Path: `$FLEET_CONFIG`, else `${XDG_CONFIG_HOME:-~/.config}/fleet/config.
 | `tasks` | [`fleet tasks`](cli.md#productive-tasks), per machine: `organization` (an id; may be left out when the token belongs to one organization), `projects` (ids: only tasks in these), `refresh` (default `"5m"`, at least `1m`), `token` (the Productive API token; `$FLEET_PRODUCTIVE_TOKEN` wins over it, `$PRODUCTIVE_API_TOKEN` is the fallback). Read leniently |
 | `gh` | `gh` binary for `fleet prs`; `null` → `PATH`, then `/opt/homebrew/bin`, `/usr/local/bin` |
 | `grouping` | smart grouping: `enabled` (default `true` — `false` = repository fallback only), `model` (default `haiku`), `host` (the one host whose web server runs it; peers proxy `/api/groups` there), `consolidateMinutes` (default 60) |
-| `inbox` | the [inbox](#inbox): `host` (the one host whose web server runs it; peers proxy `/api/inbox` there — unset = no inbox), `scanMinutes` (30), `workHours` (`[8, 19]`), `workDays` (`[1,2,3,4,5]`, 0 = Sunday), `model` (`haiku`, the Slack + mail scan), `briefModel` (`haiku`), `briefMinutes` (45), `language` (`"English"`, the brief's), `comms` (`true`; `false` = no Slack + mail scan). `FLEET_WEB_INBOX=0` turns it off on a server |
+| `inbox` | the [inbox](#inbox): `host` (the one host whose web server runs it; peers proxy `/api/inbox` there — unset = no inbox), `scanMinutes` (60), `workHours` (`[8, 18]`), `workDays` (`[0,1,2,3,4,5,6]`, 0 = Sunday; the three are also set from Settings → Inbox), `model` (`haiku`, the Slack + mail scan), `briefModel` (`haiku`), `briefMinutes` (45), `language` (`"English"`, the brief's), `comms` (`true`; `false` = no Slack + mail scan). `FLEET_WEB_INBOX=0` turns it off on a server |
 
 Rules: `~` is expanded at use time; unknown keys are preserved when the CLI rewrites the file
 (writes go through the raw JSON, never the typed view); a missing file is fine — this machine is
@@ -418,7 +418,9 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | POST | `/api/hosts/:host/sessions/:id/kill` | `{}` → SIGTERM (then SIGKILL) Claude, then kill its tmux session (or just its window when the session has others) / close its iTerm tab |
 | GET | `/api/groups` | the Board view's groups: `{ enabled, host, intervalMinutes, running, updatedAt, lastRun, groups: [{ id, label, description, source, members: [{ host, id, dormant? }] }] }` (`dormant: true` only on a member that is dormant on its host; never set from stored groups, so the UI also cross-references `GET …/dormant`); served by the grouping host, proxied by every other server (`enabled: false` when nobody runs it) |
 | GET | `/api/inbox` | the [inbox](#inbox): `{ enabled, host, error?, updatedAt, brief: { text, at, model } \| null, sources: { github?, productive?, sessions?, comms? : { at, ok, error, count, nextAt?, running? } }, items: [{ id, source, kind, section, title, ask, url, href, from, at, firstSeen, effort, meta }] }` — served by `inbox.host`, proxied by every other server (`enabled: false` when none is set) |
-| POST | `/api/inbox/refresh` | re-read every source now and start a Slack + mail scan (also outside work hours); answers the GET shape |
+| POST | `/api/inbox/refresh` | Scan now: start a Slack + mail scan (also outside work hours; its brief skips the `briefMinutes` wait) and re-read every other source; answers the GET shape |
+| POST | `/api/inbox/dismiss` | `{ id }` → the item is done: off the list until its source drops it — a Slack / mail item, a session or a PR mention comes back on newer activity; answers the GET shape (404: no such item) |
+| PUT | `/api/inbox/settings` | `{ scanMinutes?, workHours?, workDays? }` (15–1440 min; `[from, to)` hours; weekdays 0–6) → `fleet config set inbox.<key>` on the inbox host, live at once; answers the GET shape, whose `settings` carries the three |
 | POST | `/api/groups/run` | `{}` → run the grouping pass now (on the grouping host) → the same shape; 501 when grouping is off |
 | POST | `/api/groups/edit` | `{ op: "rename", id, label }` or `{ op: "move", host, session, to }` / `{ op: "move", host, session, label }` (a new group) / `{ op: "create", label }` / `{ op: "delete", id }` (empty groups) → `fleet group --rename/--move/--create/--delete` on the grouping host (proxied there) → the same shape; 400 bad body, 409 refused (unknown id, taken label), 501 when grouping is off |
 | POST | `/api/hosts/:host/uploads?name=<file>` | raw file body → stored under that host's `web.uploads.dir` → `{ host, path, name, size }` (absolute `path`; 413 over `web.uploads.maxMB`); streamed through to a peer |
@@ -550,8 +552,9 @@ The web Board view shows sessions as columns of work streams, and nobody maintai
 
 ## Inbox
 
-One live to-do list for the whole day, kept by the system and never edited by hand: every item
-links to the thing that waits on you, and drops off by itself once its source says it is done
+One live to-do list for the whole day, kept by the system: every item links to the thing that
+waits on you, and drops off by itself once its source says it is done — or at once when you mark
+it Done (dismissals are kept in the state file; the scan is told which messages are done)
 (`web/lib/inbox.mjs`, the `#/inbox` screen). One host's server runs it (`inbox.host`, best the
 always-on one); the others proxy `/api/inbox` there.
 
@@ -567,7 +570,9 @@ merge, a waiting session, a message the scan rated `quick`), `waiting` (on you: 
 mentions, changes requested, failing CI, overdue tasks, other messages), `mine` (your work: due
 tasks, recent tasks in progress). Items are sorted by section, then newest first.
 
-The **brief** (3–8 bullets in `language`) is one `claude -p` over the item list, only when the
+The **brief** (3–8 bullets in `language`) is one `claude -p` over the numbered item list; it links
+what it names as `[name](#<n>)`, which the server turns into the item's url (else its in-app
+href) — no URL comes from the model. It runs only when the
 set of items changed, at least `briefMinutes` apart, and outside work hours only the first of the
 day. A failing source keeps its last list and reports the error; a failed scan waits for the next
 slot. State (`<fleet state>/inbox.json`): the scan's items and time, the brief, when each item was

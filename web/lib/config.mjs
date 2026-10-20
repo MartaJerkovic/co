@@ -50,9 +50,9 @@ export const DEFAULT_BRIEFS = Object.freeze({
 
 /** inbox defaults (lib/inbox.mjs). Runs only on the host named by `inbox.host`. */
 export const DEFAULT_INBOX = Object.freeze({
-  scanMinutes: 30, // Slack + email scan (a `claude -p` with the claude.ai connectors), in work hours
-  workHours: [8, 19], // local time, [from, to)
-  workDays: [1, 2, 3, 4, 5], // 0 = Sunday
+  scanMinutes: 60, // Slack + email scan (a `claude -p` with the claude.ai connectors), in work hours
+  workHours: [8, 18], // local time, [from, to)
+  workDays: [0, 1, 2, 3, 4, 5, 6], // 0 = Sunday
   model: 'haiku', // the Slack + email scan
   briefModel: 'haiku', // the brief over all items
   briefMinutes: 45, // at least this long between two briefs (only when the items changed)

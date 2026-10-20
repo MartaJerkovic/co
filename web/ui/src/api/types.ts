@@ -1414,6 +1414,13 @@ export interface InboxItem {
 }
 
 /** GET /api/inbox — served by the inbox host (`inbox.host`), proxied from everywhere else. */
+/** When the Slack & email scan runs: every `scanMinutes`, on `workDays` (0 = Sunday) within `workHours` [from, to). */
+export interface InboxSettings {
+  scanMinutes: number
+  workHours: [number, number]
+  workDays: number[]
+}
+
 export interface InboxResponse {
   /** false: no inbox host configured or reachable */
   enabled: boolean
@@ -1421,6 +1428,8 @@ export interface InboxResponse {
   error?: string
   updatedAt: number | null
   brief: { text: string; at: number; model: string } | null
+  /** the inbox host's scan schedule (Settings → Inbox); absent on older servers / when off */
+  settings?: InboxSettings
   sources: { github?: InboxSource; productive?: InboxSource; sessions?: InboxSource; comms?: InboxSource }
   /** sorted: section order, then `at` newest first */
   items: InboxItem[]
