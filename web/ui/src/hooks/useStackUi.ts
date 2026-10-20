@@ -24,9 +24,11 @@ export interface SiblingTarget {
 interface State {
   sheet: { host: string; id: string } | null
   sibling: SiblingTarget | null
+  /** The "Link with a session…" picker: the session to link (by host + id). */
+  link: { host: string; id: string } | null
 }
 
-let state: State = { sheet: null, sibling: null }
+let state: State = { sheet: null, sibling: null, link: null }
 const listeners = new Set<() => void>()
 let pendingSibling: ReturnType<typeof setTimeout> | undefined
 
@@ -58,6 +60,16 @@ export function openSiblingSpawn(target: SiblingTarget) {
 
 export function closeSiblingSpawn() {
   if (state.sibling) update({ sibling: null })
+}
+
+/** Open the picker that puts `session` and another live one into one stack. */
+export function openStackLink(host: string, id: string) {
+  clearTimeout(pendingSibling)
+  update({ link: { host, id }, sheet: null, sibling: null })
+}
+
+export function closeStackLink() {
+  if (state.link) update({ link: null })
 }
 
 export function useStackUi(): State {

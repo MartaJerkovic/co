@@ -89,8 +89,8 @@ const MEMO_ROUTE = /^\/api\/memos\/([^/]+)(\/retry)?$/;
 const NOTES_ROUTE = /^\/api\/hosts\/([^/]+)\/notes\/(tree|search|file|raw)$/;
 const SPAWN_DIRS_ROUTE = /^\/api\/hosts\/([^/]+)\/spawn-dirs$/;
 const STACKS_ROUTE = /^\/api\/hosts\/([^/]+)\/stacks(\/sync)?$/;
-const STACK_ROUTE = /^\/api\/hosts\/([^/]+)\/stacks\/([^/]+)(\/spawn|\/rename)?$/;
-const SESSION_STACK_SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/stack\/spawn$/;
+const STACK_ROUTE = /^\/api\/hosts\/([^/]+)\/stacks\/([^/]+)(\/spawn|\/rename|\/add)?$/;
+const SESSION_STACK_SPAWN_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/stack\/(spawn|link)$/;
 /** A sibling spawn may create a stack first (`stack ensure` → one model call, ≤ 150 s). */
 const STACK_SPAWN_PROXY_MS = 180 * 1000;
 const REPOS_ROUTE = /^\/api\/hosts\/([^/]+)\/repos(?:\/(sync|service))?$/;
@@ -1016,17 +1016,17 @@ export function createApi({
       const id = decodeURIComponent(rawId);
       if (!STACK_ID_RE.test(id)) throw new HttpError(`invalid stack id: ${id}`, 400);
       const host = decodeURIComponent(rawHost);
-      const action = spawn ? 'spawn' : sub === '/rename' ? 'rename' : req.method;
+      const action = spawn ? 'spawn' : sub === '/rename' ? 'rename' : sub === '/add' ? 'add' : req.method;
       const r = await forHost({
         req,
         url,
         host,
         timeoutMs: spawn ? STACK_SPAWN_PROXY_MS : peerProxyTimeoutMs,
         bodyLimit: STACK_BODY_LIMIT,
-        local: () => (spawn ? localStackSpawn({ req, stackId: id }) : localStacks({ action, id, req })),
+        local: () => (spawn ? localStackSpawn({ req, stackId: id }) : action === 'add' ? localStackLink({ req, stackId: id }) : localStacks({ action, id, req })),
       });
       if (r.status !== 200 || action === 'DELETE') return r;
-      if (spawn) return { ...r, body: { ...r.body, stack: withStackEditor(r.body?.stack, host, editorViewer(config, req)) } };
+      if (spawn || action === 'add') return { ...r, body: { ...r.body, stack: withStackEditor(r.body?.stack, host, editorViewer(config, req)) } };
       return { ...r, body: withStackEditor(r.body, host, editorViewer(config, req)) };
     }
 
@@ -1035,7 +1035,8 @@ export function createApi({
       if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
       const host = decodeURIComponent(ssp[1]);
       const id = decodeURIComponent(ssp[2]);
-      const r = await forHost({ req, url, host, timeoutMs: STACK_SPAWN_PROXY_MS, local: () => localStackSpawn({ req, sessionId: id }) });
+      const local = ssp[3] === 'link' ? () => localStackLink({ req, sessionId: id }) : () => localStackSpawn({ req, sessionId: id });
+      const r = await forHost({ req, url, host, timeoutMs: STACK_SPAWN_PROXY_MS, local });
       return r.status === 200 ? { ...r, body: { ...r.body, stack: withStackEditor(r.body?.stack, host, editorViewer(config, req)) } } : r;
     }
 
@@ -1515,6 +1516,38 @@ export function createApi({
       status: 200,
       body: { host: config.self, stack, created: Boolean(created), generated: Boolean(generated), spawn: { ok: true, host: config.self, ...result } },
     };
+  }
+
+  /**
+   * Put an existing session into a stack after the fact. Body `{ session, host? }`: the session to
+   * add (a full session id; `host`: the peer it runs on, default this one). Into a stack
+   * (`stackId`, …/stacks/:id/add), or around a session of this host (`sessionId`,
+   * …/sessions/:id/stack/link: `stack ensure` first — it may create the stack, `label` naming it).
+   */
+  async function localStackLink({ req, sessionId = null, stackId = null }) {
+    if (!stacks) throw new HttpError('session stacks are not available on this server', 501);
+    const body = await readJsonBody(req);
+    const other = typeof body?.session === 'string' ? body.session.trim() : '';
+    if (!SESSION_ID_RE.test(other)) throw new HttpError('session must be a session id', 400);
+    const onHost = typeof body.host === 'string' && body.host.trim() ? body.host.trim() : config.self;
+    if (onHost !== config.self && !config.peers[onHost]) throw new HttpError(`unknown host: ${onHost} (not a peer with a web url)`, 400);
+    const label = validateStackLabel(body.label);
+    let id = stackId;
+    let created = false;
+    let generated = false;
+    if (sessionId != null) {
+      const source = await resolveLocalSession(sessionId);
+      if (!source.session_id || !SESSION_ID_RE.test(source.session_id)) throw new HttpError('this session has no session id yet', 409);
+      if (source.session_id === other && onHost === config.self) throw new HttpError('a session cannot be linked to itself', 400);
+      const out = await stacks.ensure(source.session_id, { label });
+      created = Boolean(out?.created);
+      generated = Boolean(out?.generated);
+      id = out?.stack?.id ?? out?.id;
+      if (!id) throw new HttpError('fleet stack returned no stack id — update fleet on this host', 502);
+    }
+    const stack = await stacks.add(id, other, onHost === config.self ? undefined : onHost);
+    refreshFleet(); // the stack shows on both rows
+    return { status: 200, body: { host: config.self, stack, created, generated } };
   }
 
   async function localFiles({ action, id, url, req }) {

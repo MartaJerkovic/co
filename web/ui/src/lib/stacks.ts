@@ -106,3 +106,26 @@ export function shownStackLabel(server: string, pending: PendingStackLabel | nul
   if (pending.saving) return pending.label
   return pending.label !== server && now - pending.at < STACK_LABEL_TTL_MS ? pending.label : server
 }
+
+/** What linking session `a` with `b` into one stack takes (see linkPlan). */
+export type LinkPlan =
+  /** Neither is in a stack: one is created around `a` (on its host — one model call), `b` joins. */
+  | { kind: 'create'; host: string; sessionId: string; other: { session: string; host: string } }
+  /** One of them is in a stack: the other joins it (the request goes to the stack's home host). */
+  | { kind: 'join'; host: string; stackId: string; label: string; other: { session: string; host: string } }
+  /** Already in the same stack: nothing to do. */
+  | { kind: 'same' }
+  /** Each is in a different stack: refused (leave one first). */
+  | { kind: 'conflict'; label: string }
+
+type Linkable = Pick<Session, 'host' | 'session_id' | 'stack'>
+
+/** Link two live sessions into one stack after the fact: join the one that has a stack, else create one around `a`. */
+export function linkPlan(a: Linkable, b: Linkable): LinkPlan {
+  const ka = a.stack?.id ? `${stackHome(a)}/${a.stack.id}` : null
+  const kb = b.stack?.id ? `${stackHome(b)}/${b.stack.id}` : null
+  if (ka && kb) return ka === kb ? { kind: 'same' } : { kind: 'conflict', label: b.stack?.label || b.stack?.id || '' }
+  if (a.stack?.id) return { kind: 'join', host: stackHome(a), stackId: a.stack.id, label: a.stack.label || a.stack.id, other: { session: b.session_id, host: b.host } }
+  if (b.stack?.id) return { kind: 'join', host: stackHome(b), stackId: b.stack.id, label: b.stack.label || b.stack.id, other: { session: a.session_id, host: a.host } }
+  return { kind: 'create', host: a.host, sessionId: a.session_id, other: { session: b.session_id, host: b.host } }
+}

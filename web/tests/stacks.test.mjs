@@ -517,6 +517,42 @@ test('sibling spawn: empty prompt = just the context line; dir inside the cwd or
   assert.equal((await call('GET', `/api/hosts/laptop/sessions/${SRC_ID}/stack/spawn`)).status, 405);
 });
 
+test('link after the fact: …/stack/link ensures the stack and adds the other session; …/stacks/:id/add adds into one', async (t) => {
+  const { call, host, cwd } = solo(t);
+  const other = 'bbbbbbbb-0000-0000-0000-000000000002';
+  host.sessions.push({ session_id: other, name: 'login-tests', status: 'idle', backend: 'tmux', handle: '%2', tmux_session: 'tests', cwd, updated_at: 1, stack: null });
+  const res = await call('POST', `/api/hosts/laptop/sessions/${SRC_ID}/stack/link`, { session: other, label: 'Login work' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.created, true);
+  assert.equal(res.body.stack.id, STACK_ID);
+  assert.equal(res.body.stack.editorUrl, `vscode://file${cwd}`);
+  assert.deepEqual(host.stackCalls(), [['ensure', SRC_ID, '--label=Login work'], ['add', STACK_ID, other]]);
+
+  const into = await call('POST', `/api/hosts/laptop/stacks/${STACK_ID}/add`, { session: other });
+  assert.equal(into.status, 200);
+  assert.equal(into.body.stack.members.at(-1).session, other);
+  assert.equal(into.body.stack.editorUrl, `vscode://file${cwd}`);
+  assert.equal(host.stackCalls().at(-1)[0], 'add');
+
+  // Already a member → the stack as is; in another stack → 409; not live → 404; bad body → 400.
+  host.sessions[1].stack = { id: STACK_ID, label: 'Login redirect fix' };
+  const again = await call('POST', `/api/hosts/laptop/stacks/${STACK_ID}/add`, { session: other });
+  assert.equal(again.status, 200);
+  assert.equal(host.stackCalls().at(-1)[0], 'show');
+  host.sessions[1].stack = { id: 'st-99999999', label: 'Elsewhere' };
+  const taken = await call('POST', `/api/hosts/laptop/stacks/${STACK_ID}/add`, { session: other });
+  assert.equal(taken.status, 409);
+  assert.match(taken.body.error, /Elsewhere/);
+  assert.equal((await call('POST', `/api/hosts/laptop/stacks/${STACK_ID}/add`, { session: 'cccccccc-0000-0000-0000-000000000009' })).status, 404);
+  const before = host.stackCalls().length;
+  for (const body of [{}, { session: 7 }, { session: 'a b' }, { session: other, host: 'office' }]) {
+    assert.equal((await call('POST', `/api/hosts/laptop/sessions/${SRC_ID}/stack/link`, body)).status, 400, JSON.stringify(body));
+  }
+  assert.equal((await call('POST', `/api/hosts/laptop/sessions/${SRC_ID}/stack/link`, { session: SRC_ID })).status, 400, 'not with itself');
+  assert.equal(host.stackCalls().length, before, 'a bad request never reaches ensure (no model call)');
+  assert.equal((await call('GET', `/api/hosts/laptop/stacks/${STACK_ID}/add`)).status, 405);
+});
+
 test('spawn from a stack: no ensure, dir = the stack absCwd, unknown stack → 404, missing absCwd → 400', async (t) => {
   const { call, host, cwd } = solo(t);
   const res = await call('POST', `/api/hosts/laptop/stacks/${STACK_ID}/spawn`, { prompt: 'Review it' });

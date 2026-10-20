@@ -3,6 +3,7 @@ import {
   ArrowRightIcon,
   CopyIcon,
   LayersIcon,
+  Link2Icon,
   Loader2Icon,
   PowerIcon,
   RefreshCwIcon,
@@ -38,8 +39,8 @@ export interface DetailsPanelProps {
   onClose?: () => void
   /** "New session from here…": the form with Hand off / Sibling (absent: no session row yet). */
   onNewFromHere?: () => void
-  /** In a session stack: its label and the StackBrief sheet. */
-  stack?: { label: string | null; onOpen: () => void } | null
+  /** Session stacks: the label and the StackBrief sheet (when in one), and "Link…" (put another live session in it). */
+  stack?: { label: string | null; onOpen?: () => void; onLink: () => void } | null
 }
 
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
@@ -195,10 +196,16 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
 
           <Section title="Session">
             {p.stack ? (
-              <Row label="Session stack" hint={p.stack.label ?? undefined}>
-                <Button variant="outline" className="h-9 px-3" onClick={p.stack.onOpen}>
-                  <LayersIcon />
-                  StackBrief
+              <Row label="Session stack" hint={p.stack.label ?? 'Not in a stack'}>
+                {p.stack.onOpen ? (
+                  <Button variant="outline" className="h-9 px-3" onClick={p.stack.onOpen}>
+                    <LayersIcon />
+                    StackBrief
+                  </Button>
+                ) : null}
+                <Button variant="outline" className="h-9 px-3" title="Put another live session in this stack (or start one)" onClick={p.stack.onLink}>
+                  <Link2Icon />
+                  Link…
                 </Button>
               </Row>
             ) : null}

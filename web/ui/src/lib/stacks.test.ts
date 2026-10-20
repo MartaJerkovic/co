@@ -4,6 +4,7 @@ import { ApiError } from '@/api/client'
 import type { StackMember } from '@/api/types'
 import {
   conflictUpdated,
+  linkPlan,
   memberCounts,
   memberCountsText,
   memberLive,
@@ -93,4 +94,15 @@ test('shownStackLabel: pending wins while saving, then until the server catches 
   expect(shownStackLabel('Old', { label: 'New', at, saving: false }, at + 1000)).toBe('New')
   expect(shownStackLabel('New', { label: 'New', at, saving: false }, at + 1000)).toBe('New')
   expect(shownStackLabel('Old', { label: 'New', at, saving: false }, at + STACK_LABEL_TTL_MS)).toBe('Old')
+})
+
+test('linkPlan: create around a, join whichever has a stack, same / conflict otherwise', () => {
+  const st = { id: 'st-1', label: 'Login fix', host: 'laptop' }
+  const a = { host: 'laptop', session_id: 'a', stack: null }
+  const b = { host: 'workstation', session_id: 'b', stack: null }
+  expect(linkPlan(a, b)).toEqual({ kind: 'create', host: 'laptop', sessionId: 'a', other: { session: 'b', host: 'workstation' } })
+  expect(linkPlan(a, { ...b, stack: st })).toEqual({ kind: 'join', host: 'laptop', stackId: 'st-1', label: 'Login fix', other: { session: 'a', host: 'laptop' } })
+  expect(linkPlan({ ...b, stack: st }, a)).toEqual({ kind: 'join', host: 'laptop', stackId: 'st-1', label: 'Login fix', other: { session: 'a', host: 'laptop' } })
+  expect(linkPlan({ ...a, stack: st }, { ...b, stack: st })).toEqual({ kind: 'same' })
+  expect(linkPlan({ ...a, stack: st }, { ...b, stack: { id: 'st-2', label: 'Other' } })).toEqual({ kind: 'conflict', label: 'Other' })
 })

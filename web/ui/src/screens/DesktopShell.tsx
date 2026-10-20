@@ -8,6 +8,7 @@ import {
   FilterIcon,
   KanbanIcon,
   KeyboardIcon,
+  Link2Icon,
   ListIcon,
   FileDiffIcon,
   MessageSquareTextIcon,
@@ -50,6 +51,7 @@ import { useNow } from '@/hooks/useNow'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { useSessionList } from '@/hooks/useSessionList'
 import { useSettings } from '@/hooks/useSettings'
+import { openStackLink } from '@/hooks/useStackUi'
 import { useTheme } from '@/hooks/useTheme'
 import { openTitleEditor, startEditing, useSessionTitle } from '@/hooks/useTitles'
 import { editorLabel } from '@/lib/brief'
@@ -59,6 +61,7 @@ import { parseMemosLocation } from '@/lib/memos'
 import { notesHref, parseNotesLocation } from '@/lib/notes'
 import { scratchpad } from '@/lib/scratchpad'
 import { PALETTES } from '@/lib/palettes'
+import { stacksKnown } from '@/lib/stacks'
 import { STATUS_FILTERS, allSessions, byLastActivity, findSession, sessionHref, statusLabel, withoutSession } from '@/lib/sessions'
 import {
   clampFlyoutWidth,
@@ -524,6 +527,17 @@ export function DesktopShell() {
           : [{ id: 'sidebar', label: sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar', icon: <PanelLeftIcon />, shortcut: shortcutHint('sidebar'), run: toggleSidebar }]),
         ...(selectedSession && selectedKey
           ? [{ id: 'rename', label: 'Rename session…', icon: <PencilIcon />, shortcut: shortcutHint('rename'), keywords: ['title', 'name'], run: () => startEditing('header', selectedKey) }]
+          : []),
+        ...(selected && selectedSession && stacksKnown(selectedSession)
+          ? [
+              {
+                id: 'stack-link',
+                label: selectedSession.stack?.id ? 'Add a session to this stack…' : 'Link with a session (stack)…',
+                icon: <Link2Icon />,
+                keywords: ['stack', 'link', 'group', 'join', 'sibling', 'together'],
+                run: () => openStackLink(selected.host, selected.id),
+              },
+            ]
           : []),
         ...(attachLink
           ? [{ id: 'attach', label: 'Attach in iTerm', icon: <SquareTerminalIcon />, keywords: ['tmux', 'terminal', 'enter'], run: () => window.location.assign(attachLink) }]

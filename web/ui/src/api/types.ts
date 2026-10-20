@@ -590,6 +590,21 @@ export interface StackSpawnRequest {
 }
 
 /** POST …/sessions/:id/stack/spawn and …/stacks/:id/spawn. */
+/** POST …/sessions/:id/stack/link and …/stacks/:id/add: the session to put in the stack, and the host it runs on. */
+export interface StackLinkRequest {
+  session: string
+  host?: string
+  label?: string
+}
+
+export interface StackLinkResponse {
+  host: string
+  stack: StackView
+  /** A new stack was created around the source session (…/stack/link only). */
+  created: boolean
+  generated: boolean
+}
+
 export interface StackSpawnResponse {
   host: string
   stack: StackView

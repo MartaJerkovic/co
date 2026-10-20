@@ -47,6 +47,8 @@ import type {
   SpawnDirsResponse,
   SpawnRequest,
   SpawnResponse,
+  StackLinkRequest,
+  StackLinkResponse,
   StackSpawnRequest,
   StackSpawnResponse,
   StacksResponse,
@@ -302,6 +304,12 @@ export const api = {
   /** A new session in an existing stack (in the stack's directory). */
   spawnInStack: (host: string, stackId: string, body: StackSpawnRequest, o: Opts = {}) =>
     request<StackSpawnResponse>(`${hostPath(host)}/stacks/${enc(stackId)}/spawn`, { ...o, method: 'POST', body }),
+  /** Put an existing session (`body.session` on `body.host`) into `sessionId`'s stack — created around it when it has none (one model call). */
+  linkToStack: (host: string, sessionId: string, body: StackLinkRequest, o: Opts = {}) =>
+    request<StackLinkResponse>(sessionPath(host, sessionId, 'stack/link'), { ...o, method: 'POST', body }),
+  /** Put an existing session into a stack (`host` = the stack's home). */
+  addToStack: (host: string, stackId: string, body: StackLinkRequest, o: Opts = {}) =>
+    request<StackLinkResponse>(`${hostPath(host)}/stacks/${enc(stackId)}/add`, { ...o, method: 'POST', body }),
   syncStacks: (host: string, o: Opts = {}) =>
     request<{ host?: string; changed: string[]; stacks: StackView[] }>(`${hostPath(host)}/stacks/sync`, { ...o, method: 'POST', body: {} }),
   /** That host's focus session; `setFocus` starts (its default length, or `minutes`) or stops one. */

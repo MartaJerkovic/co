@@ -45,7 +45,7 @@ import { usePersistentState } from '@/hooks/usePersistentState'
 import { usePoller } from '@/hooks/usePoller'
 import { usePrefs } from '@/hooks/usePrefs'
 import { useSettings } from '@/hooks/useSettings'
-import { openStackSheet, type SiblingTarget } from '@/hooks/useStackUi'
+import { openStackLink, openStackSheet, type SiblingTarget } from '@/hooks/useStackUi'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { useSessionTitle } from '@/hooks/useTitles'
 import { CHAT_LIMITS, CHAT_POLL_MS, PEEK_POLL_MS, TERM_LINES, nextChatLimit, parseMode, parseSize, type DetailMode } from '@/lib/chat'
@@ -455,9 +455,14 @@ export function SessionScreen({
     const prefill: SpawnPrefill = { host, dir: session?.cwd ?? null, prompt: prompt ? continueDraft(prompt) : '', sibling: siblingTarget }
     fromMenu(() => setContinueWith(prefill))
   }
-  const stackMenu: DetailsPanelProps['stack'] = stackRef
-    ? { label: stackRef.label, onOpen: () => fromMenu(() => openStackSheet(stackHome, stackRef.id)) }
-    : null
+  const stackMenu: DetailsPanelProps['stack'] =
+    session && stacksKnown(session)
+      ? {
+          label: stackRef ? stackRef.label : null,
+          onOpen: stackRef ? () => fromMenu(() => openStackSheet(stackHome, stackRef.id)) : undefined,
+          onLink: () => fromMenu(() => openStackLink(host, id)),
+        }
+      : null
 
   const menuProps: DetailsPanelProps = {
     open: menuOpen,

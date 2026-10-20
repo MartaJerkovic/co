@@ -366,6 +366,21 @@ export function createStacks({
       }),
     rename: (id, label) => call('fleet stack rename', async () => remember(await cli.stackRename(id, label))),
     ensure: (sessionId, opts) => call('fleet stack ensure', async () => rememberEnsured(await cli.stackEnsure(sessionId, opts))),
+    /**
+     * Add an existing live session to a stack: this host's (`host` absent / self) or a peer's,
+     * its row looked up in that host's list (carried to the CLI like a join). 404 when it is not
+     * live there; 409 when it is already in another stack; already a member → the stack as is.
+     */
+    async add(stackId, sessionId, host = self) {
+      const rows = await rowsOn(host);
+      if (!Array.isArray(rows)) throw new HttpError(`could not list the sessions on ${host}`, 502);
+      const s = rows.find((r) => r?.session_id === sessionId);
+      if (!s) throw new HttpError(`no live session ${sessionId}${host === self ? '' : ` on ${host}`}`, 404);
+      if (s.stack?.id === stackId) return call('fleet stack show', async () => remember(await cli.stackShow(stackId)));
+      if (s.stack?.id) throw new HttpError(`that session is already in the stack "${s.stack.label || s.stack.id}" — remove it there first`, 409);
+      const opts = host === self ? undefined : { host, input: { hosts: [{ name: host, ok: true, sessions: [s] }] } };
+      return call('fleet stack add', async () => remember(await cli.stackAdd(stackId, sessionId, opts)));
+    },
     /** POST …/stacks/sync: like `sync`, errors mapped to HttpError. */
     syncNow: (reason = 'manual') => call('fleet stack sync', () => sync(reason)),
     sync,
