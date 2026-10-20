@@ -29,11 +29,11 @@ test('fleet CLI nameAll runs `fleet name --all --apply` (tmux synced by the CLI)
   const run = async (bin, args, opts) => (calls.push({ bin, args, opts }), { stdout: 'x', stderr: '' });
   const cli = createFleetCli({ run, bin: '/x/fleet' });
   assert.deepEqual(await cli.nameAll(), { stdout: 'x', stderr: '' });
-  assert.deepEqual(calls[0].args, ['name', '--all', '--apply']);
+  assert.deepEqual(calls[0].args, ['name', '--all', '--settled', '--apply']);
   assert.equal(calls[0].bin, '/x/fleet');
   assert.equal(calls[0].opts.env.NO_COLOR, '1');
   await cli.nameAll({ dryRun: true });
-  assert.deepEqual(calls[1].args, ['-n', 'name', '--all']);
+  assert.deepEqual(calls[1].args, ['-n', 'name', '--all', '--settled']);
   const missing = createFleetCli({ run: async () => { throw Object.assign(new Error('spawn'), { code: 'ENOENT' }); } });
   await assert.rejects(missing.nameAll(), /not found/);
 });

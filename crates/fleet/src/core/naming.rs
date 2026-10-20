@@ -5,7 +5,8 @@
 //! task-shaped slug (`upload-retry-limit`).
 //!
 //! The LLM is the *primary* source — `claude -p --model haiku` reading a small
-//! context built from the cwd, the git branch and the session's first prompt.
+//! context built from the cwd, the git branch, the session's opening prompts and,
+//! once the web server has written one, its brief's Summary.
 //! [`heuristic_from`] is only the fallback for when `claude` is missing, logged
 //! out, rate-limited or answers with prose.
 //!
@@ -42,7 +43,11 @@ pub const MAX_NAME: usize = 32;
 
 /// Ceiling on the context handed to the model. The session title is a full user
 /// prompt and can be thousands of characters; a name doesn't need them.
-pub const CONTEXT_CAP: usize = 1500;
+pub const CONTEXT_CAP: usize = 2500;
+
+/// User prompts read past the first one. An opening prompt is often a bare link or
+/// "look at this"; the next couple usually say what the work is.
+pub const MORE_PROMPTS: usize = 2;
 
 /// Per-attempt wall clock for one `claude -p` child. Measured at ~8s on a warm
 /// machine, so this is generous on purpose — a cold start behind a slow network
@@ -280,6 +285,55 @@ fn cap_chars(s: &str, n: usize) -> String {
 /// distinguish one session from another. Capped at [`CONTEXT_CAP`] characters —
 /// a session title is a whole user prompt and is routinely far longer.
 pub fn build_context(s: &Session, branch: Option<&str>) -> String {
+    build_context_with(s, branch, &Extra::default())
+}
+
+/// What naming reads beyond the [`Session`] row: gathered by [`Extra::gather`] on
+/// the real path, empty in tests.
+#[derive(Debug, Clone, Default)]
+pub struct Extra {
+    /// The user prompts after the first (the first is [`Session::title`]).
+    pub prompts: Vec<String>,
+    /// The session brief's Summary — the best description of the work, when there is one.
+    pub summary: Option<String>,
+}
+
+impl Extra {
+    /// Read the session's next prompts and its brief's Summary. Fixture mode reads nothing.
+    pub fn gather(s: &Session) -> Self {
+        if is_fixture() {
+            return Self::default();
+        }
+        let prompts = crate::core::discovery::opening_prompts(s, 1 + MORE_PROMPTS)
+            .into_iter()
+            .skip(1)
+            .collect();
+        Self {
+            prompts,
+            summary: brief_summary(s),
+        }
+    }
+}
+
+/// The Summary of a session's brief, when the web server has written one.
+fn brief_summary(s: &Session) -> Option<String> {
+    let id = s.session_id.as_deref()?;
+    let dir = crate::core::brief::briefs_dir().ok()?;
+    let (b, exists) = crate::core::brief::load(&dir, id).ok()?;
+    let t = b.summary.trim();
+    (exists && !t.is_empty()).then(|| t.to_string())
+}
+
+/// Has the session said enough to be named from? A second prompt, or a brief.
+/// The periodic auto-namer (`fleet name --all --settled`) waits for this: a first
+/// prompt alone is too often a bare link or "look at this".
+pub fn is_settled(s: &Session) -> bool {
+    crate::core::discovery::opening_prompts(s, 2).len() >= 2 || brief_summary(s).is_some()
+}
+
+/// [`build_context`] plus what [`Extra`] carries. The brief goes first: it is the
+/// best evidence, and the cap cuts from the end.
+pub fn build_context_with(s: &Session, branch: Option<&str>, extra: &Extra) -> String {
     let mut facts = String::new();
     if let Some(cwd) = s.cwd.as_deref().filter(|c| !c.is_empty()) {
         facts.push_str(&format!("directory: {}\n", basename(cwd)));
@@ -287,12 +341,34 @@ pub fn build_context(s: &Session, branch: Option<&str>) -> String {
     if let Some(b) = branch.filter(|b| !b.is_empty() && *b != "HEAD") {
         facts.push_str(&format!("git branch: {b}\n"));
     }
+    if let Some(sum) = extra
+        .summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        facts.push_str(&format!(
+            "what the session is doing (its brief — the best evidence):\n<brief>\n{}\n</brief>\n",
+            cap_chars(sum, 600)
+        ));
+    }
     if let Some(t) = s.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
         // Delimited: this is the user's own first prompt, up to a thousand
         // characters of arbitrary text, sitting directly under our instruction.
         facts.push_str(&format!(
-            "what was asked:\n<prompt>\n{}\n</prompt>\n",
-            cap_chars(t, 1000)
+            "what was asked first:\n<prompt>\n{}\n</prompt>\n",
+            cap_chars(t, 800)
+        ));
+    }
+    for p in extra
+        .prompts
+        .iter()
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+    {
+        facts.push_str(&format!(
+            "what was asked next:\n<prompt>\n{}\n</prompt>\n",
+            cap_chars(p, 300)
         ));
     }
     if facts.is_empty() {
@@ -530,7 +606,8 @@ pub fn suggest(
         allow_llm: opts.allow_llm && !is_fixture(),
         ..opts
     };
-    let out = suggest_with(s, &mut cache, opts, cancel, |ctx| {
+    let extra = Extra::gather(s);
+    let out = suggest_with_extra(s, &extra, &mut cache, opts, cancel, |ctx| {
         ask_claude(ctx, model, DEADLINE, cancel)
     });
     if out.as_ref().is_ok_and(|o| o.source == NameSource::Llm) {
@@ -557,8 +634,23 @@ pub fn suggest_with<F>(
 where
     F: Fn(&str) -> Result<String>,
 {
+    suggest_with_extra(s, &Extra::default(), cache, opts, cancel, ask)
+}
+
+/// [`suggest_with`] with the transcript and brief context [`Extra::gather`] read.
+pub fn suggest_with_extra<F>(
+    s: &Session,
+    extra: &Extra,
+    cache: &mut NameCache,
+    opts: GenOpts,
+    cancel: &AtomicBool,
+    ask: F,
+) -> std::result::Result<Suggestion, String>
+where
+    F: Fn(&str) -> Result<String>,
+{
     let branch = s.cwd.as_deref().and_then(|c| git_branch(c, cancel));
-    let ctx = build_context(s, branch.as_deref());
+    let ctx = build_context_with(s, branch.as_deref(), extra);
     let hash = input_hash(&ctx);
     let id = s.key();
 
@@ -1107,6 +1199,26 @@ mod tests {
         assert!(ctx.contains("someone/cache-warmup"), "{ctx}");
         assert!(ctx.contains("a very long first prompt"), "{ctx}");
         assert!(ctx.chars().count() <= CONTEXT_CAP, "{}", ctx.len());
+    }
+
+    #[test]
+    fn context_reads_the_brief_first_and_the_next_prompts() {
+        let mut s = session("look at this");
+        s.cwd = Some("/home/user/Code/app".into());
+        let extra = Extra {
+            prompts: vec!["the upload retries forever on a 413".into(), " ".into()],
+            summary: Some("Capping upload retries in the app's sync worker.".into()),
+        };
+        let ctx = build_context_with(&s, None, &extra);
+        let brief = ctx.find("<brief>").expect("brief in context");
+        let first = ctx.find("look at this").expect("first prompt in context");
+        let next = ctx.find("retries forever").expect("next prompt in context");
+        assert!(brief < first && first < next, "{ctx}");
+        assert_eq!(ctx.matches("what was asked next").count(), 1, "{ctx}");
+        assert_eq!(
+            build_context_with(&s, None, &Extra::default()),
+            build_context(&s, None)
+        );
     }
 
     #[test]

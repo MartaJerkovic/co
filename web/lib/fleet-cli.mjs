@@ -49,15 +49,16 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
   }
 
   /**
-   * The naming pass: `fleet name --all --apply` (or `-n name --all` for a dry run).
-   * Generates task-shaped names for every session still carrying Claude's cwd+hash name
+   * The naming pass: `fleet name --all --settled --apply` (or `-n name --all --settled` for a dry run).
+   * Generates task-shaped names for every session still carrying Claude's cwd+hash name that
+   * has said enough to be named from (a second prompt or a brief),
    * and types `/rename` into them (the CLI holds ones waiting on a prompt). The CLI
    * brings each renamed session's tmux name along (a slug of the title) — one rename
    * path for everything, see docs/architecture.md → "Session titles".
    * Resolves { stdout, stderr } (human output, NO_COLOR); throws FleetCliError.
    */
   async function nameAll({ dryRun = false, timeoutMs: t = 300 * 1000 } = {}) {
-    const args = dryRun ? ['-n', 'name', '--all'] : ['name', '--all', '--apply'];
+    const args = dryRun ? ['-n', 'name', '--all', '--settled'] : ['name', '--all', '--settled', '--apply'];
     try {
       const { stdout, stderr } = await run(bin, args, { timeout: t, env: { ...process.env, NO_COLOR: '1' } });
       return { stdout: stdout ?? '', stderr: stderr ?? '' };

@@ -166,6 +166,10 @@ enum Commands {
         /// Ignore the cached name and generate (and store) a fresh one
         #[arg(long, alias = "no-cache")]
         refresh: bool,
+        /// With --all: skip sessions that have said too little to name — wait for a
+        /// second prompt or a brief (what the web server's periodic pass uses)
+        #[arg(long, requires = "all")]
+        settled: bool,
     },
 
     /// Sort sessions into work-stream groups (the web Board view) — reads sessions, asks `claude -p`, sends nothing
@@ -1157,6 +1161,7 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
             apply,
             no_tmux_sync,
             refresh,
+            settled,
         } => commands::name(
             target,
             commands::NameOpts {
@@ -1165,6 +1170,7 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
                 dry_run: cli.dry_run,
                 no_tmux_sync,
                 refresh,
+                settled,
             },
         )?,
         Commands::Group {

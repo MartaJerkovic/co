@@ -754,12 +754,34 @@ pub(crate) fn encode_cwd(cwd: &str) -> String {
 
 /// Title = the session's first genuine user prompt from its transcript.
 fn title_for(cwd: &str, session_id: &str) -> Option<String> {
+    claude_prompts(cwd, session_id, 1).into_iter().next()
+}
+
+/// The first `n` genuine user prompts of a session, in order: what naming reads past the title.
+pub fn opening_prompts(s: &Session, n: usize) -> Vec<String> {
+    match (s.harness, s.session_id.as_deref(), s.cwd.as_deref()) {
+        (Harness::Claude, Some(sid), Some(cwd)) => claude_prompts(cwd, sid, n),
+        (Harness::Claude, ..) => Vec::new(),
+        (h, ..) => s
+            .transcript
+            .as_deref()
+            .map(|p| harness::prompts(h, std::path::Path::new(p), n))
+            .unwrap_or_default(),
+    }
+}
+
+/// The first `n` genuine user prompts of a Claude transcript: no slash commands, no
+/// `<…>`-wrapped injections, no interrupt markers.
+fn claude_prompts(cwd: &str, session_id: &str, n: usize) -> Vec<String> {
+    let mut out = Vec::new();
     let file = claude_home()
         .join("projects")
         .join(encode_cwd(cwd))
         .join(format!("{session_id}.jsonl"));
-    let text = std::fs::read_to_string(&file).ok()?;
-    for line in text.lines().take(400) {
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return out;
+    };
+    for line in text.lines().take(2000) {
         if !line.contains("\"type\":\"user\"") {
             continue;
         }
@@ -782,11 +804,18 @@ fn title_for(cwd: &str, session_id: &str) -> Option<String> {
             String::new()
         };
         let t = t.trim();
-        if !t.is_empty() && !t.starts_with('<') && !t.starts_with('/') {
-            return Some(t.to_string());
+        if !t.is_empty()
+            && !t.starts_with('<')
+            && !t.starts_with('/')
+            && !t.starts_with("[Request interrupted")
+        {
+            out.push(t.to_string());
+            if out.len() >= n {
+                break;
+            }
         }
     }
-    None
+    out
 }
 
 #[cfg(test)]

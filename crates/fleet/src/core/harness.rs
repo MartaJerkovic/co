@@ -928,7 +928,15 @@ pub fn codex_names(home: &Path) -> HashMap<String, String> {
 
 /// The first genuine user prompt (Codex wraps its own context in user messages too).
 pub fn first_prompt(h: Harness, path: &Path) -> Option<String> {
-    let f = std::fs::File::open(path).ok()?;
+    prompts(h, path, 1).into_iter().next()
+}
+
+/// The first `n` genuine user prompts, in order.
+pub fn prompts(h: Harness, path: &Path, n: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(f) = std::fs::File::open(path) else {
+        return out;
+    };
     for line in std::io::BufReader::new(f).take(16 * 1024 * 1024).lines() {
         let Ok(line) = line else { break };
         if !line.contains("\"user\"") {
@@ -939,7 +947,9 @@ pub fn first_prompt(h: Harness, path: &Path) -> Option<String> {
         };
         let msg = match h {
             Harness::Codex => {
-                let p = v.get("payload")?;
+                let Some(p) = v.get("payload") else {
+                    continue;
+                };
                 if v.get("type").and_then(Value::as_str) != Some("response_item")
                     || p.get("type").and_then(Value::as_str) != Some("message")
                     || p.get("role").and_then(Value::as_str) != Some("user")
@@ -949,22 +959,27 @@ pub fn first_prompt(h: Harness, path: &Path) -> Option<String> {
                 p
             }
             Harness::Pi => {
-                let m = v.get("message")?;
+                let Some(m) = v.get("message") else {
+                    continue;
+                };
                 if m.get("role").and_then(Value::as_str) != Some("user") {
                     continue;
                 }
                 m
             }
-            Harness::Claude => return None,
+            Harness::Claude => return out,
         };
         let text = content_text(msg.get("content"));
         let t = text.trim();
         if t.is_empty() || is_codex_context(t) {
             continue;
         }
-        return Some(t.to_string());
+        out.push(t.to_string());
+        if out.len() >= n {
+            break;
+        }
     }
-    None
+    out
 }
 
 fn is_codex_context(t: &str) -> bool {

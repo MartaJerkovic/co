@@ -373,6 +373,8 @@ pub struct NameOpts {
     pub no_tmux_sync: bool,
     /// Ignore the cached name and overwrite it with a fresh one.
     pub refresh: bool,
+    /// With `all`: only sessions [`naming::is_settled`] — a second prompt or a brief.
+    pub settled: bool,
 }
 
 /// Suggest (and optionally apply) LLM-generated names.
@@ -399,6 +401,7 @@ pub fn name(target: Option<String>, o: NameOpts) -> Result<()> {
         (None, true) => discovery::discover()
             .into_iter()
             .filter(Session::is_derived_name)
+            .filter(|s| !o.settled || naming::is_settled(s))
             .collect(),
         (Some(_), true) => {
             return Err(Error::Other("pass a target or --all, not both".into()));
