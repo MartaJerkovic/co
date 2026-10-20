@@ -25,6 +25,7 @@ import { NewSessionDialog, NewSessionDrawer, type SpawnPrefill } from '@/compone
 import { StatusDot } from '@/components/StatusDot'
 import { StackBar } from '@/components/stack/StackBar'
 import { ChatView } from '@/components/session/ChatView'
+import { CompactHint } from '@/components/session/CompactHint'
 import { Composer, type ComposerApi } from '@/components/session/Composer'
 import { FilePreview } from '@/components/session/FilePreview'
 import { OutboxBubbles } from '@/components/session/OutboxBubbles'
@@ -641,6 +642,9 @@ export function SessionScreen({
         ) : (
           <TermView text={peek?.text ?? null} failed={!!peekErr} fontSize={termFont} jumpSignal={jumpSignal} />
         )}
+        {(session?.harness || 'claude') === 'claude' && !lockedReason && !gone && !outbox.some((it) => it.state !== 'sent' && it.text.trim() === '/compact') ? (
+          <CompactHint context={session?.context} onCompact={() => send('/compact')} />
+        ) : null}
         {pane && inspector && detailsOverlay ? (
           // A narrow pane: the details lie over the chat (header and composer stay usable).
           <aside
