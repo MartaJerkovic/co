@@ -325,7 +325,7 @@ export function briefPrompt({ items, language = 'English', now = Date.now() }) {
   return [
     `It is ${new Date(now).toString().slice(0, 21)}. Below is everything that waits on the user right now, from GitHub, Productive, Slack, mail and their Claude Code sessions.`,
     `Write their brief for the rest of the day in ${language}: 3–8 short markdown bullets, most urgent first.`,
-    'Start with what to knock out first (quick wins, grouped when alike, e.g. "3 small PR reviews"), then what blocks other people, then deadlines. Link every thing you name to its item by number: [short name](#12) — the link text is always a few words naming it ("artifacts gating PR", "Luka's Langfuse question"), never the number itself. No intro, no outro, no headings — bullets only.',
+    'Start with what to knock out first (quick wins, grouped when alike, e.g. "3 small PR reviews"), then what blocks other people, then deadlines. Link every thing you name to its item by number: [short name](#12) — the link text is always a few words naming it ("artifacts gating PR", "Luka’s Langfuse question"), never the number itself. No intro, no outro, no headings — bullets only.',
     '',
     ...lines,
   ].join('\n');
