@@ -11,7 +11,6 @@ import { StackChip } from '@/components/stack/StackChip'
 import { StatusDot } from '@/components/StatusDot'
 import { useLongPress } from '@/hooks/useLongPress'
 import { openTitleEditor, useSessionTitle } from '@/hooks/useTitles'
-import { STATUS_TEXT } from '@/lib/styles'
 import { relTime, sessionSubtitle, shortCwd } from '@/lib/format'
 import { harnessLabel, sessionHarness } from '@/lib/harness'
 import { sessionHref, statusLabel, statusMeta } from '@/lib/sessions'
@@ -33,7 +32,7 @@ export interface SessionRowProps {
 }
 
 /**
- * One session in the list: status, title, host, status label / waiting_for, first prompt,
+ * One session in the list: status dot (its label / waiting_for on hover), title, host, first prompt,
  * stack chip (opens the Stack sheet), job chip (started by a scheduled job), cwd, backend, context, age. The title is editable in place: the pencil on hover
  * (desktop), ⌘E / F2 on the cursor row, or a long press (touch). Clicking the row opens it.
  */
@@ -64,10 +63,9 @@ export function SessionRow({ session: s, now, selected, cursor, inStack }: Sessi
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <StatusDot status={s.status} />
+        <StatusDot status={s.status} title={statusLabel(s)} />
         <EditableTitle session={s} scope="row" className="text-[0.9375rem] font-bold" />
         <HostBadge host={s.host} />
-        <span className={cn('max-w-[45%] shrink-0 truncate text-xs', STATUS_TEXT[meta.key])}>{statusLabel(s)}</span>
       </div>
       {subtitle ? <p className="mt-1 line-clamp-2 text-[0.8125rem] break-words text-muted-foreground">{subtitle}</p> : null}
       <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-dimmer">
