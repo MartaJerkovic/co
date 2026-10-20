@@ -17,6 +17,7 @@ import {
 import { createSnapshot } from './snapshot.mjs';
 import { DISABLED_GROUPS } from './grouping.mjs';
 import { DEFAULT_MODELS } from './config.mjs';
+import { parseNameOutput } from './autoname.mjs';
 import { SESSION_ID_RE } from './briefs.mjs';
 import { validThreadId } from './reviews.mjs';
 import { editorUrl, editorViewer, withBriefEditor, withSessionEditors } from './editor.mjs';
@@ -36,8 +37,8 @@ import { validJobName } from './jobs.mjs';
 
 export const API_VERSION = 1;
 
-const SESSION_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/(peek|messages|send|keys|answer|kill|rename)$/;
-const POST_ACTIONS = new Set(['send', 'keys', 'answer', 'kill', 'rename']);
+const SESSION_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/(peek|messages|send|keys|answer|kill|rename|autoname)$/;
+const POST_ACTIONS = new Set(['send', 'keys', 'answer', 'kill', 'rename', 'autoname']);
 
 const GROUP_ID_RE = /^[A-Za-z0-9._:-]{1,120}$/;
 const MEMBER_HOST_RE = /^[^/\s]{1,128}$/;
@@ -139,7 +140,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   transcripts lib/transcript.mjs reader
  *   spawner     lib/spawn.mjs spawner
  *   killer      lib/kill.mjs killer (kill action; absent → 501)
- *   cli         lib/fleet-cli.mjs instance — `rename`, `usage`, `prs`, `prCheckout`, `tasks`, `taskShow`, `taskStatus` (absent → 501)
+ *   cli         lib/fleet-cli.mjs instance — `rename`, `nameOne`, `usage`, `prs`, `prCheckout`, `tasks`, `taskShow`, `taskStatus` (absent → 501)
  *   autoNamer   lib/autoname.mjs instance (autoname route + health; absent → 501)
  *   spawnNamer  lib/autoname.mjs#createSpawnNamer — a targeted naming pass after an unnamed
  *               spawn with a first prompt (only when web.autoName is enabled; absent → none)
@@ -345,6 +346,24 @@ export function createApi({
       }
       refreshFleet();
       return { status: 200, body: { host: config.self, id: session.session_id, ...report, ok: true } };
+    }
+
+    if (action === 'autoname') {
+      if (typeof cli?.nameOne !== 'function') throw new HttpError('naming is not available on this server', 501);
+      const session = await resolveLocalSession(id);
+      const target = session.session_id && !session.session_id.startsWith('pid-') ? session.session_id : String(session.pid);
+      let out;
+      try {
+        out = await cli.nameOne({ target, refresh: true });
+      } catch (err) {
+        throw new HttpError(`naming failed: ${err?.message ?? err}`, err?.timedOut ? 504 : 502);
+      }
+      const { renamed, held, errors } = parseNameOutput(`${out.stdout}\n${out.stderr}`);
+      const base = { host: config.self, id: session.session_id };
+      if (held.length) return { status: 409, body: { ...base, error: `session is waiting on you — nothing sent (${held[0]})` } };
+      if (errors.length && !renamed.length) return { status: 502, body: { ...base, error: `naming failed: ${errors[0]}` } };
+      refreshFleet();
+      return { status: 200, body: { ...base, ok: true, name: renamed[0]?.to ?? null } };
     }
 
     if (action === 'send') {

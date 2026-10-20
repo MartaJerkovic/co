@@ -71,12 +71,13 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
 
   /**
    * Name one session: `fleet name <target> --apply` — the same generator and rename path as
-   * `nameAll`, for a session just spawned (lib/autoname.mjs#createSpawnNamer). Output as
-   * `nameAll`. Throws FleetCliError.
+   * `nameAll`, for a session just spawned (lib/autoname.mjs#createSpawnNamer) or a manual
+   * regenerate (`refresh`: skip the cache). Output as `nameAll`. Throws FleetCliError.
    */
-  async function nameOne({ target, timeoutMs: t = 120 * 1000 } = {}) {
+  async function nameOne({ target, refresh = false, timeoutMs: t = 120 * 1000 } = {}) {
+    const args = ['name', String(target), '--apply', ...(refresh ? ['--refresh'] : [])];
     try {
-      const { stdout, stderr } = await run(bin, ['name', String(target), '--apply'], { timeout: t, env: { ...process.env, NO_COLOR: '1' } });
+      const { stdout, stderr } = await run(bin, args, { timeout: t, env: { ...process.env, NO_COLOR: '1' } });
       return { stdout: stdout ?? '', stderr: stderr ?? '' };
     } catch (err) {
       throw wrap(err, 'fleet name', t);

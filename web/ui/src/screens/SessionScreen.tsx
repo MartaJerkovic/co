@@ -460,7 +460,6 @@ export function SessionScreen({
     host,
     id,
     session,
-    isSelfHost: settings.self != null && settings.self === host,
     brief: { host, brief, fileLinks, onContinue: continueInNew },
     onClose: pane ? onToggleInspector : undefined,
     stack: stackMenu,

@@ -41,6 +41,11 @@ function fakeHost(self, sessions) {
     if (title === 'explode') throw new Error('tmux: boom');
     return { ok: true, result: 'renamed', title, from: 'app-9d', held: null, tmux: { renamed: true, from: 'fw-101010', to: 'fix-login', note: '⧉ fw-101010 → fix-login' }, message: `app-9d → ${title}` };
   };
+  cli.nameOne = async ({ target, refresh }) => {
+    calls.push(['nameOne', target, refresh]);
+    if (self === 'workstation') return { stdout: '⏸ two  waiting on you — nothing sent\n', stderr: '' };
+    return { stdout: 'one  →  fix-login   (model)\n⧉ fw-1 → fix-login\n', stderr: '' };
+  };
   cli.harnesses = async () => {
     calls.push(['harnesses']);
     return [
@@ -379,6 +384,22 @@ test('rename is POST-only, validated, served locally or proxied once, and a held
     assert.equal((await post(`${base}/laptop/sessions/aaaaaaaa/rename`, { title })).status, 400, String(title));
   }
   assert.equal((await post(`${base}/laptop/sessions/zzzzzzzzzz/rename`, { title: 'x' })).status, 404);
+});
+
+test('autoname regenerates one session: POST-only, by session id with --refresh, proxied once, held is a 409', async (t) => {
+  const { lap, remote, urls } = await startPair(t);
+  const base = `${urls.laptop}/api/hosts`;
+  assert.equal((await get(`${base}/laptop/sessions/aaaaaaaa/autoname`)).status, 405);
+  const local = await post(`${base}/laptop/sessions/aaaaaaaa/autoname`, {});
+  assert.equal(local.status, 200);
+  assert.equal(local.body.name, 'fix-login');
+  assert.deepEqual(lap.calls.at(-1), ['nameOne', 'aaaaaaaa-0000-0000-0000-000000000001', true]);
+
+  const held = await post(`${base}/workstation/sessions/bbbbbbbb/autoname`, {});
+  assert.equal(held.status, 409);
+  assert.match(held.body.error, /waiting on you/);
+  assert.deepEqual(remote.calls.at(-1), ['nameOne', 'bbbbbbbb-0000-0000-0000-000000000002', true]);
+  assert.equal(lap.calls.filter((c) => c[0] === 'nameOne').length, 1, 'proxied, not run on the laptop');
 });
 
 test('fleet CLI rename runs `fleet rename <id> <title> --json` and resolves a held report (exit 3)', async () => {

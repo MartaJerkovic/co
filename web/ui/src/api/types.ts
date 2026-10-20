@@ -429,6 +429,15 @@ export interface KillResponse {
   terminal: string
 }
 
+/** POST /api/hosts/:host/sessions/:id/autoname → `fleet name <id> --apply --refresh` (409 when held). */
+export interface RegenerateNameResponse {
+  ok: boolean
+  host: string
+  id: string
+  /** The new name; null when the model came back with the same one. */
+  name: string | null
+}
+
 /** POST /api/hosts/:host/sessions/:id/rename → `fleet rename --json` (409 when held). */
 export interface RenameResponse {
   ok: boolean

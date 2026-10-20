@@ -35,6 +35,7 @@ import type {
   OkResponse,
   PeekResponse,
   QuestionAnswer,
+  RegenerateNameResponse,
   RenameResponse,
   ReposResponse,
   ReposSettings,
@@ -170,6 +171,8 @@ export const api = {
     request<OkResponse>(sessionPath(host, id, 'answer'), { ...o, method: 'POST', body: { toolUseId, answers } }),
   rename: (host: string, id: string, title: string, o: Opts = {}) =>
     request<RenameResponse>(sessionPath(host, id, 'rename'), { ...o, method: 'POST', body: { title } }),
+  regenerateName: (host: string, id: string, o: Opts = {}) =>
+    request<RegenerateNameResponse>(sessionPath(host, id, 'autoname'), { ...o, method: 'POST', body: {} }),
   kill: (host: string, id: string, o: Opts = {}) =>
     request<KillResponse>(sessionPath(host, id, 'kill'), { ...o, method: 'POST', body: {} }),
 

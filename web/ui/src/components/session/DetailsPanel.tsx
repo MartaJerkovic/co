@@ -5,29 +5,24 @@ import {
   LayersIcon,
   Loader2Icon,
   PowerIcon,
-  SparklesIcon,
+  RefreshCwIcon,
   SquareTerminalIcon,
   XIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api, sessionErrorMessage } from '@/api/client'
-import type { AutoNameRun, Session } from '@/api/types'
+import type { Session } from '@/api/types'
 import { BriefSection, type BriefSectionProps } from '@/components/session/BriefSection'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { useSessionTitle } from '@/hooks/useTitles'
-import { autoNameSummary, autoNameToast } from '@/lib/autoname'
 import { canAttachInApp, copyWithToast, sessionAttachCommand, sessionAttachLink } from '@/lib/clipboard'
-import { ctxLevel, ctxSummary, relTime, shortCwd } from '@/lib/format'
+import { ctxLevel, ctxSummary, shortCwd } from '@/lib/format'
 import { harnessLabel } from '@/lib/harness'
 import { withHint } from '@/lib/shortcuts'
 import { CTX_TEXT } from '@/lib/styles'
 import { cn } from '@/lib/utils'
-
-// Last naming pass per host seen by this tab (a peer's /api/health is not reachable
-// through the proxy, so for peers this is only what "Run now" returned).
-const lastRuns = new Map<string, AutoNameRun>()
 
 export interface DetailsPanelProps {
   open: boolean
@@ -35,7 +30,6 @@ export interface DetailsPanelProps {
   host: string
   id: string
   session: Session | null
-  isSelfHost: boolean
   /** Called after a successful close (navigate away). */
   onClosed: () => void
   /** The brief at the top of the panel. */
@@ -91,43 +85,21 @@ export function DetailsDrawer(p: DetailsPanelProps) {
 }
 
 /**
- * Details: header (name, host · cwd, context), the Brief (summary, todos,
- * resources, continue), View (chat / terminal, scrollback), Session (attach,
- * auto-name, ids, close). `drawer` = inside the mobile drawer; `panel` = the desktop
+ * Details: header (name + regenerate, host · cwd, context), the Brief (summary,
+ * todos, resources, continue), Session (attach, ids, close). `drawer` = inside the mobile drawer; `panel` = the desktop
  * details column (click-to-confirm wording, ✕ to close, no drawer chrome).
  */
 export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel'; cancelEditRef?: React.RefObject<(() => void) | null> }) {
   const panel = p.variant === 'panel'
-  const [lastRun, setLastRun] = useState<AutoNameRun | null>(() => lastRuns.get(p.host) ?? null)
-  const [autoName, setAutoName] = useState<{ enabled: boolean; intervalMinutes: number } | null>(null)
   const [naming, setNaming] = useState(false)
 
-  // Last run + schedule for this host's server (only answerable for self).
-  useEffect(() => {
-    if (!p.open || !p.isSelfHost) return
-    const ctl = new AbortController()
-    api
-      .health({ signal: ctl.signal })
-      .then((h) => {
-        setAutoName({ enabled: h.autoName?.enabled === true, intervalMinutes: h.autoName?.intervalMinutes ?? 5 })
-        const run = h.autoName?.lastRun
-        if (run) {
-          lastRuns.set(p.host, run)
-          setLastRun(run)
-        }
-      })
-      .catch(() => {})
-    return () => ctl.abort()
-  }, [p.open, p.isSelfHost, p.host])
-
-  const runNow = async () => {
+  // Regenerate: a fresh model-picked name for this session (`fleet name <id> --apply --refresh`).
+  const regenerate = async () => {
     if (naming) return
     setNaming(true)
     try {
-      const run = await api.autoname(p.host)
-      lastRuns.set(p.host, run)
-      setLastRun(run)
-      toast(autoNameToast(run))
+      const r = await api.regenerateName(p.host, p.id)
+      toast(r.name ? `Renamed to ${r.name}` : 'Name unchanged')
     } catch (err) {
       toast.error((err as Error)?.message || 'Naming failed')
     } finally {
@@ -174,14 +146,6 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
   const { title } = useSessionTitle(s, `${p.host}/${p.id}`)
   const attachCmd = sessionAttachCommand(s)
   const attachLink = canAttachInApp() ? sessionAttachLink(s) : null
-  const lastRunHint = lastRun?.at
-    ? `last run ${relTime(lastRun.at)} ago · ${autoNameSummary(lastRun)}`
-    : autoName
-      ? autoName.enabled
-        ? `every ${autoName.intervalMinutes} min · not run yet`
-        : 'scheduled runs off'
-      : `on ${p.host}`
-
   const Header = panel ? 'div' : DrawerHeader
   const Title = panel ? 'h2' : DrawerTitle
   const Description = panel ? 'p' : DrawerDescription
@@ -196,7 +160,14 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
         >
           <Header className={panel ? 'flex flex-row items-start gap-1 pt-3 pb-1 text-left' : 'flex flex-row items-start gap-1 px-0 pt-3 pb-1 text-left'}>
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <Title className="truncate text-left text-base font-semibold">{s ? title : p.id.slice(0, 8)}</Title>
+              <div className="flex min-w-0 items-center gap-1">
+                <Title className="truncate text-left text-base font-semibold">{s ? title : p.id.slice(0, 8)}</Title>
+                {s ? (
+                  <Button variant="ghost" size="icon" aria-label="Regenerate name" title="Regenerate name" disabled={naming} onClick={regenerate} className="size-7 shrink-0 rounded-md text-muted-foreground">
+                    <RefreshCwIcon className={cn('size-3.5', naming && 'animate-spin')} />
+                  </Button>
+                ) : null}
+              </div>
               <Description className={cn('truncate text-left font-mono text-xs', panel && 'text-muted-foreground')} title={panel ? (s?.cwd ?? undefined) : undefined}>
                 {[p.host, s?.cwd ? shortCwd(s.cwd, 60) : null].filter(Boolean).join(' · ')}
               </Description>
@@ -260,12 +231,6 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
                 ) : null}
               </div>
             ) : null}
-            <Row label={`Auto-name (${p.host})`} hint={lastRunHint}>
-              <Button variant="outline" className="h-9 px-3" disabled={naming} onClick={runNow}>
-                {naming ? <Loader2Icon className="animate-spin" /> : <SparklesIcon />}
-                {naming ? 'Naming…' : 'Run now'}
-              </Button>
-            </Row>
             {s ? (
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 py-3 text-xs">
                 {(
