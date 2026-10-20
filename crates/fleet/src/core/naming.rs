@@ -74,8 +74,11 @@ const BORING_BRANCHES: [&str; 6] = ["main", "master", "develop", "development", 
 /// The instruction the model gets. Kept terse: the whole point of `--model haiku`
 /// plus a neutral cwd is that this call stays cheap.
 const INSTRUCTION: &str = "You are naming a coding session so a developer can tell it apart from a dozen others.\n\
-Reply with ONE lowercase kebab-case slug of 2-4 words, at most 32 characters.\n\
-Name what the WORK is, not where it lives. No quotes, no backticks, no explanation, no trailing period.\n";
+Reply with ONE lowercase kebab-case slug of 2-5 words, at most 32 characters, in English: <area>-<what>.\n\
+<area> is the repo or project (fleet, ai-agent, api, brain), or the domain when the work is not in a repo (mail, slack, bugsnag).\n\
+<what> is 2-3 specific words naming the WORK, e.g. fleet-brief-prompt, ai-agent-tool-retries, bugsnag-400-triage.\n\
+Never use vague words: work, session, dev, temp, new, misc, task, stuff.\n\
+No quotes, no backticks, no explanation, no trailing period.\n";
 
 // --- sanitising --------------------------------------------------------------
 
@@ -84,7 +87,7 @@ Name what the WORK is, not where it lives. No quotes, no backticks, no explanati
 /// Takes the first non-empty, non-fence line, unwraps a backtick/quote-delimited
 /// span if there is one (models like to answer ``Here's a name: `cache-warmup` ``),
 /// then *enforces the instruction*: [`INSTRUCTION`] asks for one lowercase
-/// kebab-case slug of 2-4 words, so a candidate still carrying whitespace or an
+/// kebab-case slug of 2-5 words, so a candidate still carrying whitespace or an
 /// apostrophe is a sentence and is rejected rather than slugged.
 ///
 /// That rejection is the load-bearing part. A refusal or a CLI error — "I cannot
