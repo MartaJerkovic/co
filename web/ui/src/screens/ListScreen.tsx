@@ -276,11 +276,12 @@ export function ListScreen() {
             <div className="flex flex-col gap-2">
               {stackRuns(view.sessions).map((e) =>
                 e.kind === 'stack' ? (
-                  <StackGroup key={e.key} sessions={e.sessions}>
-                    {e.sessions.map((s) => (
-                      <SessionRow key={`${s.host}/${s.session_id}`} session={s} now={now} inStack />
-                    ))}
-                  </StackGroup>
+                  <StackGroup
+                    key={e.key}
+                    stackKey={e.key}
+                    sessions={e.sessions}
+                    renderRow={(s) => <SessionRow key={`${s.host}/${s.session_id}`} session={s} now={now} inStack />}
+                  />
                 ) : (
                   <SessionRow key={`${e.session.host}/${e.session.session_id}`} session={e.session} now={now} />
                 ),

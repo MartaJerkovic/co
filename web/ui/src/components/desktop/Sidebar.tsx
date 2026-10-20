@@ -209,9 +209,13 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
                 return <SessionRow key={key} session={s} now={now} selected={key === selectedKey} cursor={key === cursorKey && key !== selectedKey} inStack={inStack} />
               }
               return e.kind === 'stack' ? (
-                <StackGroup key={e.key} sessions={e.sessions}>
-                  {e.sessions.map((s) => row(s, true))}
-                </StackGroup>
+                <StackGroup
+                  key={e.key}
+                  stackKey={e.key}
+                  sessions={e.sessions}
+                  renderRow={(s) => row(s, true)}
+                  forceOpen={e.sessions.slice(1).some((s) => [selectedKey, cursorKey].includes(sessionKey(s)))}
+                />
               ) : (
                 row(e.session)
               )
