@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { toast } from 'sonner'
 
 import { api, ApiError, isAbortError } from '@/api/client'
 import type { FocusStatus } from '@/api/types'
@@ -49,4 +50,22 @@ export function useFocus(): FocusState {
   )
 
   return { host: focusHost && !unavailable ? focusHost : null, status, busy, toggle }
+}
+
+/** Minutes left, rounded up ("42m"); null when off. */
+export function focusLeft(focus: FocusState, now: number): string | null {
+  const s = focus.status
+  if (!s?.active || s.endsAt == null) return null
+  return `${Math.max(1, Math.ceil((s.endsAt - now) / 60000))}m`
+}
+
+/** Start or stop focus mode, with a toast either way. */
+export async function toggleFocus(focus: FocusState) {
+  const on = !focus.status?.active
+  try {
+    await focus.toggle()
+    toast.success(on ? 'Focus on' : 'Focus off')
+  } catch (err) {
+    toast.error(`Focus: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }

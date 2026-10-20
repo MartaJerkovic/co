@@ -4,7 +4,6 @@ import { AudioLinesIcon, CalendarClockIcon, CircleDotIcon, GaugeIcon, GitPullReq
 import { Button } from '@/components/ui/button'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { useNotesHosts } from '@/hooks/useNotes'
-import { useScratchpadOpen } from '@/hooks/useScratchpad'
 import { useSettings } from '@/hooks/useSettings'
 import { scratchpad } from '@/lib/scratchpad'
 import { withHint, type ShortcutAction } from '@/lib/shortcuts'
@@ -46,7 +45,7 @@ function useModules(): Module[] {
   return all.filter((m): m is Module => m !== null)
 }
 
-/** One icon button per module (the sidebar row, the rail). */
+/** One icon button per module (the sidebar row, the rail). The scratchpad has none there: ⌘K or its shortcut. */
 export function ModuleButtons({
   size = 'icon',
   className,
@@ -59,13 +58,12 @@ export function ModuleButtons({
   /** Only this group (absent: all). */
   group?: Module['group']
 }) {
-  const modules = useModules().filter((m) => !exclude.includes(m.id) && (!group || m.group === group))
-  const scratchOpen = useScratchpadOpen()
+  const modules = useModules().filter((m) => m.id !== 'scratchpad' && !exclude.includes(m.id) && (!group || m.group === group))
   return (
     <>
       {modules.map((m) => {
         const title = m.hint ? withHint(m.label, m.hint) : m.label
-        const cls = cn('text-dimmer hover:text-foreground', m.id === 'scratchpad' && scratchOpen && 'text-foreground', className)
+        const cls = cn('text-dimmer hover:text-foreground', className)
         return m.href ? (
           <Button key={m.id} asChild variant="ghost" size={size} className={cls}>
             <a href={m.href} aria-label={m.label} title={title}>
@@ -73,7 +71,7 @@ export function ModuleButtons({
             </a>
           </Button>
         ) : (
-          <Button key={m.id} variant="ghost" size={size} aria-label={m.label} title={title} aria-pressed={m.id === 'scratchpad' ? scratchOpen : undefined} onClick={m.run} className={cls}>
+          <Button key={m.id} variant="ghost" size={size} aria-label={m.label} title={title} onClick={m.run} className={cls}>
             {m.icon}
           </Button>
         )

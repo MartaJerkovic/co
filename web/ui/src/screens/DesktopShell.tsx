@@ -42,6 +42,7 @@ import { NewSessionDialog } from '@/components/NewSessionDrawer'
 import { StatusDot } from '@/components/StatusDot'
 import { Kbd } from '@/components/ui/kbd'
 import { useFleet } from '@/hooks/useFleet'
+import { focusLeft, toggleFocus, useFocus } from '@/hooks/useFocus'
 import { useBoardColumns, useGroups, useViewMode } from '@/hooks/useGroups'
 import { useNotesHosts, useNotesTree } from '@/hooks/useNotes'
 import { WIDE_QUERY } from '@/hooks/useMediaQuery'
@@ -108,6 +109,7 @@ const parseBool01 = (raw: string) => (raw === '1' ? true : raw === '0' ? false :
  */
 export function DesktopShell() {
   const now = useNow(1000)
+  const focus = useFocus()
   const list = useSessionList(now)
   const { fleet, refresh, applyFleet } = useFleet()
   const { setTheme, setPalette } = useTheme()
@@ -531,6 +533,20 @@ export function DesktopShell() {
           : []),
         ...(editorUrl && editorText
           ? [{ id: 'editor', label: editorText, icon: <CodeXmlIcon />, keywords: ['editor', 'vscode', 'cursor', 'code'], run: () => window.location.assign(editorUrl) }]
+          : []),
+        ...(focus.host
+          ? (() => {
+              const remaining = focusLeft(focus, now)
+              return [
+                {
+                  id: 'focus',
+                  label: remaining ? `Stop focus mode (${remaining} left)` : 'Start focus mode',
+                  icon: <MoonIcon className={cn(remaining && 'fill-current')} />,
+                  keywords: ['focus', 'do not disturb', 'dnd', 'distraction', 'quiet', 'deep work'],
+                  run: () => void toggleFocus(focus),
+                },
+              ]
+            })()
           : []),
         { id: 'scratchpad', label: 'Scratchpad', icon: <NotebookPenIcon />, shortcut: shortcutHint('scratchpad'), keywords: ['editor', 'text', 'paste', 'clipboard', 'draft'], run: () => scratchpad.show() },
         ...(notesHosts.length
