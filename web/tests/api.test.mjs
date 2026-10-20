@@ -154,7 +154,7 @@ test('health and settings', async (t) => {
   assert.deepEqual(s.body.hosts, ['laptop', 'workstation']);
   assert.ok(s.body.quickReplies.length > 0);
   assert.deepEqual(s.body.models[0], { id: '', label: 'Default' });
-  assert.ok(s.body.models.some((m) => m.id === 'claude-haiku-4-5-20251001'));
+  assert.ok(s.body.models.some((m) => m.id === 'claude-sonnet-5'));
 });
 
 test('settings exposes web.models when configured', async () => {
