@@ -466,7 +466,6 @@ export function SessionScreen({
     termLines,
     onTermLines: setTermLines,
     brief: { host, brief, fileLinks, onContinue: continueInNew },
-    editor: { url: brief.brief?.editorUrl ?? session?.editorUrl, kind: brief.brief?.editor },
     onClose: pane ? onToggleInspector : undefined,
     stack: stackMenu,
     onClosed: () => {

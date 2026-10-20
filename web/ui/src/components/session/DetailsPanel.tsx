@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  CodeXmlIcon,
   CopyIcon,
   GitForkIcon,
   LayersIcon,
@@ -21,7 +20,6 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } f
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useSessionTitle } from '@/hooks/useTitles'
 import { autoNameSummary, autoNameToast } from '@/lib/autoname'
-import { editorLabel } from '@/lib/brief'
 import { canAttachInApp, copyWithToast, sessionAttachCommand, sessionAttachLink } from '@/lib/clipboard'
 import type { DetailMode } from '@/lib/chat'
 import { ctxLevel, ctxSummary, relTime, shortCwd } from '@/lib/format'
@@ -49,8 +47,6 @@ export interface DetailsPanelProps {
   onClosed: () => void
   /** The brief at the top of the panel. */
   brief: Omit<BriefSectionProps, 'desktop' | 'cancelEditRef'>
-  /** "Open in VS Code / Cursor" for the session's checkout (Brief.editorUrl, else the fleet row's). */
-  editor?: { url: string | null | undefined; kind?: string | null }
   /** Desktop panel: the ✕ in the top-right corner. */
   onClose?: () => void
   /**
@@ -105,7 +101,7 @@ export function DetailsDrawer(p: DetailsPanelProps) {
 }
 
 /**
- * Details: header (name, host · cwd, context, open in editor), the Brief (summary, todos,
+ * Details: header (name, host · cwd, context), the Brief (summary, todos,
  * resources, continue), View (chat / terminal, scrollback), Session (attach,
  * auto-name, ids, close). `drawer` = inside the mobile drawer; `panel` = the desktop
  * details column (click-to-confirm wording, ✕ to close, no drawer chrome).
@@ -196,8 +192,6 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
         : 'scheduled runs off'
       : `on ${p.host}`
 
-  const editorText = editorLabel(p.editor?.kind, p.editor?.url)
-
   const Header = panel ? 'div' : DrawerHeader
   const Title = panel ? 'h2' : DrawerTitle
   const Description = panel ? 'p' : DrawerDescription
@@ -229,16 +223,6 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
               </Button>
             ) : null}
           </Header>
-
-          {/* A desktop editor link makes no sense on a phone: hidden on touch-first screens. */}
-          {editorText && p.editor?.url ? (
-            <Button asChild variant="outline" className="mt-2 mb-1 h-9 w-full justify-start rounded-lg px-3 text-sm pointer-coarse:hidden">
-              <a href={p.editor.url} title={p.editor.url}>
-                <CodeXmlIcon />
-                {editorText}
-              </a>
-            </Button>
-          ) : null}
 
           <BriefSection {...p.brief} desktop={panel} cancelEditRef={p.cancelEditRef} />
 
