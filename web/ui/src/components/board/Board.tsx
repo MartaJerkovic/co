@@ -184,7 +184,7 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
 
         <div className="ml-auto flex min-w-0 items-center gap-2">
           <GroupsStatus state={groups} now={now} />
-          <span className={cn('hidden truncate text-[0.6875rem] tabular-nums xl:inline', note.error ? 'text-destructive' : 'text-dimmer')}>{note.text}</span>
+          {note.error ? <span className="hidden truncate text-[0.6875rem] text-destructive tabular-nums xl:inline">{note.text}</span> : null}
           <ModuleButtons className="shrink-0 text-muted-foreground" />
           <Button size="icon" aria-label="New session" title={withHint('New session', 'new')} onClick={onNew} className="shrink-0 rounded-full">
             <PlusIcon />

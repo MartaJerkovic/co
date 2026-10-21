@@ -101,7 +101,7 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
             className={cn('ml-auto truncate text-right text-[0.6875rem] tabular-nums', note.error ? 'text-destructive' : 'text-dimmer')}
             aria-live="polite"
           >
-            {note.text}
+            {note.error ? note.text : null}
           </span>
           <Button size="icon" aria-label="New session" title={withHint('New session', 'new')} onClick={onNew} className="shrink-0 rounded-full">
             <PlusIcon />
