@@ -484,7 +484,16 @@ on request (POST `/api/operator`) in tmux session `operator`, in its own workspa
 
 The screen records with `POST /api/transcribe`, sends the text with the ordinary `send` route,
 polls `messages`, and reads each new final reply aloud with `POST /api/speak` — or, without a
-speech key (or after it fails), the device's own voice (Web Speech API). Sessions that start
+speech key (or after it fails), the device's own voice (Web Speech API). A reply is read as soon
+as its final message is in the transcript (Claude writes a message only once it is complete), not
+when the status turns idle, and it is voiced in pieces (`speechChunks`): a short first piece of one
+or two sentences, then pieces of up to ~500 characters, all requested at once and played in
+order — the voice starts in about a second instead of after the whole reply is synthesized
+(roughly 1 s per 90 characters). The brief points the operator at `./api GET /fleet` (the server's
+snapshot of every host, instant; an unreachable host is `ok: false`) rather than
+`fleet list --all-hosts` (ssh to each host, which waits out the connect timeout on a machine that
+is asleep, and sees only hosts with an ssh destination), gives one-command recipes for the common
+questions, and keeps replies under ~400 characters. Sessions that start
 waiting on you are announced while the screen is open (from the fleet poll, no model call).
 The operator is found by its cwd. Its row in `/api/fleet` carries `operator: true` and the UI
 keeps it out of session lists (the CLI still shows it). `web.operator.hosts` picks one operator
