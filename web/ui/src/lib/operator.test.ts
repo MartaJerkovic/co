@@ -52,6 +52,9 @@ describe('speechChunks', () => {
     expect(parts.slice(1).every((p) => p.length <= 500)).toBe(true)
     expect(parts.length).toBeGreaterThan(2)
     expect(speechChunks(`Gotovo. ${s(60)} ${s(5)}`)[0]).toBe(`Gotovo. ${s(60)}`)
+    const long = `${'riječ '.repeat(15).trim()}, ${s(40)} ${s(5)}`
+    expect(speechChunks(long)[0]).toBe(`${'riječ '.repeat(15).trim()},`)
+    expect(speechChunks(long).join(' ')).toBe(long)
   })
 })
 

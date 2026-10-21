@@ -87,6 +87,10 @@ export function speechChunks(text: string, { first = 200, rest = 500, min = 60 }
   if (!plain) return []
   if (plain.length <= first) return [plain]
   const sentences = plain.split(/(?<=[.!?…])\s+/)
+  // A long first sentence is cut at its last comma before `first`, so the voice still starts soon.
+  const head = sentences[0]
+  const comma = head.length > first ? head.lastIndexOf(', ', first) : -1
+  if (comma >= min) sentences.splice(0, 1, head.slice(0, comma + 1), head.slice(comma + 2))
   const out: string[] = []
   let cur = ''
   for (const s of sentences) {
