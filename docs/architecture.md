@@ -493,7 +493,8 @@ order — the voice starts in about a second instead of after the whole reply is
 snapshot of every host, instant; an unreachable host is `ok: false`) rather than
 `fleet list --all-hosts` (ssh to each host, which waits out the connect timeout on a machine that
 is asleep, and sees only hosts with an ssh destination), gives one-command recipes for the common
-questions, and keeps replies under ~400 characters. Sessions that start
+questions, and keeps replies under ~400 characters. Measurements, and what running it on Codex or pi would take:
+[operator.md](operator.md). Sessions that start
 waiting on you are announced while the screen is open (from the fleet poll, no model call).
 The operator is found by its cwd. Its row in `/api/fleet` carries `operator: true` and the UI
 keeps it out of session lists (the CLI still shows it). `web.operator.hosts` picks one operator
