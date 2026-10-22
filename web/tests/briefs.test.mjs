@@ -191,7 +191,7 @@ function transcriptFixture(t) {
   for (const f of ['src/a.ts', 'src/b.ts', 'out.txt', 'specs/SPEC.md']) fs.writeFileSync(path.join(cwd, f), 'x');
   const file = path.join(root, 'session.jsonl');
   const body = [
-    user('Please fix the bug from https://github.com/o/r/issues/7 and see http://localhost:3000/x'),
+    user('Please fix the bug from https://github.com/o/r/issues/7 and see http://localhost:3000/x\n\nContinue the work of session abc on laptop. Its brief:\n\nResources:\n- PR: https://github.com/o/r/pull/5\n- Artifact: https://claude.ai/artifact/HandedOver1234'),
     toolUse('t1', 'Read', { file_path: path.join(cwd, 'README.md') }),
     toolResult('t1', 'history: https://github.com/o/r/pull/1 https://github.com/o/r/pull/2'),
     toolUse('t2', 'Edit', { file_path: path.join(cwd, 'src', 'a.ts'), old_string: 'a', new_string: 'b' }),
@@ -202,6 +202,8 @@ function transcriptFixture(t) {
     toolResult('t6', 'https://github.com/o/r/pull/12\n'),
     toolUse('t7', 'Bash', { command: 'gh pr list' }),
     toolResult('t7', 'https://github.com/o/r/pull/99'),
+    toolUse('t8q', 'Artifact', { action: 'quickstart', intent: 'other' }),
+    toolResult('t8q', 'Start from the Dashboard type: publish with type_url "https://claude.ai/artifact/TypeDashboard1"; slides https://claude.ai/artifact/TypeSlides12'),
     toolUse('t8', 'Artifact', { file_path: '/x/report.html', title: 'Login report' }),
     toolResult('t8', 'Published: https://claude.ai/code/artifact/0123456789abcdef0123 (private)'),
     toolUse('t9', 'TodoWrite', { todos: [{ content: 'reproduce', status: 'completed' }, { content: 'fix', status: 'in_progress' }, { content: 'test', status: 'pending' }] }),
@@ -859,6 +861,9 @@ test('config: web.editor and the ssh aliases', () => {
   const c = normalizeConfig({ self: 'laptop', hosts: { laptop: { ssh: null }, workstation: { ssh: ' workstation ', web: 'http://100.x.y.z:7777' } }, web: { editor: 'cursor' } }, { env: {}, home });
   assert.equal(c.editor, 'cursor');
   assert.deepEqual(c.sshHosts, { workstation: 'workstation' });
+  // A web-only peer gets its editor alias from `editorSsh`, which also wins over `ssh`.
+  const e = normalizeConfig({ self: 'laptop', hosts: { laptop: { ssh: null }, office: { ssh: null, web: 'http://100.x.y.z:7777', editorSsh: 'office' }, ws: { ssh: 'ws', editorSsh: 'ws-alt' } } }, { env: {}, home });
+  assert.deepEqual(e.sshHosts, { office: 'office', ws: 'ws-alt' });
   assert.equal(normalizeConfig({ web: { editor: null } }, { env: {}, home }).editor, null);
   assert.throws(() => normalizeConfig({ web: { editor: 'vim' } }, { env: {}, home }), /web\.editor/);
 });

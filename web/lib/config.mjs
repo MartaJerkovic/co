@@ -2,7 +2,7 @@
 //
 // Path: $FLEET_CONFIG, else ${XDG_CONFIG_HOME:-~/.config}/fleet/config.json.
 // Shape (v1) — see config.example.json and ARCHITECTURE.md:
-//   { version, self, defaultHost, hosts: { name: { ssh, web } },
+//   { version, self, defaultHost, hosts: { name: { ssh, web, editorSsh } },
 //     web: { port, bind, dir, ui, editor, editorSsh, quickReplies, models: [ { id, label } ],
 //            autoName: { enabled, intervalMinutes },
 //            grouping: { enabled, intervalMinutes }, uploads: { dir, maxMB, retentionDays },
@@ -242,7 +242,10 @@ export function normalizeConfig(
   const sshHosts = {}; // name → ssh destination (the "Open in editor" Remote-SSH links)
   const hostAddrs = {}; // name → the hostname of its web url (which machine a browser is on)
   for (const [name, host] of Object.entries(hosts)) {
-    if (isObject(host) && typeof host.ssh === 'string' && host.ssh.trim()) sshHosts[name] = host.ssh.trim();
+    // `editorSsh`: the destination the browser's machine uses, for a host this server reaches over
+    // the web only (no `ssh`) or under another alias.
+    const dest = isObject(host) ? [host.editorSsh, host.ssh].find((v) => typeof v === 'string' && v.trim()) : null;
+    if (dest) sshHosts[name] = dest.trim();
     if (isObject(host) && typeof host.web === 'string') {
       try {
         hostAddrs[name] = new URL(host.web).hostname.replace(/^\[|\]$/g, '');

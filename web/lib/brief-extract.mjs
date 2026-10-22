@@ -6,9 +6,10 @@
 // the output of making something):
 //   Edit / Write / MultiEdit / NotebookEdit targets, files a shell command wrote → File / Spec
 //   the output of `gh pr create` / `gh issue create`                               → PR / Issue
-//   the result of an Artifact publish                                              → Artifact
+//   the artifact an Artifact publish made or updated (not the types a quickstart lists) → Artifact
 //   assistant text: GitHub PR/issue, claude.ai artifact and other http(s) links    → PR/Issue/Artifact/Link
 //   user prompts: GitHub PR/issue and artifact links (what the work is about)      → PR/Issue/Artifact
+//     — but not those of a brief handed over by a continue prompt (another session's work)
 // Todos: the latest TodoWrite list, or the task list built from TaskCreate / TaskUpdate calls.
 // Dirs: the working directories the session's entries record (`cwd`; a `cd` in Bash moves it).
 import { promises as fsp } from 'node:fs';
@@ -36,6 +37,29 @@ const JUNK_HOST_RE = /^(?:[^.]+|\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\]|.*\.(?:local|l
 /** Scratch files are not resources: /tmp, macOS per-user temp dirs. */
 export const TEMP_PATH_RE = /^\/(?:tmp|private\/tmp|private\/var\/folders|var\/folders)\//;
 const SPEC_RE = /(?:^|\/)(?:SPEC|FINAL)\.md$|\/specs?\//i;
+/** Where a continue prompt (brief-format's continuePrompt, the CLI's handoff) starts quoting another session's brief. */
+const HANDED_BRIEF_RE = /\bContinue the work of [^\n]*\. Its brief:/;
+
+/** User prompt text without the brief a continue prompt hands over. */
+function ownText(text) {
+  const m = HANDED_BRIEF_RE.exec(text);
+  return m ? text.slice(0, m.index) : text;
+}
+
+/**
+ * The artifact an Artifact tool call published: its `url` (an update), else the first artifact
+ * link in the result ("Published … at <url>"). Other actions (quickstart, list, read) and asset
+ * uploads list or touch other artifacts. → [item] or [].
+ */
+function publishedArtifact(input, text) {
+  if ((input?.action ?? 'publish') !== 'publish' || input?.asset) return [];
+  const fromInput = typeof input?.url === 'string' ? extractUrls(input.url, ['Artifact']) : [];
+  if (fromInput.length) return fromInput.slice(0, 1);
+  const skip = new Set([input?.type_url, input?.from_url].filter((u) => typeof u === 'string').map((u) => classifyUrl(cleanUrl(u)).url));
+  return extractUrls(text, ['Artifact'])
+    .filter((u) => !skip.has(u.url))
+    .slice(0, 1);
+}
 
 function textOf(content) {
   if (typeof content === 'string') return content;
@@ -147,7 +171,7 @@ export function ingestLine(state, line, home = os.homedir()) {
   if (entry.type !== 'user' || entry.isMeta) return;
   if (typeof content === 'string') {
     const c = classifyUserText(content);
-    if (c?.kind === 'user') for (const u of extractUrls(c.text, ['PR', 'Issue', 'Artifact'])) addItem(state, u);
+    if (c?.kind === 'user') for (const u of extractUrls(ownText(c.text), ['PR', 'Issue', 'Artifact'])) addItem(state, u);
     return;
   }
   if (!Array.isArray(content)) return;
@@ -155,7 +179,7 @@ export function ingestLine(state, line, home = os.homedir()) {
     if (!block || typeof block !== 'object') continue;
     if (block.type === 'text') {
       const c = classifyUserText(block.text ?? '');
-      if (c?.kind === 'user') for (const u of extractUrls(c.text, ['PR', 'Issue', 'Artifact'])) addItem(state, u);
+      if (c?.kind === 'user') for (const u of extractUrls(ownText(c.text), ['PR', 'Issue', 'Artifact'])) addItem(state, u);
       continue;
     }
     if (block.type !== 'tool_result') continue;
@@ -167,7 +191,7 @@ export function ingestLine(state, line, home = os.homedir()) {
       for (const u of extractUrls(text, ['PR', 'Issue'])) addItem(state, u);
     } else if (tool.name === 'Artifact' && !block.is_error) {
       const title = tool.input?.title || (tool.input?.file_path ? path.basename(String(tool.input.file_path)) : null);
-      for (const u of extractUrls(text, ['Artifact'])) addItem(state, title ? { ...u, label: String(title).slice(0, 80) } : u);
+      for (const u of publishedArtifact(tool.input, text)) addItem(state, title ? { ...u, label: String(title).slice(0, 80) } : u);
     } else if (tool.task && !block.is_error) {
       const m = /#(\d+)\b/.exec(text) ?? /\btask\s+(\d+)\b/i.exec(text);
       const t = state.tasks.get(tool.task);

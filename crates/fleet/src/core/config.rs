@@ -56,6 +56,10 @@ pub struct Host {
     pub web: Option<String>,
     /// Path to `fleet` on that host; `None` → `~/.local/bin/fleet`, then PATH.
     pub fleet_bin: Option<String>,
+    /// ssh destination the web UI's "Open in editor" links use for this host (read by the web
+    /// server only); `None` → `ssh`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor_ssh: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
