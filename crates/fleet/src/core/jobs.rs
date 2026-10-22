@@ -23,9 +23,10 @@
 //! `mon`/`jan`, and `@hourly` / `@daily` / `@weekly`). `prompt` (inline) or `promptFile` (read
 //! at run time) is the first prompt. `command` replaces the launcher (config `claude`) for the
 //! job's sessions *and* everything they spawn — it travels as `FLEET_CMD`. `harness` and
-//! `model` as for `fleet spawn`. `enabled: false` pauses the job. `keep` (default `24h`,
-//! `"never"` to keep forever): a run's sessions are closed once they are idle and the run is
-//! older than this; a session waiting for input is never closed.
+//! `model` as for `fleet spawn`. `ghIdentity` names a GitHub identity (`ghIdentities`) the
+//! job's sessions act as on GitHub — see [`crate::core::gh_identity`]. `enabled: false` pauses
+//! the job. `keep` (default `24h`, `"never"` to keep forever): a run's sessions are closed once
+//! they are idle and the run is older than this; a session waiting for input is never closed.
 //!
 //! The launchd agent runs `fleet jobs tick` every minute. A tick fires a job when its latest
 //! scheduled slot is newer than the last slot it saw; a slot more than [`CATCH_UP_SECS`] old
@@ -395,6 +396,8 @@ pub struct Job {
     pub model: Option<String>,
     /// Launcher for the job's sessions and their descendants (`FLEET_CMD`).
     pub command: Option<String>,
+    /// The GitHub identity its sessions act as (`ghIdentity`, see [`crate::core::gh_identity`]).
+    pub gh_identity: Option<String>,
     pub enabled: bool,
     /// Seconds after a run starts that its idle sessions are closed; `None` = never.
     pub keep: Option<i64>,
@@ -504,6 +507,12 @@ fn job_from_value(name: &str, v: &Value) -> std::result::Result<Job, String> {
         Some(Value::Bool(b)) => *b,
         Some(other) => return Err(format!("enabled must be true or false, not {other}")),
     };
+    let gh_identity = text("ghIdentity")?;
+    if let Some(g) = &gh_identity
+        && !crate::core::gh_identity::valid_name(g)
+    {
+        return Err(format!("ghIdentity `{g}` is not a valid name"));
+    }
     let keep = match text("keep")?.as_deref().unwrap_or(DEFAULT_KEEP) {
         "never" => None,
         k => Some(crate::core::tmux::parse_span(k).map_err(|e| format!("keep: {e}"))?),
@@ -517,6 +526,7 @@ fn job_from_value(name: &str, v: &Value) -> std::result::Result<Job, String> {
         harness,
         model: text("model")?,
         command: text("command")?,
+        gh_identity,
         enabled,
         keep,
         section: "bots",

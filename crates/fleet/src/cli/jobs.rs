@@ -209,6 +209,9 @@ pub fn show(name: &str, json_out: bool) -> Result<()> {
             .map(|m| format!(" --model {m}"))
             .unwrap_or_default()
     );
+    if let Some(g) = &j.gh_identity {
+        println!("  github    as {g} (ghIdentity)");
+    }
     println!(
         "  keep      {}",
         j.keep
@@ -355,6 +358,11 @@ fn start(j: &Job, trigger: &str, slot: Option<i64>) -> Result<Run> {
             .as_str(),
         model.as_deref(),
     );
+    let launcher =
+        match crate::core::gh_identity::wrap(&launcher, j.harness, j.gh_identity.as_deref()) {
+            Ok(l) => l,
+            Err(e) => return fail(run, e.to_string()),
+        };
     let name = jobs::session_name(&j.name, &id);
     let path_s = prompt_file.display().to_string();
     let prompt = if run.prompt_file.is_some() {

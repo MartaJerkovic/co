@@ -739,6 +739,9 @@ pub fn spawn_tagged(
                 )));
             }
             let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if let Some(id) = crate::core::gh_identity::in_launcher(launcher) {
+                crate::core::gh_identity::tag_pane(&win, id);
+            }
             if let Some(t) = tag {
                 tag_pane(&win, t, &session, exists, name);
             }

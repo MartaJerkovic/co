@@ -6,6 +6,7 @@ pub mod brief;
 pub mod config;
 pub mod context;
 pub mod discovery;
+pub mod gh_identity;
 pub mod grouping;
 pub mod harness;
 pub mod hosts;

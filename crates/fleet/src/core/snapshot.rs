@@ -93,6 +93,9 @@ pub struct ClaudeSnap {
     /// Which harness runs it; absent (older files, every Claude session) = Claude.
     #[serde(skip_serializing_if = "is_claude")]
     pub harness: Harness,
+    /// The GitHub identity it acted as ([`crate::core::gh_identity`]); a resume keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gh_identity: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -547,8 +550,10 @@ fn flags_beyond(launcher: &str, flags: &[String]) -> Vec<String> {
 }
 
 /// The shell line typed into a restored pane:
-/// `cd <cwd> && <launcher> <flags the launcher lacks> --resume <sessionId>`.
-pub fn resume_line(launcher: &str, cwd: &str, c: &ClaudeSnap) -> String {
+/// `cd <cwd> && <launcher> <flags the launcher lacks> --resume <sessionId>`, under the GitHub
+/// identity the session had (an identity no longer configured here is an error, not a resume
+/// as the user).
+pub fn resume_line(launcher: &str, cwd: &str, c: &ClaudeSnap) -> Result<String> {
     use crate::core::backend::{Prompt, launch_command};
     if c.harness != Harness::Claude {
         // Codex / pi keep only `--model <id>` (see `place`), under their own launcher.
@@ -558,16 +563,24 @@ pub fn resume_line(launcher: &str, cwd: &str, c: &ClaudeSnap) -> String {
             model.map(String::as_str),
             &c.session_id,
         );
-        return launch_command(cwd, Prompt::None, None, &cmd, c.harness);
+        let cmd = crate::core::gh_identity::wrap(&cmd, c.harness, c.gh_identity.as_deref())?;
+        return Ok(launch_command(cwd, Prompt::None, None, &cmd, c.harness));
     }
-    let mut cmd = launcher.to_string();
+    let mut cmd =
+        crate::core::gh_identity::wrap(launcher, Harness::Claude, c.gh_identity.as_deref())?;
     for f in flags_beyond(launcher, &c.flags) {
         cmd.push(' ');
         cmd.push_str(&tools::shq_min(&f));
     }
     cmd.push_str(" --resume ");
     cmd.push_str(&tools::shq_min(&c.session_id));
-    launch_command(cwd, Prompt::None, None, &cmd, Harness::Claude)
+    Ok(launch_command(
+        cwd,
+        Prompt::None,
+        None,
+        &cmd,
+        Harness::Claude,
+    ))
 }
 
 /// argv of each pid: `/proc/<pid>/cmdline` where there is one (exact), else one `ps` call
@@ -762,6 +775,7 @@ fn claude_of(s: &Session) -> Option<ClaudeSnap> {
         cwd: s.cwd.clone(),
         title: Some(s.display_title.clone().unwrap_or_else(|| s.headline())),
         harness: s.harness,
+        gh_identity: s.gh_identity.clone(),
         ..Default::default()
     })
 }
@@ -1559,6 +1573,23 @@ pub struct Restored {
     pub dry_run: bool,
 }
 
+/// Mark a resumed pane with the GitHub identity its session had (the `fleet list` label).
+fn tag_identity(ex: &mut Exec, pane: &str, c: &ClaudeSnap, warnings: &mut Vec<String>) {
+    if let Some(g) = &c.gh_identity {
+        ex.soft(
+            vec![
+                "set-option".into(),
+                "-p".into(),
+                "-t".into(),
+                pane.into(),
+                crate::core::gh_identity::PANE_OPTION.into(),
+                g.clone(),
+            ],
+            warnings,
+        );
+    }
+}
+
 /// Runs (or, dry, only renders) the tmux commands of one restore.
 struct Exec {
     dry: bool,
@@ -1773,8 +1804,9 @@ fn rebuild(
     }
     let mut launched = Vec::new();
     for (pane, dir, c) in pending {
-        let line = resume_line(launcher, &dir, c);
+        let line = resume_line(launcher, &dir, c)?;
         ex.type_line(&pane, &line)?;
+        tag_identity(ex, &pane, c, warnings);
         launched.push(Launched {
             session_id: c.session_id.clone(),
             title: c.title.clone(),
@@ -2101,8 +2133,9 @@ fn reopen_in(
         ],
         "%new",
     )?;
-    let line = resume_line(launcher, &dir, c);
+    let line = resume_line(launcher, &dir, c)?;
     ex.type_line(&pane, &line)?;
+    tag_identity(ex, &pane, c, warnings);
     Ok(vec![Launched {
         session_id: c.session_id.clone(),
         title: c.title.clone(),
@@ -2304,11 +2337,11 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            resume_line("claude", "/w/app", &c),
+            resume_line("claude", "/w/app", &c).unwrap(),
             "cd '/w/app' && claude --dangerously-skip-permissions --model opus --add-dir /a --resume abcd-1234"
         );
         assert_eq!(
-            resume_line("cl --dangerously-skip-permissions --model=x", "/w", &c),
+            resume_line("cl --dangerously-skip-permissions --model=x", "/w", &c).unwrap(),
             "cd '/w' && cl --dangerously-skip-permissions --model=x --add-dir /a --resume abcd-1234"
         );
     }

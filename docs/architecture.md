@@ -69,7 +69,7 @@ local machine.
 - otherwise → `ssh <hosts.<name>.ssh> fleet <same args>`.
 
 The remote runs `fleet --local <args>` (so it never hops again), found as `hosts.<name>.fleetBin`,
-then `~/.local/bin/fleet`, then `PATH` (with `FLEET_CMD`/`FLEET_DEBUG`/`FLEET_DRY_RUN` exported, never
+then `~/.local/bin/fleet`, then `PATH` (with `FLEET_CMD`/`FLEET_JOB_RUN`/`FLEET_GH_IDENTITY`/`FLEET_DEBUG`/`FLEET_DRY_RUN` exported, never
 `FLEET_CONFIG`) — install it with `fleet install --host <name>`. ssh is
 invoked with a connect timeout (`FLEET_CONNECT_TIMEOUT`, default 5 s), keepalives and ControlMaster
 multiplexing (off with `FLEET_MUX=0`); a tty (`-t`) is requested when both stdin and stdout are
@@ -155,7 +155,8 @@ server. Path: `$FLEET_CONFIG`, else `${XDG_CONFIG_HOME:-~/.config}/fleet/config.
 | `naming` | generated names: `enabled`, `model` (default `haiku`), `syncTmux` (tmux name follows the title, default on), `autoTitle` |
 | `stacks` | [session stacks](#session-stacks): `enabled` (default `true` — `false` = never call the model; a new stack gets the skeleton StackBrief), `model` (default `sonnet`) |
 | `restore` | [session recovery](#session-recovery): `onBoot` (default `false`) — when `true`, this host's web server runs `fleet --local restore --all` once at start if there are dormant sessions, at most once per boot (it remembers the boot id in `${XDG_STATE_HOME:-~/.local/state}/fleet/web-restored-boot`); the result is logged. For an always-on machine. Recently closed sessions are never part of it. `keepClosedDays` (default `7`, a number ≥ 0; `0` turns the [recently closed](#recently-closed) list off) — how long a session closed within a boot stays restorable; at most the newest 50 are kept |
-| `bots` | [`fleet bots`](cli.md#bots), per machine: `{ "<name>": { schedule, dir, prompt \| promptFile, command, harness, model, enabled, keep } }` — agent sessions this host starts from a recipe. Read leniently: a bad bot is a warning and is skipped |
+| `bots` | [`fleet bots`](cli.md#bots), per machine: `{ "<name>": { schedule, dir, prompt \| promptFile, command, harness, model, ghIdentity, enabled, keep } }` — agent sessions this host starts from a recipe. Read leniently: a bad bot is a warning and is skipped |
+| `ghIdentities` | [GitHub identities](cli.md#github-identities), per machine: `{ "<name>": { command, login, prompt } }` — GitHub Apps a spawned session can act as. Read leniently: an entry without `command` (or with a bad name) is skipped |
 | `jobs` | the old name of `bots`, still read; a name in both is the `bots` one |
 | `repos` | [`fleet repos`](cli.md#repos), per machine: `roots` (default `["~/Code"]`; every directory directly under a root with a `.git` is a repo), `every` (default `"24h"`; `30m` / `12h` / `7d`), `overrides` (`{ "<dir name or ~/path>": "30m" }`), `exclude` (dir names or `~/` paths). Read leniently: a bad value is a warning and falls back to its default |
 | `prs` | [`fleet prs`](cli.md#pull-requests), per machine: `orgs` (search only these orgs), `repos` (`owner/name`s; with `orgs`, any of them), `refresh` (default `"5m"`, at least `1m`: how old the cache may get), `worktrees` (default `"~/Code/worktrees"`: where `fleet pr checkout` puts new worktrees). None of `orgs`/`repos` = all of GitHub. Read leniently |

@@ -22,7 +22,7 @@ use fleet::tui::watch;
     after_help = "Bare `fleet` opens the dashboard on a terminal (a one-shot `list` when piped).\n\
 Host: -H <name> runs the command on that host over ssh (it needs fleet installed there).\n\
 tmux-session and machine commands (tmux, enter, last, new, exec, ssh) default to `defaultHost`; everything else to this machine.\n\
-Env: FLEET_CONFIG FLEET_HOST FLEET_DRY_RUN FLEET_DEBUG FLEET_CONNECT_TIMEOUT FLEET_MUX FLEET_REMOTE_TIMEOUT FLEET_CMD FLEET_TMUX FLEET_SNAPSHOT NO_COLOR"
+Env: FLEET_CONFIG FLEET_HOST FLEET_DRY_RUN FLEET_DEBUG FLEET_CONNECT_TIMEOUT FLEET_MUX FLEET_REMOTE_TIMEOUT FLEET_CMD FLEET_GH_IDENTITY FLEET_TMUX FLEET_SNAPSHOT NO_COLOR"
 )]
 struct Cli {
     /// Target host (a configured name, or any ssh destination); env FLEET_HOST
@@ -40,6 +40,11 @@ struct Cli {
     /// The name the caller knows this machine by (set by remote dispatch)
     #[arg(long, global = true, hide = true, value_name = "NAME")]
     as_host: Option<String>,
+
+    /// Spawned sessions act on GitHub as this identity (`ghIdentities` in the config), not
+    /// as you; env FLEET_GH_IDENTITY, which a session passes on to everything it spawns
+    #[arg(long, global = true, value_name = "NAME")]
+    gh_identity: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -1064,6 +1069,9 @@ fn run(cli: Cli) -> Result<i32> {
     }
     if let Some(h) = &cli.as_host {
         hosts::set_as_host(h);
+    }
+    if let Some(id) = &cli.gh_identity {
+        fleet::core::gh_identity::adopt(id)?;
     }
     let command = cli.command.unwrap_or_else(default_command);
 

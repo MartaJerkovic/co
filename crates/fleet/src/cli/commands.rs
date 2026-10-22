@@ -605,7 +605,10 @@ pub fn spawn(prompt: Option<String>, from: Option<String>, opts: SpawnOpts) -> R
         .transpose()?
         .flatten();
     let prompt = prompt.unwrap_or_default();
-    let launcher = with_model(&opts.harness.command(), model.as_deref());
+    let launcher = crate::core::gh_identity::wrap_current(
+        &with_model(&opts.harness.command(), model.as_deref()),
+        opts.harness,
+    )?;
     if crate::core::hosts::dry_run() {
         let line = backend::launch_command(
             &dir,
@@ -671,7 +674,10 @@ fn spawn_from(source: &str, extra: Option<String>, mut opts: SpawnOpts) -> Resul
         now.format("%Y%m%d-%H%M%S")
     ));
     let path_s = path.display().to_string();
-    let launcher = with_model(&opts.harness.command(), model.as_deref());
+    let launcher = crate::core::gh_identity::wrap_current(
+        &with_model(&opts.harness.command(), model.as_deref()),
+        opts.harness,
+    )?;
     if crate::core::hosts::dry_run() {
         let line = backend::launch_command(
             &dir,
@@ -844,7 +850,10 @@ pub fn handoff(
         slug(&brief)
     ));
     if crate::core::hosts::dry_run() {
-        let launcher = with_model(&opts.harness.command(), model.as_deref());
+        let launcher = crate::core::gh_identity::wrap_current(
+            &with_model(&opts.harness.command(), model.as_deref()),
+            opts.harness,
+        )?;
         let path_s = path.display().to_string();
         let line = backend::launch_command(
             &dir,
@@ -867,7 +876,10 @@ pub fn handoff(
     std::fs::write(&path, &text)?;
 
     let before: HashSet<String> = discovery::discover().iter().map(Session::key).collect();
-    let launcher = with_model(&opts.harness.command(), model.as_deref());
+    let launcher = crate::core::gh_identity::wrap_current(
+        &with_model(&opts.harness.command(), model.as_deref()),
+        opts.harness,
+    )?;
     let desc = backend::spawn(
         backend_kind,
         &dir,

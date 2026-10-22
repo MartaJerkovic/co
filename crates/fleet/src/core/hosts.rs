@@ -233,9 +233,15 @@ pub fn remote_fleet_command(r: &Remote, args: &[String]) -> String {
 }
 
 /// Env vars that carry over to the remote `fleet`: the launcher, the job run a spawn
-/// belongs to, and the debug/dry-run switches. Not `FLEET_CONFIG` — a local path means
-/// nothing on the other machine, which has its own config.
-pub const FORWARDED_ENV: [&str; 4] = ["FLEET_CMD", "FLEET_JOB_RUN", "FLEET_DEBUG", "FLEET_DRY_RUN"];
+/// belongs to, its GitHub identity, and the debug/dry-run switches. Not `FLEET_CONFIG` — a
+/// local path means nothing on the other machine, which has its own config.
+pub const FORWARDED_ENV: [&str; 5] = [
+    "FLEET_CMD",
+    "FLEET_JOB_RUN",
+    "FLEET_GH_IDENTITY",
+    "FLEET_DEBUG",
+    "FLEET_DRY_RUN",
+];
 
 /// The [`FORWARDED_ENV`] vars set (non-empty) in this process.
 fn forwarded_env() -> Vec<(&'static str, String)> {

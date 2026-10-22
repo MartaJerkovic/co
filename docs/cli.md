@@ -10,6 +10,7 @@ explains the model and the semantics behind them.
 | `-H, --host <name>` | run against that host from the config (see [dispatch](#host-dispatch)) |
 | `--local` | run on this machine, never over ssh |
 | `-n, --dry-run` | print what would run, run nothing (also `FLEET_DRY_RUN=1`) |
+| `--gh-identity <name>` | sessions this command spawns act on GitHub as that [GitHub identity](#github-identities), not as you (also `FLEET_GH_IDENTITY`) |
 | `--json` | machine-readable output, where the command supports it |
 | `-h, --help`, `-V, --version` | |
 
@@ -28,7 +29,7 @@ as-is, so `fleet -H some-ssh-alias tmux list` works before `fleet init`.
 On the remote, `fleet` is looked up as `hosts.<name>.fleetBin`, then `~/.local/bin/fleet` (where
 `fleet install` puts it), then `PATH`. `--dir` / `-C` values under your `$HOME` are rewritten to
 `~/…` so they mean the same place on the other machine; relative paths are refused.
-`FLEET_CMD`, `FLEET_DEBUG` and `FLEET_DRY_RUN` are forwarded (exported, single-quoted, in the
+`FLEET_CMD`, `FLEET_JOB_RUN`, `FLEET_GH_IDENTITY`, `FLEET_DEBUG` and `FLEET_DRY_RUN` are forwarded (exported, single-quoted, in the
 remote `sh -c`); `FLEET_CONFIG` is not — the remote uses its own config.
 
 ## Claude sessions
@@ -84,6 +85,40 @@ Launch commands: Claude's is `FLEET_CMD` / config `claude`; the others' are conf
 
 Models: Claude's built-in list; Codex's from its `models_cache.json` (listed ones, its order);
 pi's from `pi --list-models` (ids `provider/model`). `id: ""` is the harness's own default.
+
+### GitHub identities
+
+A session can act on GitHub as a GitHub App (a bot) instead of as you — for comments, reviews
+and approvals that come from automation. Which identity a session has is decided by whoever
+spawns it (`--gh-identity <name>`, a bot's `ghIdentity`), never by the agent inside it.
+Identities are per machine, in the config:
+
+```json
+"ghIdentities": {
+  "bot": { "command": "gh-bot", "login": "my-app[bot]", "prompt": "(optional) replaces the default note" }
+}
+```
+
+`command` is a `gh` wrapper that authenticates as the App (mints an installation token and runs
+`gh` with it as `GH_TOKEN`); `login` is the App's login (default the name). A session spawned
+with the identity runs as
+
+```sh
+export FLEET_GH_IDENTITY=bot GH_CONFIG_DIR=<empty dir> PATH=<shim dir>:"$PATH" &&
+  claude --append-system-prompt "$(cat <note>)" …
+```
+
+- the note (system prompt) tells the agent it acts as `login` and to use `command`;
+- `gh` in that shell is a shim for `command`, so scripts and skills that call `gh` act as the App
+  too; the empty `GH_CONFIG_DIR` leaves a `gh` reached by absolute path without your credentials;
+- what the session spawns inherits the identity (`FLEET_GH_IDENTITY`, forwarded to `-H` hosts);
+  asking for another one is an error. A [restore](#session-recovery) resumes it under the same
+  identity, and refuses when the identity is no longer configured.
+
+The pane carries the option `@fleet_gh_identity`; `fleet list --json` reports it as
+`gh_identity` (`null` = yours). Claude sessions only, for now. `git push` is untouched — it uses
+the machine's own credentials. Shim, empty config dir and note live in
+`${XDG_STATE_HOME:-~/.local/state}/fleet/gh-identities/<name>/`.
 
 ### Briefs
 
@@ -523,6 +558,7 @@ section is still read (a name in both: the `bots` one wins), and the names below
 | `prompt` / `promptFile` | the first prompt, inline or read from a file at run time (one of them, or neither); a file's YAML frontmatter (`---` … `---`) is left out, so a note can be the prompt |
 | `command` | launcher for the bot's sessions **and everything they spawn** (it travels as `FLEET_CMD`); default config `claude` |
 | `harness`, `model` | as for `fleet spawn` |
+| `ghIdentity` | the [GitHub identity](#github-identities) the bot's sessions (and what they spawn) act as on GitHub; default none — yours |
 | `enabled` | `false` pauses the bot (`fleet bots disable`). `fleet config set bots.<name> null` removes it |
 | `keep` | default `24h`, or `"never"`: once a run is older than this, its sessions that are idle and quiet for an hour are closed (their tmux session is killed). A session waiting for input is never closed |
 
@@ -636,6 +672,7 @@ fleet mcp --http [--bind 127.0.0.1] [--port 7778] --token-file ~/.config/fleet/m
 | `FLEET_PRODUCTIVE_TOKEN` / `PRODUCTIVE_API_TOKEN` | Productive API token for [`fleet tasks`](#productive-tasks) (the first over config `tasks.token`, the second under it) |
 | `FLEET_TASKS_CACHE` | the [`fleet tasks`](#productive-tasks) cache file |
 | `FLEET_CURL`, `FLEET_PRODUCTIVE_API` | `curl` binary and API base URL for [`fleet tasks`](#productive-tasks) (tests) |
+| `FLEET_GH_IDENTITY` | the [GitHub identity](#github-identities) a session acts as — set in its shell; spawns inherit it (and it is forwarded to `-H` hosts). Same as `--gh-identity` |
 | `FLEET_JOB_RUN` | `<bot>/<run>`: the [bot](#bots) run a session belongs to — set in bot sessions; a spawn with it set joins that run (and is forwarded to `-H` hosts) |
 | `FLEET_JOBS_DIR` | [bot](#bots) state (default `${XDG_STATE_HOME:-~/.local/state}/fleet/jobs`) |
 | `FLEET_STACKS_DIR` | where [stacks](#stacks) live (default `${XDG_STATE_HOME:-~/.local/state}/fleet/stacks`) |

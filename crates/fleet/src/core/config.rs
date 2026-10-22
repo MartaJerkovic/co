@@ -226,6 +226,9 @@ pub struct Config {
     /// `harnesses.<codex|pi>.command` — how the other harnesses launch. Raw JSON,
     /// read leniently (see [`Config::harness_command`]).
     pub harnesses: Value,
+    /// `ghIdentities.<name>` — GitHub Apps a spawned session can act as. Raw JSON, read
+    /// leniently (see [`crate::core::gh_identity`]).
+    pub gh_identities: Value,
     pub spawn_dirs: Vec<SpawnDir>,
     pub tui: UiConfig,
     pub naming: NamingConfig,
