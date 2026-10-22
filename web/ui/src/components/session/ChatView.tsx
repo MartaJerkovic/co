@@ -13,7 +13,7 @@ import { clockTime } from '@/lib/format'
 import { SpeakButton } from '@/components/SpeakButton'
 import { msgKind, sameGroup, splitPasted, visibleMessages } from '@/lib/chat'
 import { pendingQuestion } from '@/lib/questions'
-import { pathCandidates } from '@/lib/paths'
+import { pathCandidates, textPathCandidates } from '@/lib/paths'
 import { CHAT_FONT_REM } from '@/lib/prefs'
 import { cn } from '@/lib/utils'
 
@@ -35,7 +35,7 @@ export interface ChatViewProps {
   jumpSignal: number
   /** Desktop pane: a wider (still readable) column. */
   wide?: boolean
-  /** Link file paths in Claude's messages that exist on the session's host (click → preview). */
+  /** Link file paths in the chat (Claude's messages and prompts) that exist on the session's host (click → preview). */
   fileLinks?: FileStats
   /** The outbox's optimistic bubbles, after the transcript; `outboxKey` changes when they do (keeps the tail followed). */
   outbox?: React.ReactNode
@@ -231,12 +231,18 @@ export function ChatView(p: ChatViewProps) {
     if (p.jumpSignal) jump()
   }, [p.jumpSignal, jump])
 
-  // Ask the host which of the paths Claude mentioned exist (batched, cached per session).
+  // Ask the host which of the paths in the chat exist (batched, cached per session): Claude's
+  // markdown, and the plain text of prompts and command arguments.
   const requestStats = p.fileLinks?.request
   useEffect(() => {
     if (!requestStats || !p.messages) return
     const candidates: string[] = []
-    for (const m of p.messages) if (msgKind(m) === 'assistant' && typeof m.text === 'string') candidates.push(...pathCandidates(m.text))
+    for (const m of p.messages) {
+      const kind = msgKind(m)
+      if (kind === 'assistant' && typeof m.text === 'string') candidates.push(...pathCandidates(m.text))
+      else if (kind === 'user' && typeof m.text === 'string') candidates.push(...textPathCandidates(m.text))
+      else if (kind === 'command' && m.name !== '!' && typeof m.args === 'string') candidates.push(...textPathCandidates(m.args))
+    }
     if (candidates.length) requestStats(candidates)
   }, [p.messages, requestStats])
 

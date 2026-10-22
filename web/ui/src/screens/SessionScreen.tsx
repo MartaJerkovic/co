@@ -645,7 +645,7 @@ export function SessionScreen({
             questionActions={questionActions}
           />
         ) : (
-          <TermView text={peek?.text ?? null} failed={!!peekErr} fontSize={termFont} jumpSignal={jumpSignal} />
+          <TermView text={peek?.text ?? null} failed={!!peekErr} fontSize={termFont} jumpSignal={jumpSignal} fileLinks={fileLinks} />
         )}
         {(session?.harness || 'claude') === 'claude' && !lockedReason && !gone && !outbox.some((it) => it.state !== 'sent' && it.text.trim() === '/compact') ? (
           <CompactHint context={session?.context} onCompact={() => send('/compact')} />

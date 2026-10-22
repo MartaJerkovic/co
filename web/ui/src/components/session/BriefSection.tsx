@@ -81,15 +81,20 @@ export function BriefSection({ host, brief: st, fileLinks, desktop = false, canc
     if (editing) textRef.current?.focus()
   }, [editing])
 
-  // Which file resources / summary paths exist on the host (same cache as the chat's links).
+  // Which file resources / paths in the summary, todos and notes exist on the host (same cache as the chat's links).
   const request = fileLinks.request
-  const summary = b?.parsed.summary ?? ''
-  const resources = b?.parsed.resources
+  const parsed = b?.parsed
+  const summary = parsed?.summary ?? ''
   useEffect(() => {
-    const paths = (resources ?? []).filter((r) => r.path && FILE_KINDS.has(String(r.kind))).map((r) => r.path as string)
-    if (summary) paths.push(...pathCandidates(summary))
+    const paths: string[] = []
+    for (const r of parsed?.resources ?? []) {
+      if (r.path && FILE_KINDS.has(String(r.kind))) paths.push(r.path)
+      else if (r.kind == null && r.text) paths.push(...pathCandidates(r.text))
+    }
+    if (parsed?.summary) paths.push(...pathCandidates(parsed.summary))
+    for (const t of briefTodos(parsed)) paths.push(...pathCandidates(t.text))
     if (paths.length) request(paths)
-  }, [resources, summary, request])
+  }, [parsed, request])
 
   const startEdit = () => b && setDraft(briefBody(b.markdown))
   const saveEdit = async () => {
@@ -104,7 +109,7 @@ export function BriefSection({ host, brief: st, fileLinks, desktop = false, canc
   const progress = todoProgress(todos)
   const worktrees = b?.worktrees ?? []
   // The Worktrees list includes the cwd's checkout: the Git line would say it twice.
-  const groups = groupResources(resources).filter((g) => !(worktrees.length && g.kind === 'Git'))
+  const groups = groupResources(parsed?.resources).filter((g) => !(worktrees.length && g.kind === 'Git'))
   const empty = !!b && !b.exists && !summary && !todos.length && !groups.length && !worktrees.length
 
   const regenerateButton = (label: string, className?: string) => (
