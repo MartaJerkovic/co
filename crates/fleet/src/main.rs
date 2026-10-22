@@ -966,6 +966,10 @@ enum JobsCmd {
         /// Start even while a session of the bot is still working
         #[arg(long)]
         force: bool,
+        /// First prompt for this run instead of the recipe's — everything else (dir, launcher,
+        /// model, GitHub identity, keep) stays the recipe's
+        #[arg(long, value_name = "TEXT")]
+        prompt: Option<String>,
     },
     /// Fire due bots and close finished sessions (what the service runs every minute)
     Tick {
@@ -1628,7 +1632,11 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
         Commands::Bots { cmd, json } => match cmd.unwrap_or(JobsCmd::List { json }) {
             JobsCmd::List { json: j } => jobs_cmd::list(json || j)?,
             JobsCmd::Show { name, json: j } => jobs_cmd::show(&name, json || j)?,
-            JobsCmd::Run { name, force } => jobs_cmd::run_now(&name, force)?,
+            JobsCmd::Run {
+                name,
+                force,
+                prompt,
+            } => jobs_cmd::run_now(&name, force, prompt)?,
             JobsCmd::Tick { quiet } => jobs_cmd::tick(quiet)?,
             JobsCmd::Enable { name } => jobs_cmd::set_enabled(&name, true)?,
             JobsCmd::Disable { name } => jobs_cmd::set_enabled(&name, false)?,

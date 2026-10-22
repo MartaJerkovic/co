@@ -407,10 +407,17 @@ fn describe(r: &Run) -> String {
 }
 
 /// `fleet jobs run <name>`: start a run now, whatever the schedule says.
-pub fn run_now(name: &str, force: bool) -> Result<()> {
+/// `fleet bots run <name> [--prompt <text>]`: a run now; `--prompt` replaces the recipe's first
+/// prompt for this run (a bot's other task, e.g. acting on its own report, as the bot).
+pub fn run_now(name: &str, force: bool, prompt: Option<String>) -> Result<()> {
     let s = Settings::load();
     warn_problems(&s);
-    let j = job(&s, name)?;
+    let recipe = job(&s, name)?;
+    let custom = prompt.filter(|p| !p.trim().is_empty()).map(|p| Job {
+        prompt: PromptSrc::Inline(p),
+        ..recipe.clone()
+    });
+    let j = custom.as_ref().unwrap_or(recipe);
     if !force && let Some(why) = busy_reason(&discovery::discover(), &j.name) {
         return Err(Error::Other(format!(
             "{}: {why} — pass --force to start another run anyway",
