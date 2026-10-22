@@ -151,7 +151,14 @@ const speechKey = async () => (await ttsKey()) ?? (await transcribeKey());
 const transcriber = createTranscriber({ getKey: transcribeKey, log });
 // Voice memos: segments transcribed with the same key, titled by `claude -p`.
 const memos = createMemos({ ...config.memos, transcriber, ask: createClaudeAsk({ bin: claudeBin, run }), log });
-const spawner = createSpawner({ run, tmux: config.tmux, launcher: config.claude, launchers: config.launchers });
+const spawner = createSpawner({
+  run,
+  tmux: config.tmux,
+  launcher: config.claude,
+  launchers: config.launchers,
+  ghIdentities: config.ghIdentities,
+  ghIdentityLauncher: (name, launcher) => cli.ghIdentityLauncher(name, launcher),
+});
 const operator = createOperator({ config, fleet, spawner, backend, log });
 // One transcript reader: the chat and the review threads (their replies) share its cache.
 const transcripts = createTranscriptReader();

@@ -3,6 +3,7 @@ import { Link } from 'wouter'
 import type { Session } from '@/api/types'
 import { ContextMeter } from '@/components/ContextMeter'
 import { EditableTitle } from '@/components/EditableTitle'
+import { GhIdentityChip } from '@/components/GhIdentityChip'
 import { HostBadge } from '@/components/HostBadge'
 import { JobChip } from '@/components/JobChip'
 import { PrChip } from '@/components/PrChip'
@@ -71,6 +72,7 @@ export function SessionRow({ session: s, now, selected, cursor, inStack }: Sessi
       <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-dimmer">
         {inStack ? null : <StackChip session={s} />}
         <JobChip session={s} />
+        <GhIdentityChip session={s} />
         <PrChip session={s} />
         <TaskChip session={s} />
         {cwd ? <span className="min-w-0 truncate font-mono">{cwd}</span> : null}

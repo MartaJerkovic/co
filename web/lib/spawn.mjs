@@ -5,7 +5,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MODEL_ID_RE } from './config.mjs';
+import { GH_IDENTITY_RE, MODEL_ID_RE } from './config.mjs';
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 
@@ -94,8 +94,16 @@ export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
     if (!HARNESSES.includes(body.harness)) errors.push(`harness must be one of ${HARNESSES.join(', ')}`);
     else harness = body.harness;
   }
+  // A GitHub identity the session acts as (`ghIdentities`); '' / absent = the user's own.
+  let ghIdentity = null;
+  if (body?.ghIdentity != null && body.ghIdentity !== '') {
+    if (typeof body.ghIdentity !== 'string' || !GH_IDENTITY_RE.test(body.ghIdentity)) {
+      errors.push('ghIdentity must be 1-64 chars of letters, digits, - or _');
+    } else if (harness !== 'claude') errors.push('only Claude sessions take a GitHub identity');
+    else ghIdentity = body.ghIdentity;
+  }
   if (errors.length) return { ok: false, error: errors.join('; ') };
-  return { ok: true, name, dir, prompt, nameGiven, model, harness };
+  return { ok: true, name, dir, prompt, nameGiven, model, harness, ghIdentity };
 }
 
 /** True when `child` is `root` or lies beneath it (both already resolved). */
@@ -158,6 +166,9 @@ export function createSpawner({
   launcher = 'claude',
   launchers = {},
   enterDelayMs = 150,
+  // (name, launcher) → the launcher of a session acting as GitHub identity `name`.
+  ghIdentityLauncher = null,
+  ghIdentities = [],
   sleep,
   promptDir = path.join(os.homedir(), '.claude', 'fleet-prompts'),
 }) {
@@ -195,8 +206,14 @@ export function createSpawner({
     await wait(enterDelayMs);
   }
 
-  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness }} */
-  async function spawn({ name, dir, prompt, nameGiven = true, model = '', harness = 'claude' }) {
+  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness, ghIdentity }} */
+  async function spawn({ name, dir, prompt, nameGiven = true, model = '', harness = 'claude', ghIdentity = null }) {
+    if (ghIdentity && !ghIdentities.some((i) => i.name === ghIdentity)) {
+      throw Object.assign(new Error(`no GitHub identity "${ghIdentity}" in this host's fleet config`), { status: 400 });
+    }
+    if (ghIdentity && !ghIdentityLauncher) {
+      throw Object.assign(new Error('GitHub identities need the fleet CLI'), { status: 500 });
+    }
     let st;
     try {
       st = await fs.stat(dir);
@@ -209,7 +226,9 @@ export function createSpawner({
     }
     // oh-my-zsh's "Would you like to update? [Y/n]" reads one key: the first typed character.
     await run(tmux, ['new-session', '-d', '-s', name, '-c', dir, '-e', 'DISABLE_AUTO_UPDATE=true'], { timeout: 8000 });
-    const launch = { launcher: launchers[harness] || (harness === 'claude' ? launcher : harness), harness, name: nameGiven ? name : null, prompt, model };
+    let base = launchers[harness] || (harness === 'claude' ? launcher : harness);
+    if (ghIdentity) base = await ghIdentityLauncher(ghIdentity, base);
+    const launch = { launcher: base, harness, name: nameGiven ? name : null, prompt, model };
     let command = launchCommand(launch);
     if (Buffer.byteLength(command) > TYPED_LINE_MAX) {
       const d = new Date();
@@ -224,9 +243,11 @@ export function createSpawner({
     await run(tmux, ['send-keys', '-t', `${name}:`, '-l', '--', command], { timeout: 8000 });
     await wait(150);
     await run(tmux, ['send-keys', '-t', `${name}:`, 'Enter'], { timeout: 8000 });
+    // The `fleet list` label; the shell already carries the identity.
+    if (ghIdentity) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_gh_identity', ghIdentity], { timeout: 5000 }).catch(() => {});
     const trusted = await acceptTrustPrompt(name, { harness });
     if (!trusted) await ensureStarted(name, { harness });
-    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness };
+    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness, ghIdentity };
   }
 
   /**

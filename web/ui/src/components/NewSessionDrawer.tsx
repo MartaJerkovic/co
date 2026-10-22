@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useAttach, useFileDrop } from '@/hooks/useAttach'
 import { useFleet } from '@/hooks/useFleet'
-import { useHarnesses } from '@/hooks/useHarnesses'
+import { useGhIdentities, useHarnesses } from '@/hooks/useHarnesses'
 import { useSettings } from '@/hooks/useSettings'
 import { useVoice } from '@/hooks/useVoice'
 import type { SiblingTarget } from '@/hooks/useStackUi'
@@ -34,6 +34,8 @@ import { appendTranscript, formatElapsed } from '@/lib/voice'
 const HOST_KEY = 'fleet.spawnHost'
 const dirKey = (host: string) => `fleet.spawnDirLabel.${host}`
 const HARNESS_KEY = 'fleet.spawnHarness'
+// The "GitHub as" choice for the user's own identity (no identity name can contain a space).
+const ME_IDENTITY = 'me (you)'
 // "New session from here": the last mode picked (Hand off / Sibling).
 const FROM_MODE_KEY = 'fleet.spawnFromMode'
 // Past this many models a harness's picker is a dropdown, not chips (pi lists dozens).
@@ -199,6 +201,11 @@ function NewSessionForm({
   const models = offered.find((h) => h.id === harness)?.models ?? claudeModels
   const [modelChoices, setModelChoices] = useState<Record<string, string | null>>({})
   const model = pickModel(models, modelChoices[harness] ?? storage.get(modelKey(harness)))
+  // GitHub identity (a GitHub App the session acts as instead of you): chosen per spawn, never
+  // remembered — a forgotten choice must not start the next session as a bot. Claude only.
+  const ghIdentities = useGhIdentities(host)
+  const [ghIdentityChoice, setGhIdentityChoice] = useState('')
+  const ghIdentity = harness === 'claude' && ghIdentities.some((i) => i.name === ghIdentityChoice) ? ghIdentityChoice : ''
   const [prompt, setPrompt] = useState(() => prefill?.prompt ?? (sibling ? '' : loadDraft()))
   // Keep the draft on every change (attachments typed in included); a prefill / sibling is never a draft.
   const draftable = !prefill && !sibling
@@ -274,6 +281,7 @@ function NewSessionForm({
         prompt: sent.trim() ? sent : undefined,
         model: model || undefined,
         harness: harness === 'claude' ? undefined : harness,
+        ghIdentity: ghIdentity || undefined,
         // Another host than the source's: say where, and in which of its directories.
         ...(siblingSameHost ? {} : { host, dir: dir?.path }),
       }
@@ -318,6 +326,7 @@ function NewSessionForm({
         prompt: sent.trim() ? sent : undefined,
         model: model || undefined,
         harness: harness === 'claude' ? undefined : harness,
+        ghIdentity: ghIdentity || undefined,
       })
       // The draft stays until the session registers: a spawn that never shows up must not lose the prompt.
       onDone()
@@ -360,6 +369,29 @@ function NewSessionForm({
               className="h-10 shrink-0 rounded-full border border-border bg-card px-4 text-sm data-[state=on]:border-primary/50 data-[state=on]:bg-accent"
             >
               {h.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </Field>
+    ) : null
+  const ghIdentityField =
+    harness === 'claude' && ghIdentities.length > 0 ? (
+      <Field label="GitHub as">
+        <ToggleGroup
+          type="single"
+          value={ghIdentity || ME_IDENTITY}
+          onValueChange={(v) => v && setGhIdentityChoice(v === ME_IDENTITY ? '' : v)}
+          aria-label="GitHub identity"
+          className="no-scrollbar w-full justify-start overflow-x-auto"
+        >
+          {[{ name: ME_IDENTITY, login: 'You' }, ...ghIdentities].map((i) => (
+            <ToggleGroupItem
+              key={i.name}
+              value={i.name}
+              title={i.name === ME_IDENTITY ? 'Acts on GitHub as you' : `Acts on GitHub as ${i.login} (uses its gh wrapper)`}
+              className="h-10 shrink-0 rounded-full border border-border bg-card px-4 text-sm data-[state=on]:border-primary/50 data-[state=on]:bg-accent"
+            >
+              {i.login}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
@@ -622,6 +654,7 @@ function NewSessionForm({
           {siblingSameHost ? null : dirField}
           {harnessField}
           {modelField}
+          {ghIdentityField}
           {promptField}
           {errorBox}
           {submitButton}
@@ -639,6 +672,8 @@ function NewSessionForm({
           {harnessField}
 
           {modelField}
+
+          {ghIdentityField}
 
           {promptField}
 

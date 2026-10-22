@@ -291,6 +291,12 @@ enum Commands {
         cmd: HarnessCmd,
     },
 
+    /// GitHub identities spawned sessions can act as (`ghIdentities` in the config)
+    GhIdentity {
+        #[command(subcommand)]
+        cmd: GhIdentityCmd,
+    },
+
     /// Session stacks: sessions sharing one context file (the StackBrief); spawn siblings
     Stack {
         #[command(subcommand)]
@@ -582,6 +588,22 @@ enum HarnessCmd {
         /// Skip the model lists (pi's needs a `pi --list-models` run)
         #[arg(long)]
         no_models: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GhIdentityCmd {
+    /// Each identity: name, GitHub login, the gh wrapper it runs
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// The launch command of a session with this identity (writes its shim; the web server's)
+    Launcher {
+        name: String,
+        /// The launcher to wrap (default: the Claude launcher, `FLEET_CMD` / config `claude`)
+        #[arg(long)]
+        launcher: Option<String>,
     },
 }
 
@@ -1283,6 +1305,12 @@ set one with: fleet config set hosts.{h}.ssh <alias>"
         )?,
         Commands::Harness { cmd } => match cmd {
             HarnessCmd::List { json, no_models } => commands::harness_list(json, !no_models)?,
+        },
+        Commands::GhIdentity { cmd } => match cmd {
+            GhIdentityCmd::List { json } => commands::gh_identity_list(json)?,
+            GhIdentityCmd::Launcher { name, launcher } => {
+                commands::gh_identity_launcher(&name, launcher.as_deref())?
+            }
         },
         Commands::Stack { cmd } => match cmd {
             StackCmd::List { json } => stack_cmds::list(json)?,

@@ -73,6 +73,17 @@ export function fleetStateDir(env = process.env, home = os.homedir()) {
 }
 
 /** A model id typed after `--model` in a shell: letters, digits and `._[]-` only. */
+/** `ghIdentities` → `[{ name, login }]`, entries with a usable name and a `command` only. */
+export function ghIdentitiesOf(raw) {
+  const m = raw?.ghIdentities;
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return [];
+  return Object.entries(m)
+    .filter(([name, v]) => GH_IDENTITY_RE.test(name) && typeof v?.command === 'string' && v.command.trim())
+    .map(([name, v]) => ({ name, login: typeof v.login === 'string' && v.login.trim() ? v.login.trim() : name }));
+}
+
+export const GH_IDENTITY_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
 /** `harnesses.<id>.command` when it is a non-blank string, else the bare id. Read leniently. */
 function harnessCommand(raw, id, home) {
   const c = raw?.harnesses?.[id]?.command;
@@ -570,6 +581,9 @@ export function normalizeConfig(
       codex: harnessCommand(raw, 'codex', home),
       pi: harnessCommand(raw, 'pi', home),
     },
+    // GitHub identities a spawned session can act as (`ghIdentities`): names and logins only —
+    // the launcher comes from `fleet gh-identity launcher`, which owns the shim.
+    ghIdentities: ghIdentitiesOf(raw),
     spawnDirs,
     uiDir,
     quickReplies,

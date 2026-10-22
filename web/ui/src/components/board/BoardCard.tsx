@@ -4,6 +4,7 @@ import { Link } from 'wouter'
 import type { Session } from '@/api/types'
 import { ContextMeter } from '@/components/ContextMeter'
 import { EditableTitle } from '@/components/EditableTitle'
+import { GhIdentityChip } from '@/components/GhIdentityChip'
 import { HostBadge } from '@/components/HostBadge'
 import { JobChip } from '@/components/JobChip'
 import { PrChip } from '@/components/PrChip'
@@ -73,6 +74,7 @@ export function BoardCard({ session: s, now, selected, cursor, onOpen, drag }: B
         <PrChip session={s} />
         <TaskChip session={s} />
         <JobChip session={s} />
+        <GhIdentityChip session={s} />
         <span className={cn('min-w-0 truncate', STATUS_TEXT[meta.key])}>{statusLabel(s)}</span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <ContextMeter context={s.context} />

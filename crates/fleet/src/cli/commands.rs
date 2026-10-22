@@ -104,6 +104,38 @@ pub(crate) fn with_model(launcher: &str, model: Option<&str>) -> String {
 }
 
 /// `fleet harness list`: what this host can spawn, and the models each one offers.
+/// `fleet gh-identity list`: the configured GitHub identities.
+pub fn gh_identity_list(json: bool) -> Result<()> {
+    let rows = crate::core::gh_identity::all();
+    if json {
+        let v: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|i| serde_json::json!({ "name": i.name, "login": i.login, "command": i.command }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+    if rows.is_empty() {
+        println!("no GitHub identities (config ghIdentities)");
+    }
+    for i in &rows {
+        println!("{:<16} {:<28} {}", i.name, i.login, i.command.dimmed());
+    }
+    Ok(())
+}
+
+/// `fleet gh-identity launcher <name>`: what a session with that identity is launched with.
+pub fn gh_identity_launcher(name: &str, launcher: Option<&str>) -> Result<()> {
+    let base = launcher
+        .map(str::to_string)
+        .unwrap_or_else(resolve_launcher);
+    println!(
+        "{}",
+        crate::core::gh_identity::wrap(&base, Harness::Claude, Some(name))?
+    );
+    Ok(())
+}
+
 pub fn harness_list(json: bool, with_models: bool) -> Result<()> {
     let rows: Vec<harness::HarnessInfo> = Harness::ALL
         .iter()

@@ -1190,7 +1190,7 @@ export function createApi({
   async function localHarnesses(url) {
     const refresh = url.searchParams.get('refresh') === '1';
     if (!refresh && harnessCache && Date.now() - harnessCache.at < HARNESSES_TTL_MS) {
-      return { status: 200, body: { host: config.self, harnesses: harnessCache.rows } };
+      return { status: 200, body: { host: config.self, harnesses: harnessCache.rows, ghIdentities: config.ghIdentities ?? [] } };
     }
     let rows;
     try {
@@ -1202,7 +1202,7 @@ export function createApi({
     // Claude's picker is the configured one (`web.models`), like before harnesses.
     rows = rows.map((r) => (r.id === 'claude' ? { ...r, models: config.models ?? DEFAULT_MODELS } : r));
     harnessCache = { at: Date.now(), rows };
-    return { status: 200, body: { host: config.self, harnesses: rows } };
+    return { status: 200, body: { host: config.self, harnesses: rows, ghIdentities: config.ghIdentities ?? [] } };
   }
 
   /**
@@ -1266,7 +1266,7 @@ export function createApi({
     const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
     let result;
     try {
-      result = await spawner.spawn({ name: check.name, dir: worktree.path, prompt, nameGiven, model: check.model, harness: check.harness });
+      result = await spawner.spawn({ name: check.name, dir: worktree.path, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;
@@ -1345,7 +1345,7 @@ export function createApi({
     let result;
     try {
       const dir = await resolveAllowedDir(check.dir, roots);
-      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness });
+      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;
@@ -1556,6 +1556,7 @@ export function createApi({
           ...(check.nameGiven ? { name: check.name } : {}),
           ...(check.model ? { model: check.model } : {}),
           harness: check.harness,
+          ...(check.ghIdentity ? { ghIdentity: check.ghIdentity } : {}),
         }),
         timeoutMs: peerProxyTimeoutMs,
       });
@@ -1573,7 +1574,7 @@ export function createApi({
     const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
     let result;
     try {
-      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness });
+      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;

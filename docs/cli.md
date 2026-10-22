@@ -115,7 +115,9 @@ export FLEET_GH_IDENTITY=bot GH_CONFIG_DIR=<empty dir> PATH=<shim dir>:"$PATH" &
   asking for another one is an error. A [restore](#session-recovery) resumes it under the same
   identity, and refuses when the identity is no longer configured.
 
-The pane carries the option `@fleet_gh_identity`; `fleet list --json` reports it as
+`fleet gh-identity list [--json]` shows the configured ones (`[{ name, login, command }]`);
+`fleet gh-identity launcher <name> [--launcher <cmd>]` prints the launch command a session with
+that identity starts with (writing its shim) — the web server's spawn uses it. The pane carries the option `@fleet_gh_identity`; `fleet list --json` reports it as
 `gh_identity` (`null` = yours). Claude sessions only, for now. `git push` is untouched — it uses
 the machine's own credentials. Shim, empty config dir and note live in
 `${XDG_STATE_HOME:-~/.local/state}/fleet/gh-identities/<name>/`.

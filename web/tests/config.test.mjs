@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { configPath, expandHome, loadConfig, normalizeConfig, resolveBinary, resolveFleetBin } from '../lib/config.mjs';
+import { configPath, expandHome, ghIdentitiesOf, loadConfig, normalizeConfig, resolveBinary, resolveFleetBin } from '../lib/config.mjs';
 
 function tmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-web-cfg-'));
@@ -193,4 +193,13 @@ test('config.example.json is valid and has placeholders only', () => {
   const cfg = normalizeConfig(raw, { env: {}, home: HOME });
   assert.equal(cfg.self, 'laptop');
   assert.ok(Object.keys(cfg.peers).includes('workstation'));
+});
+
+test('ghIdentitiesOf keeps entries with a usable name and a command', () => {
+  assert.deepEqual(ghIdentitiesOf({}), []);
+  assert.deepEqual(ghIdentitiesOf({ ghIdentities: [] }), []);
+  assert.deepEqual(
+    ghIdentitiesOf({ ghIdentities: { bot: { command: 'gh-bot', login: 'my-app[bot]' }, plain: { command: 'x' }, nocmd: {}, 'a b': { command: 'x' } } }),
+    [{ name: 'bot', login: 'my-app[bot]' }, { name: 'plain', login: 'plain' }],
+  );
 });

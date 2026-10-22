@@ -53,6 +53,11 @@ export interface Session {
    * null = started by hand. Older CLIs omit it.
    */
   origin?: SessionOrigin | null
+  /**
+   * The GitHub identity (a GitHub App) it acts as on GitHub (`fleet list --json` → `gh_identity`,
+   * docs/cli.md → GitHub identities); null = the user's own. Older CLIs omit it.
+   */
+  gh_identity?: string | null
   /** The host's voice operator (web/lib/operator.mjs): kept out of session lists. Older servers omit it. */
   operator?: boolean
 }
@@ -79,6 +84,15 @@ export interface HarnessInfo {
 export interface HarnessesResponse {
   host: string
   harnesses: HarnessInfo[]
+  /** GitHub identities a session spawned there can act as (config `ghIdentities`). Older servers omit it. */
+  ghIdentities?: GhIdentity[]
+}
+
+/** A GitHub App a spawned session can act as on GitHub instead of the user. */
+export interface GhIdentity {
+  name: string
+  /** The App's GitHub login, e.g. `my-app[bot]`. */
+  login: string
 }
 
 /** `stack` on a session row. */
@@ -408,6 +422,8 @@ export interface SpawnRequest {
   model?: string
   /** Which coding agent to start; absent = claude. */
   harness?: HarnessId | string
+  /** Act on GitHub as this identity (Claude only); absent = the user's own. */
+  ghIdentity?: string
 }
 
 export interface SpawnResponse {
@@ -581,6 +597,8 @@ export interface StackSpawnRequest {
   name?: string
   model?: string
   harness?: HarnessId | string
+  /** Act on GitHub as this identity (Claude only); absent = the user's own. */
+  ghIdentity?: string
   /** Label for a stack this spawn creates (the model's otherwise). */
   label?: string
   /** Start the sibling on this host (a peer of the stack's home; default: the home itself). */

@@ -337,6 +337,22 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
   }
 
   /**
+   * The launch command of a session acting on GitHub as identity `name`:
+   * `fleet --local gh-identity launcher <name> --launcher <launcher>` (it writes the shim).
+   */
+  async function ghIdentityLauncher(name, launcher, { timeoutMs: t = 10 * 1000 } = {}) {
+    let stdout;
+    try {
+      ({ stdout } = await run(bin, ['--local', 'gh-identity', 'launcher', name, '--launcher', launcher], { timeout: t, env: { ...process.env, NO_COLOR: '1' } }));
+    } catch (err) {
+      throw wrap(err, 'fleet gh-identity launcher', t);
+    }
+    const line = stdout.trim();
+    if (!line) throw new Error('fleet gh-identity launcher: empty answer');
+    return line;
+  }
+
+  /**
    * Write one config key: `fleet --local config set <key> <json>` against `configFile`
    * (FLEET_CONFIG). The CLI owns the config file: it rewrites the raw JSON atomically
    * (tmp + rename), keeps every other key and refuses a file that does not parse.
@@ -535,6 +551,7 @@ export function createFleetCli({ run, bin = 'fleet', timeoutMs = 8000 } = {}) {
     groupEdit,
     usage,
     harnesses,
+    ghIdentityLauncher,
     prs,
     prCheckout,
     prSeen,
