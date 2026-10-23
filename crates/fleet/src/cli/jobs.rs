@@ -289,6 +289,15 @@ fn read_prompt(j: &Job) -> std::result::Result<String, String> {
     }
 }
 
+/// The recipe's prompt with a run's task (`bots run --prompt`) after it.
+fn with_task(base: &str, task: &str) -> String {
+    let base = base.trim_end();
+    if base.is_empty() {
+        return task.to_string();
+    }
+    format!("{base}\n\n{task}")
+}
+
 /// A prompt file may be a note with YAML frontmatter (`---` … `---`): the agent gets the body.
 fn strip_frontmatter(text: &str) -> &str {
     let Some(rest) = text.strip_prefix("---\n") else {
@@ -407,16 +416,22 @@ fn describe(r: &Run) -> String {
 }
 
 /// `fleet jobs run <name>`: start a run now, whatever the schedule says.
-/// `fleet bots run <name> [--prompt <text>]`: a run now; `--prompt` replaces the recipe's first
-/// prompt for this run (a bot's other task, e.g. acting on its own report, as the bot).
+/// `fleet bots run <name> [--prompt <text>]`: a run now; `--prompt` is added after the recipe's
+/// prompt — a task for this run (e.g. acting on the bot's own report), with the recipe's context.
 pub fn run_now(name: &str, force: bool, prompt: Option<String>) -> Result<()> {
     let s = Settings::load();
     warn_problems(&s);
     let recipe = job(&s, name)?;
-    let custom = prompt.filter(|p| !p.trim().is_empty()).map(|p| Job {
-        prompt: PromptSrc::Inline(p),
-        ..recipe.clone()
-    });
+    let custom = match prompt.filter(|p| !p.trim().is_empty()) {
+        Some(task) => {
+            let base = read_prompt(recipe).map_err(|e| Error::Other(format!("{name}: {e}")))?;
+            Some(Job {
+                prompt: PromptSrc::Inline(with_task(&base, &task)),
+                ..recipe.clone()
+            })
+        }
+        None => None,
+    };
     let j = custom.as_ref().unwrap_or(recipe);
     if !force && let Some(why) = busy_reason(&discovery::discover(), &j.name) {
         return Err(Error::Other(format!(
@@ -674,6 +689,15 @@ pub fn install_service(o: ServiceOpts) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_task_follows_the_recipe_prompt() {
+        assert_eq!(
+            with_task("Deploy ctx.\n", "comment on: 1"),
+            "Deploy ctx.\n\ncomment on: 1"
+        );
+        assert_eq!(with_task("  ", "comment on: 1"), "comment on: 1");
+    }
 
     #[test]
     fn prompt_files_lose_their_frontmatter() {

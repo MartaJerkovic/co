@@ -572,7 +572,7 @@ as `missed`; a slot that comes while a session of the bot is still working is `s
 | --- | --- |
 | `fleet bots [list] [--json]` | each bot: schedule, next run, last run, live sessions (working / needs you) |
 | `fleet bots show <name> [--json]` | settings and the latest runs, each with its sessions as a tree (`└` = spawned by a bot session) and their state (`busy` / `idle` / `waiting` / `closed` / `gone`) |
-| `fleet bots run <name> [--force] [--prompt <text>]` | start a run now (`trigger: manual`); refuses while a session of the bot is working unless `--force`. `--prompt` replaces the recipe's first prompt for this run — dir, launcher, model, `ghIdentity` and `keep` stay the recipe's: a bot's other task (acting on its own report, say) runs as the bot, with whatever GitHub identity this host gives it |
+| `fleet bots run <name> [--force] [--prompt <text>]` | start a run now (`trigger: manual`); refuses while a session of the bot is working unless `--force`. `--prompt` is added after the recipe's prompt — a task for this run, with the recipe's context; dir, launcher, model, `ghIdentity` and `keep` stay the recipe's: a bot's other task (acting on its own report, say) runs as the bot, with whatever GitHub identity this host gives it |
 | `fleet bots tick [-q]` | fire due bots, record missed / skipped slots, close sessions past `keep` — what the service runs. Exits 1 when a bot failed to start |
 | `fleet bots enable\|disable <name>` | set `<section>.<name>.enabled` (`bots`, or `jobs` for a bot still there) |
 | `fleet bots install-service` | macOS: a launchd agent `fleet.jobs` that runs `fleet --local jobs tick -q` every minute and at login (`--uninstall`, `--no-load`, `--print`); logs to `~/Library/Logs/fleet.jobs.log` |

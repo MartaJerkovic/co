@@ -966,8 +966,8 @@ enum JobsCmd {
         /// Start even while a session of the bot is still working
         #[arg(long)]
         force: bool,
-        /// First prompt for this run instead of the recipe's — everything else (dir, launcher,
-        /// model, GitHub identity, keep) stays the recipe's
+        /// A task for this run, added after the recipe's prompt — dir, launcher, model, GitHub
+        /// identity and keep stay the recipe's
         #[arg(long, value_name = "TEXT")]
         prompt: Option<String>,
     },
