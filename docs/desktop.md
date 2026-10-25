@@ -166,7 +166,7 @@ The URL is passed at build time, not committed: it is a private tailnet address.
 (repeatable) bundles `"frameOrigins": […]` into the profile: those origins load in the window,
 frames included. Fin uses it for its assistant panel, which frames Fleet's
 [embed view](architecture.md#embed-view) — pass the Fleet web server's origin (same reason as
-the URL: not committed). Fin's profile also asks for the microphone (voice input in that panel).
+the URL: not committed). Brain does the same for its assistant panel. Both profiles also ask for the microphone (voice input in that panel).
 
 ```sh
 crates/fleet-desktop/bundle.sh --profile fin --url https://workstation.<tailnet>.ts.net:4443 \

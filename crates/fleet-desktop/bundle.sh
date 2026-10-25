@@ -61,7 +61,8 @@ case "$profile" in
     identifier=dev.fleet.desktop.brain
     icon="$here/icons/brain.png"
     category=public.app-category.productivity
-    extra_plist=''
+    extra_plist='  <!-- Voice input in the framed Fleet assistant panel. -->
+  <key>NSMicrophoneUsageDescription</key><string>Brain records voice messages for the assistant panel.</string>'
     url_env=BRAIN_DESKTOP_URL
     title_bar=overlay
     url="${url:-${BRAIN_DESKTOP_URL:-}}"
