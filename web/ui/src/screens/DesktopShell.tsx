@@ -63,7 +63,7 @@ import { notesHref, parseNotesLocation } from '@/lib/notes'
 import { scratchpad } from '@/lib/scratchpad'
 import { PALETTES } from '@/lib/palettes'
 import { stacksKnown } from '@/lib/stacks'
-import { STATUS_FILTERS, allSessions, byLastActivity, findSession, sessionHref, statusLabel, withoutSession } from '@/lib/sessions'
+import { STATUS_FILTERS, allSessions, byLastActivity, findSession, sessionHref, statusLabel } from '@/lib/sessions'
 import {
   clampFlyoutWidth,
   clampSidebarWidth,
@@ -116,7 +116,7 @@ export function DesktopShell() {
   const now = useNow(1000)
   const focus = useFocus()
   const list = useSessionList(now)
-  const { fleet, refresh, applyFleet } = useFleet()
+  const { fleet, refresh, dropSession } = useFleet()
   const { setTheme, setPalette } = useTheme()
   const [location, navigate] = useLocation()
   const [match, params] = useRoute('/s/:host/:id')
@@ -268,7 +268,7 @@ export function DesktopShell() {
       .kill(s.host, s.session_id)
       .then((res) => {
         toast.success(`Closed ${res.name || name}`, { id: pending, description: String(res.terminal || 'done').replace(/-/g, ' ') })
-        if (fleet) applyFleet(withoutSession(fleet, s.host, s.session_id))
+        dropSession(s.host, s.session_id)
         setTimeout(refresh, 2500)
         if (selectedKey === key) navigate('/', { replace: true })
       })

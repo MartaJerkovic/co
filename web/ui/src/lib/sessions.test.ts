@@ -16,7 +16,9 @@ import {
   statusMeta,
   statusSummary,
   visibleStatusFilters,
+  withoutClosed,
   withoutSession,
+  closedKey,
 } from './sessions'
 
 const s = (over: Partial<Session>): Session => ({ host: 'laptop', session_id: 'id', status: 'idle', ...over })
@@ -117,6 +119,17 @@ test('withoutSession drops only that session', () => {
   const out = withoutSession(fleet, 'a', '1')
   expect(out.hosts[0].sessions.map((s) => s.session_id)).toEqual(['2'])
   expect(out.hosts[1].sessions).toHaveLength(1)
+})
+
+test('withoutClosed hides recently closed sessions until their deadline', () => {
+  const fleet = {
+    self: 'a',
+    hosts: [{ name: 'a', ok: true, sessions: [{ host: 'a', session_id: '1' }, { host: 'a', session_id: '2' }] }],
+  }
+  const closed = new Map([[closedKey('a', '1'), 1000]])
+  expect(withoutClosed(fleet, closed, 999).hosts[0].sessions.map((s) => s.session_id)).toEqual(['2'])
+  expect(withoutClosed(fleet, closed, 1000)).toBe(fleet)
+  expect(withoutClosed(fleet, new Map([[closedKey('b', '1'), 1000]]), 0)).toBe(fleet)
 })
 
 test('clusterByStack: a stack moves up to its first member, everything else keeps its place', () => {

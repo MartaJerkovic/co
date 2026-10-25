@@ -53,7 +53,7 @@ import { continueDraft } from '@/lib/brief'
 import { modelLabel, relTime, shortCwd } from '@/lib/format'
 import { harnessLabel } from '@/lib/harness'
 import { tailAnchor } from '@/lib/outbox'
-import { findSession, statusMeta, withoutSession } from '@/lib/sessions'
+import { findSession, statusMeta } from '@/lib/sessions'
 import { reviewHref } from '@/lib/review'
 import { stacksKnown } from '@/lib/stacks'
 import { isUndoBackspace, withHint } from '@/lib/shortcuts'
@@ -120,7 +120,7 @@ export function SessionScreen({
   embedded = false,
 }: SessionScreenProps) {
   const pane = layout === 'pane'
-  const { fleet, refresh: refreshFleet, applyFleet } = useFleet()
+  const { fleet, refresh: refreshFleet, dropSession } = useFleet()
   const settings = useSettings()
   const [, navigate] = useLocation()
   const now = useNow(1000)
@@ -475,8 +475,8 @@ export function SessionScreen({
     onClose: pane ? onToggleInspector : undefined,
     stack: stackMenu,
     onClosed: () => {
-      // Drop it from the list now; the next polls confirm (discovery caches ~2s).
-      if (fleet) applyFleet(withoutSession(fleet, host, id))
+      // Drop it from the list now and keep stale polls from bringing it back.
+      dropSession(host, id)
       setTimeout(refreshFleet, 2500)
       navigate('/', { replace: true })
     },

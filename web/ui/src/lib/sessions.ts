@@ -192,6 +192,16 @@ export function withoutSession(fleet: FleetResponse, host: string, id: string): 
   }
 }
 
+/** The key `withoutClosed` matches on: host + session id. */
+export const closedKey = (host: string, id: string) => `${host}\u0000${id}`
+
+/** The fleet minus the sessions closed recently (`closed`: closedKey → hide-until ms); same object when nothing matches. */
+export function withoutClosed(fleet: FleetResponse, closed: ReadonlyMap<string, number>, now = Date.now()): FleetResponse {
+  const hidden = (h: string, id: string) => (closed.get(closedKey(h, id)) ?? 0) > now
+  if (!fleet.hosts.some((h) => h.sessions.some((s) => hidden(h.name, s.session_id)))) return fleet
+  return { ...fleet, hosts: fleet.hosts.map((h) => ({ ...h, sessions: h.sessions.filter((s) => !hidden(h.name, s.session_id)) })) }
+}
+
 /** A list entry: one session, or the adjacent members of one stack (2 or more) shown as a group. */
 export type ListEntry = { kind: 'session'; session: Session } | { kind: 'stack'; key: string; sessions: Session[] }
 
