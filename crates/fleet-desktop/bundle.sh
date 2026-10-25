@@ -39,6 +39,7 @@ case "$profile" in
   <!-- Voice input in the composer (the page must be HTTPS or localhost — see docs/desktop.md). -->
   <key>NSMicrophoneUsageDescription</key><string>Fleet records voice messages that are transcribed into your prompts.</string>'
     url_env=""
+    title_bar=native
     ;;
   finances)
     name=Financije
@@ -47,6 +48,7 @@ case "$profile" in
     category=public.app-category.finance
     extra_plist=''
     url_env=FIN_DESKTOP_URL
+    title_bar=overlay
     url="${url:-${FIN_DESKTOP_URL:-}}"
     [[ -n "$url" ]] || { echo "--profile finances needs --url <https://…> (or FIN_DESKTOP_URL)" >&2; exit 2; }
     ;;
@@ -73,7 +75,8 @@ if [[ "$profile" != fleet ]]; then
   "name": "$name",
   "identifier": "$identifier",
   "url": "$url",
-  "urlEnv": "$url_env"
+  "urlEnv": "$url_env",
+  "titleBar": "$title_bar"
 }
 JSON
 fi

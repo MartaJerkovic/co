@@ -303,6 +303,7 @@ fn on_menu(app: &AppHandle, id: &str) {
 fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let st = app.state::<State>();
     let fleet = st.profile.is_fleet();
+    let overlay = st.profile.overlay();
     let name = st.profile.name().to_string();
     let server = st
         .target
@@ -366,10 +367,10 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
             true
         });
     // Fleet's chrome: no title bar, the traffic lights over the UI's own top bar, and
-    // the page script telling the UI so. Other profiles keep the native title bar.
-    let builder = if fleet {
+    // the page script telling the UI so. Other profiles opt in (`"titleBar": "overlay"`).
+    let builder = if overlay {
         let b = builder
-            .initialization_script(shell::script(false))
+            .initialization_script(shell::script(false, fleet))
             .on_page_load(|w, p| {
                 if p.event() == PageLoadEvent::Finished {
                     sync_shell(&w, true);
@@ -398,13 +399,13 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 /// after a page load, which starts from the initialization script's default).
 fn sync_shell(w: &WebviewWindow, force: bool) {
     let st = w.state::<State>();
-    if !st.profile.is_fleet() {
+    if !st.profile.overlay() {
         return;
     }
     let Ok(fs) = w.is_fullscreen() else { return };
     let last = st.fullscreen.swap(fs, Ordering::Relaxed);
     if force || last != fs {
-        let _ = w.eval(shell::script(fs));
+        let _ = w.eval(shell::script(fs, st.profile.is_fleet()));
     }
 }
 
@@ -484,7 +485,7 @@ fn main() {
         .menu(move |app| menu(app, &menu_profile))
         .on_menu_event(|app, ev| on_menu(app, ev.id().as_ref()))
         .setup(|app| {
-            if app.state::<State>().profile.is_fleet() {
+            if app.state::<State>().profile.overlay() {
                 allow_window_drag(app.handle())?;
             }
             build_window(app.handle())?;

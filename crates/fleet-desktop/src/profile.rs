@@ -1,8 +1,9 @@
 //! Which app this binary is. With no profile it is Fleet.app; a profile
 //! (`Contents/Resources/profile.json`, written by `bundle.sh --profile …`) turns the
 //! same shell into a plain window on another web app: its own name and bundle
-//! identifier, a fixed remote URL, the native title bar, and none of Fleet's extras
-//! (local server, `fleet://` links, menu commands, the drag grant, the page script).
+//! identifier, a fixed remote URL, and none of Fleet's extras (local server,
+//! `fleet://` links, menu commands). Its title bar is native unless the profile asks
+//! for Fleet's overlay chrome (`"titleBar": "overlay"`).
 
 use std::path::{Path, PathBuf};
 
@@ -26,6 +27,19 @@ pub struct Remote {
     /// An env var that overrides `url` (e.g. `FIN_DESKTOP_URL`).
     #[serde(default)]
     pub url_env: Option<String>,
+    /// The window chrome; the page has to handle `overlay` (see `shell`).
+    #[serde(default)]
+    pub title_bar: TitleBar,
+}
+
+/// `native`: the macOS title bar. `overlay`: Fleet's chrome — no title bar, the traffic
+/// lights over the page's own top bar, the page script and the window-drag grant.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TitleBar {
+    #[default]
+    Native,
+    Overlay,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +58,14 @@ impl Profile {
 
     pub fn is_fleet(&self) -> bool {
         matches!(self, Profile::Fleet)
+    }
+
+    /// Fleet's overlay chrome: always for Fleet, opt-in for another profile.
+    pub fn overlay(&self) -> bool {
+        match self {
+            Profile::Fleet => true,
+            Profile::Remote(r) => r.title_bar == TitleBar::Overlay,
+        }
     }
 }
 
@@ -93,6 +115,20 @@ mod tests {
         let Profile::Remote(r) = p else { panic!() };
         assert_eq!(r.url.as_deref(), Some("https://app.example.com:4443"));
         assert_eq!(r.url_env.as_deref(), Some("EXAMPLE_URL"));
+        assert_eq!(r.title_bar, TitleBar::Native);
+    }
+
+    #[test]
+    fn overlay_chrome_is_opt_in() {
+        let p = parse(r#"{ "name": "X", "identifier": "x", "titleBar": "overlay" }"#).unwrap();
+        assert!(p.overlay());
+        assert!(Profile::Fleet.overlay());
+        assert!(
+            !parse(r#"{ "name": "X", "identifier": "x" }"#)
+                .unwrap()
+                .overlay()
+        );
+        assert!(parse(r#"{ "name": "X", "identifier": "x", "titleBar": "hidden" }"#).is_err());
     }
 
     #[test]

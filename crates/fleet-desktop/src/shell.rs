@@ -1,7 +1,8 @@
 //! The window chrome: no macOS title bar, the traffic lights overlaid on the
 //! page's own top bar. The page learns it is inside the app from an
 //! initialization script (`data-shell="desktop"`, `data-attach="iterm"` when it opens
-//! `fleet://attach` links, + CSS variables), not IPC.
+//! `fleet://attach` links — Fleet.app only, + CSS variables), not IPC. Used by Fleet and by
+//! any profile with `"titleBar": "overlay"`.
 
 use tauri::Url;
 
@@ -18,12 +19,18 @@ pub const TITLEBAR_HEIGHT_PX: u32 = 56;
 /// The script that tells the page it is in the desktop shell and whether the
 /// traffic lights are showing (they hide in full screen, so the inset collapses).
 /// Runs as the initialization script of every page and again on full-screen changes.
-pub fn script(fullscreen: bool) -> String {
+/// `attach`: the app opens `fleet://attach` links (Fleet.app).
+pub fn script(fullscreen: bool, attach: bool) -> String {
     let inset = if fullscreen { 0 } else { INSET_LEFT_PX };
+    let attach = if attach {
+        "d.dataset.attach='iterm';"
+    } else {
+        ""
+    };
     format!(
         "(function(){{var d=document.documentElement;if(!d)return;\
 d.dataset.shell='desktop';d.classList.add('shell-desktop');\
-d.dataset.attach='iterm';\
+{attach}\
 d.dataset.fullscreen='{fullscreen}';\
 d.style.setProperty('--titlebar-inset-left','{inset}px');\
 d.style.setProperty('--titlebar-height','{TITLEBAR_HEIGHT_PX}px');}})();"
@@ -55,7 +62,7 @@ mod tests {
 
     #[test]
     fn script_marks_the_shell_and_sets_the_inset() {
-        let s = script(false);
+        let s = script(false, true);
         assert!(s.contains("d.dataset.shell='desktop'"));
         assert!(s.contains("classList.add('shell-desktop')"));
         assert!(s.contains("d.dataset.attach='iterm'"));
@@ -65,8 +72,14 @@ mod tests {
     }
 
     #[test]
+    fn attach_is_fleet_only() {
+        assert!(!script(false, false).contains("attach"));
+        assert!(script(false, false).contains("d.dataset.shell='desktop'"));
+    }
+
+    #[test]
     fn full_screen_collapses_the_inset() {
-        let s = script(true);
+        let s = script(true, true);
         assert!(s.contains("'--titlebar-inset-left','0px'"));
         assert!(s.contains("fullscreen='true'"));
     }

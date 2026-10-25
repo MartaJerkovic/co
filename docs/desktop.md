@@ -140,15 +140,18 @@ it at launch, and without one it is Fleet.app, unchanged. A profile app gets:
   `GET /api/health` does not answer 200 (an https URL is checked end to end with `curl`, since
   a proxy such as `tailscale serve` accepts connections while the app behind it is down), the
   start page says "<App> server is not running" with Retry;
-- the native title bar, no page script, no `window-drag` grant, no `fleet://` links, no File →
+- the native title bar, or with `"titleBar": "overlay"` Fleet's chrome (Overlay title bar, the
+  page script without `data-attach`, the `window-drag` grant on its URL's origin — the page must
+  handle `data-shell="desktop"` and `--titlebar-inset-left` itself, see
+  [Window chrome](#window-chrome-and-the-one-ipc-grant)); no `fleet://` links, no File →
   New Session. The rest is shared: the link policy, downloads, the Edit menu, ⌘R / ⌘⇧R,
   ⌘[ / ⌘], ⌘W hides, the remembered window, single instance.
 
-Profiles live in `bundle.sh` (name, identifier, icon, category, URL env var). The one today:
+Profiles live in `bundle.sh` (name, identifier, icon, category, URL env var, title bar). The one today:
 
-| profile | app | identifier | URL |
-| --- | --- | --- | --- |
-| `finances` | `Financije.app` | `dev.fleet.desktop.finances` | `--url`, else `FIN_DESKTOP_URL` at build time; `FIN_DESKTOP_URL` at run time overrides it |
+| profile | app | identifier | title bar | URL |
+| --- | --- | --- | --- | --- |
+| `finances` | `Financije.app` | `dev.fleet.desktop.finances` | overlay | `--url`, else `FIN_DESKTOP_URL` at build time; `FIN_DESKTOP_URL` at run time overrides it |
 
 ```sh
 crates/fleet-desktop/bundle.sh --profile finances --url https://workstation.<tailnet>.ts.net:4443 --install
