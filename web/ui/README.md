@@ -74,8 +74,12 @@ src/
   lib/spawnDirs.ts    Settings → Start directories: the editable draft (DraftRow), fromDraft()/toDraft(), sameList(),
                       validateDraft() (mirrors lib/spawn-dirs.mjs), moveRow(), hostPathErrors()/checksByPath() (a
                       host's answer → its column), baseHost(), divergedHosts(), withOffered()
-  lib/palettes.ts     colour palettes (Settings → Theme: Default / Earth / Dusk, `data-palette` on <html>, tokens in
-                      index.css): PALETTES (picker swatches), parsePalette(), themeColor() (meta theme-color per mode)
+  lib/palettes.ts     colour palettes (Settings → Theme: Default / Earth / Dusk / Suite, `data-palette` on <html>, tokens
+                      in index.css; Suite's in the generated `suite/palette-suite.css`): PALETTES (picker swatches),
+                      parsePalette(), themeColor() (meta theme-color per mode)
+  suite/              generated, do not edit: `palette-suite.css`, the opt-in **Suite** palette (warm neutrals and a
+                      terracotta accent shared with a few sibling apps). It and the app icons in `public/` (and the
+                      desktop icons) come from a shared design system kept outside this repo; Default is unchanged
   lib/notes.ts        notes explorer: buildTree(), notesHref() / parseNotesLocation() (`#/notes/<host>/<path>`),
                       indexNotes() + resolveNoteLink() (relative + `[[wiki]]` links), splitRanges(), highlightTerms()
   lib/review.ts       diff reviewer: reviewHref() / parseReviewLocation() (`#/review/<host>/<id>`), fileTree() +
@@ -472,7 +476,9 @@ src/
   (← Sessions, name, host picker, search ⌘F, root, editor link), then tree | results or recent |
   note. Mobile: the browse/search screen (recent + tree, or results), a note is its own screen;
   swipe right = back on both.
-- **PWA**: `public/` has the manifest (standalone, `/#/`) and the app icons;
+- **PWA**: `public/` has the manifest (standalone, `/#/`) and the app icons (generated, like
+  `src/suite/`, from the shared design system: a white arrowhead on a terracotta tile; the 512 PNG
+  is `any maskable`);
   `index.html` sets theme-color (kept in sync with the theme), apple-mobile-web-app meta,
   `viewport-fit=cover` and `interactive-widget=resizes-content`. No service worker (the app is
   useless offline; the server revalidates every file).

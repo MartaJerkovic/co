@@ -1,9 +1,10 @@
 // Colour palettes (Settings → Theme) — orthogonal to the light/dark mode (useTheme). A palette is
-// `data-palette` on <html> (none = Default); its tokens live in index.css, one block per mode.
+// `data-palette` on <html> (none = Default); its tokens live in index.css, one block per mode
+// (Suite's in the generated suite/palette-suite.css).
 // Pure helpers, unit-tested in palettes.test.ts (which also checks these hexes against index.css
 // and the index.html pre-paint script).
 
-export type PaletteId = 'default' | 'earth' | 'dusk'
+export type PaletteId = 'default' | 'earth' | 'dusk' | 'suite'
 export type PaletteMode = 'light' | 'dark'
 
 export const PALETTE_KEY = 'fleet.palette'
@@ -50,6 +51,15 @@ export const PALETTES: readonly Palette[] = [
     swatch: {
       light: { background: '#faf9fc', card: '#f2f0f7', primary: '#6547c2' },
       dark: { background: '#121119', card: '#1a1823', primary: '#b3a0ff' },
+    },
+  },
+  {
+    id: 'suite',
+    label: 'Suite',
+    hint: 'Shared app-suite neutrals, terracotta accent',
+    swatch: {
+      light: { background: '#fbfbfa', card: '#f1f0ec', primary: '#a14a2a' },
+      dark: { background: '#17181a', card: '#1e2022', primary: '#e39a6f' },
     },
   },
 ]

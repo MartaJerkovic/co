@@ -207,7 +207,7 @@ function ThemePicker() {
       value={palette}
       onValueChange={(v) => v && setPalette(parsePalette(v))}
       aria-label="Theme"
-      className="grid w-full grid-cols-3 gap-2"
+      className="grid w-full grid-cols-4 gap-2"
     >
       {PALETTES.map((p) => {
         const sw = p.swatch[resolved]

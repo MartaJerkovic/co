@@ -7,6 +7,7 @@ import { PALETTES, parsePalette, themeColor, type PaletteMode } from './palettes
 test('parsePalette: known ids pass, anything else is Default', () => {
   expect(parsePalette('earth')).toBe('earth')
   expect(parsePalette('dusk')).toBe('dusk')
+  expect(parsePalette('suite')).toBe('suite')
   expect(parsePalette('default')).toBe('default')
   expect(parsePalette(null)).toBe('default')
   expect(parsePalette(undefined)).toBe('default')
@@ -20,10 +21,13 @@ test('themeColor: the palette background per mode', () => {
   expect(themeColor('default', 'light')).toBe('#ffffff')
   expect(themeColor('earth', 'light')).toBe('#f7f2ea')
   expect(themeColor('dusk', 'dark')).toBe('#121119')
+  expect(themeColor('suite', 'light')).toBe('#fbfbfa')
 })
 
 // Read from disk: vitest stubs CSS imports (even `?raw`).
-const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8')
+// The Suite palette's blocks are generated into suite/palette-suite.css (imported by index.css).
+const indexCss = readFileSync(new URL('../index.css', import.meta.url), 'utf8')
+const css = indexCss + readFileSync(new URL('../suite/palette-suite.css', import.meta.url), 'utf8')
 const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
 
 /** The token block for a palette + mode in index.css. */
@@ -55,6 +59,10 @@ test('every non-default palette overrides every default token, in both modes', (
     expect(names(block(p.id, 'light')).sort(), p.id).toEqual(light)
     expect(names(block(p.id, 'dark')).sort(), p.id).toEqual(light)
   }
+})
+
+test('index.css imports the generated Suite palette', () => {
+  expect(indexCss).toContain('@import "./suite/palette-suite.css";')
 })
 
 test('the index.html pre-paint script knows every palette and its theme-colors', () => {
