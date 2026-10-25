@@ -5,8 +5,8 @@
 #
 #   crates/fleet-desktop/bundle.sh            # → target/release/bundle/Fleet.app (+ Fleet.zip)
 #   crates/fleet-desktop/bundle.sh --install  # ...and copy it to ~/Applications
-#   crates/fleet-desktop/bundle.sh --profile finances --url https://host:4443 [--install]
-#                                             # → Financije.app (URL also from $FIN_DESKTOP_URL)
+#   crates/fleet-desktop/bundle.sh --profile fin --url https://host:4443 [--install]
+#                                             # → Fin.app (URL also from $FIN_DESKTOP_URL)
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -41,16 +41,16 @@ case "$profile" in
     url_env=""
     title_bar=native
     ;;
-  finances)
-    name=Financije
-    identifier=dev.fleet.desktop.finances
-    icon="$here/icons/finances.png"
+  fin)
+    name=Fin
+    identifier=dev.fleet.desktop.fin
+    icon="$here/icons/fin.png"
     category=public.app-category.finance
     extra_plist=''
     url_env=FIN_DESKTOP_URL
     title_bar=overlay
     url="${url:-${FIN_DESKTOP_URL:-}}"
-    [[ -n "$url" ]] || { echo "--profile finances needs --url <https://…> (or FIN_DESKTOP_URL)" >&2; exit 2; }
+    [[ -n "$url" ]] || { echo "--profile fin needs --url <https://…> (or FIN_DESKTOP_URL)" >&2; exit 2; }
     ;;
   brain)
     name=Brain
@@ -63,7 +63,7 @@ case "$profile" in
     url="${url:-${BRAIN_DESKTOP_URL:-}}"
     [[ -n "$url" ]] || { echo "--profile brain needs --url <https://…> (or BRAIN_DESKTOP_URL)" >&2; exit 2; }
     ;;
-  *) echo "unknown profile: $profile (fleet, finances, brain)" >&2; exit 2 ;;
+  *) echo "unknown profile: $profile (fleet, fin, brain)" >&2; exit 2 ;;
 esac
 if [[ -n "$url" ]]; then
   [[ "$profile" != fleet ]] || { echo "--url is for other profiles; Fleet.app reads its config" >&2; exit 2; }

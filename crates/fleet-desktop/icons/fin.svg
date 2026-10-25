@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- the finances web UI's favicon (a bar chart on a green tile) on the macOS icon grid:
+  <!-- the fin web UI's favicon (a bar chart on a green tile) on the macOS icon grid:
        824px rounded square, 100px margin -->
   <g transform="translate(100 100) scale(12.875)">
     <rect width="64" height="64" rx="14" fill="#2f6f5e"/>

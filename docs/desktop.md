@@ -151,11 +151,11 @@ Profiles live in `bundle.sh` (name, identifier, icon, category, URL env var, tit
 
 | profile | app | identifier | title bar | URL |
 | --- | --- | --- | --- | --- |
-| `finances` | `Financije.app` | `dev.fleet.desktop.finances` | overlay | `--url`, else `FIN_DESKTOP_URL` at build time; `FIN_DESKTOP_URL` at run time overrides it |
+| `fin` | `Fin.app` | `dev.fleet.desktop.fin` | overlay | `--url`, else `FIN_DESKTOP_URL` at build time; `FIN_DESKTOP_URL` at run time overrides it |
 | `brain` | `Brain.app` | `dev.fleet.desktop.brain` | overlay | `--url`, else `BRAIN_DESKTOP_URL` at build time; `BRAIN_DESKTOP_URL` at run time overrides it |
 
 ```sh
-crates/fleet-desktop/bundle.sh --profile finances --url https://workstation.<tailnet>.ts.net:4443 --install
+crates/fleet-desktop/bundle.sh --profile fin --url https://workstation.<tailnet>.ts.net:4443 --install
 crates/fleet-desktop/bundle.sh --profile brain --url https://workstation.<tailnet>.ts.net:5443 --install
 ```
 
@@ -178,5 +178,5 @@ Layout: `src/profile.rs` (Fleet or another app), `src/server.rs` (URL resolution
 navigation / new-window policy), `src/shell.rs` (traffic-light position, the page's
 initialization script, the drag capability's URL pattern), `src/main.rs` (window, menu, plugins), `start/index.html` (the
 start page), `tauri.conf.json`, `icons/` (`icon.svg` is the web icon on the macOS icon grid;
-`icon.png` is rendered from it; `finances.svg` / `finances.png` likewise for `Financije.app`,
-e.g. `magick -background none finances.svg -resize 1024x1024 PNG32:finances.png`).
+`icon.png` is rendered from it; `fin.svg` / `fin.png` likewise for `Fin.app`,
+e.g. `magick -background none fin.svg -resize 1024x1024 PNG32:fin.png`).
