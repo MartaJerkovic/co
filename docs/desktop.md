@@ -189,6 +189,7 @@ FLEET_DESKTOP_PROFILE=./profile.json cargo run -p fleet-desktop
 Layout: `src/profile.rs` (Fleet or another app), `src/server.rs` (URL resolution, health probe, starting the server), `src/links.rs` (the
 navigation / new-window policy), `src/shell.rs` (traffic-light position, the page's
 initialization script, the drag capability's URL pattern), `src/main.rs` (window, menu, plugins), `start/index.html` (the
-start page), `tauri.conf.json`, `icons/` (`icon.svg` is the web icon on the macOS icon grid;
-`icon.png` is rendered from it; `fin.svg` / `fin.png` likewise for `Fin.app`,
-e.g. `magick -background none fin.svg -resize 1024x1024 PNG32:fin.png`).
+start page), `tauri.conf.json`, `icons/` (`icon.svg` is the web icon on the macOS icon grid,
+`icon.png` its 1024px render; `fin.*` and `brain.*` likewise for `Fin.app` and `Brain.app`. All
+of them are generated, with the web icons and the Suite palette, from a shared design system kept
+outside this repo — replace them as a set, don't edit by hand).
