@@ -71,7 +71,9 @@ fleet web serve                       # web UI on :7777 (run it on each machine)
 
 Then open `http://<workstation-tailscale-ip>:7777` on your phone and add it to the home screen. On a
 Mac, `crates/fleet-desktop/bundle.sh --install` builds **Fleet.app**, the same UI as a desktop app
-([docs/desktop.md](docs/desktop.md)).
+([docs/desktop.md](docs/desktop.md)). Other apps can frame one directory's sessions as a chat
+panel: the embed view, `https://<fleet>/?host=…&dir=…#/embed`
+([docs/architecture.md → Embed view](docs/architecture.md#embed-view)).
 
 Building the whole setup from scratch (always-on Mac, Tailscale, ssh, tmux, phone):
 [docs/setup.md](docs/setup.md).

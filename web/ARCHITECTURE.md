@@ -174,7 +174,7 @@ JSON everywhere, same origin, no auth. Errors are `{ "error": "message" }`.
 | POST | `/api/hosts/:host/sessions/:id/send` | `{ text }` (1..8000 chars, not blank) | `{ ok: true }` |
 | POST | `/api/hosts/:host/sessions/:id/keys` | `{ key }`, one of `Enter`, `Escape`, `Up`, `Down` | `{ ok: true }` |
 | POST | `/api/hosts/:host/sessions/:id/rename` | `{ title }` (trimmed, 1..64 chars, one line) | `{ ok: true, host, id, result, title, from, tmux, message, … }` — the `fleet rename --json` report. **409** `{ error, result: "held", held: "waiting", … }` when the session is waiting on a prompt (nothing typed); 400 bad title; 404 unknown session; 502/504 CLI failure / timeout. Proxied once to a peer like the other session actions |
-| POST | `/api/hosts/:host/spawn` | `{ name?, dir?, prompt?, model?, harness? }` | `{ ok, host, name, dir, tmuxSession, command, trusted, model, harness }` — `harness`: `claude` (default) \| `codex` \| `pi` |
+| POST | `/api/hosts/:host/spawn` | `{ name?, dir?, prompt?, model?, harness?, ghIdentity?, embed? }` | `{ ok, host, name, dir, tmuxSession, command, trusted, model, harness }` — `harness`: `claude` (default) \| `codex` \| `pi` |
 | GET | `/api/hosts/:host/harnesses` | `?refresh=1` skips the 10 min cache | `{ host, harnesses: [{ id, label, command, installed, models: [{ id, label }] }] }` — `fleet --local harness list --json`; Claude's models are `web.models`; a CLI without `harness` → Claude alone. Proxied once to a peer |
 | POST | `/api/hosts/:host/sessions/:id/kill` | `{}` | `{ ok: true, host, id, name, process, terminal }` |
 | GET | `/api/hosts/:host/usage` | `?refresh=1` skips the CLI's 60s cache | `{ host, account, limits: [{ kind, group, label, model, percent, severity, resets_at, active }], extra_usage, fetched_at, stale, error }` — `fleet usage --json` (docs/architecture.md → Subscription usage); 502 with the CLI's reason, 504 on timeout. Proxied once to a peer |
@@ -248,9 +248,10 @@ are filled in by the server that received the request (lib/editor.mjs), also for
 answer — see docs/architecture.md → Session briefs → Open in editor.
 Proxied to a peer like the other session routes (PUT bodies included).
 
-**Host** = `{ name, ok, error?, fetchedAt, spawnDirs?: [{ label, path }], notes?: { name }, stacks?: [{ id, label, host, members: [{ session, host, live }] }], sessions: [Session] }`.
+**Host** = `{ name, ok, error?, fetchedAt, spawnDirs?: [{ label, path }], home?, notes?: { name }, stacks?: [{ id, label, host, members: [{ session, host, live }] }], sessions: [Session] }`.
 `stacks` is that host's session stacks, compact (what its `fleet stack` calls last showed); the server building a merged view stamps `stack: { id, label, host }` on the rows of members that run on other hosts (`lib/stacks.mjs#stampForeign`), since only a stack's home host lists it.
-Each host advertises its own `spawnDirs` (absolute paths on that host) and, when it has `web.notes.root`, `notes`.
+Each host advertises its own `spawnDirs` (absolute paths on that host), its `home` (to expand a
+`~/…` path from a client, e.g. the embed view's `dir`; older servers omit it) and, when it has `web.notes.root`, `notes`.
 
 **Session** = the `fleet list --json` object + `host` + `editorUrl` (for its cwd; set by the server that answered). Sorted `waiting` → `busy` → `idle` →
 `unknown`, then `updated_at` descending.
@@ -272,7 +273,10 @@ first prompt, a targeted pass for just that session runs as soon as it has answe
 Auto-naming). `model` (optional; `""` = Claude's default) must be 1–100 chars of letters, digits
 and `._[]-` (else 400) and is typed as `--model '<id>'`; it is not checked against `web.models`,
 so a client can pick from its own server's list for a peer. The UI sends no `name` any more;
-the field stays for other clients.
+the field stays for other clients. `embed` (optional, `[A-Za-z0-9_-]{1,40}`, else 400): the app
+whose embedded Fleet panel spawns it (the [embed view](../docs/architecture.md#embed-view)'s
+`app`) — set as the pane option `@fleet_embed`, which `fleet list --json` reports as `embed`;
+the UI sets those sessions aside in its Apps filter.
 The session shows up in `/api/fleet` once Claude registers it; clients poll for a session whose
 `tmux_session` equals `tmuxSession`.
 

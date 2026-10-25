@@ -118,7 +118,8 @@ export FLEET_GH_IDENTITY=bot GH_CONFIG_DIR=<empty dir> PATH=<shim dir>:"$PATH" &
 `fleet gh-identity list [--json]` shows the configured ones (`[{ name, login, command }]`);
 `fleet gh-identity launcher <name> [--launcher <cmd>]` prints the launch command a session with
 that identity starts with (writing its shim) — the web server's spawn uses it. The pane carries the option `@fleet_gh_identity`; `fleet list --json` reports it as
-`gh_identity` (`null` = yours). Claude sessions only, for now. `git push` is untouched — it uses
+`gh_identity` (`null` = yours). Claude sessions only, for now. (Likewise `@fleet_embed` → `embed`:
+the app whose embedded Fleet panel started the session — see [Embed view](architecture.md#embed-view).) `git push` is untouched — it uses
 the machine's own credentials. Shim, empty config dir and note live in
 `${XDG_STATE_HOME:-~/.local/state}/fleet/gh-identities/<name>/`.
 
