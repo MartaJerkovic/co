@@ -304,3 +304,20 @@ test('spawner launches under a GitHub identity: wrapped launcher, pane option, u
   assert.equal(res.ghIdentity, 'bot');
   await assert.rejects(sp.spawn({ name: 'job2', dir: '/tmp', prompt: '', ghIdentity: 'nope' }), /no GitHub identity "nope"/);
 });
+
+test('validateSpawnRequest takes an embed label; the spawner puts it on the pane', async () => {
+  const opts = { spawnDirs: ['/tmp'] };
+  assert.equal(validateSpawnRequest({}, opts).embed, null);
+  assert.equal(validateSpawnRequest({ embed: 'fin' }, opts).embed, 'fin');
+  assert.equal(validateSpawnRequest({ embed: 'a b;c' }, opts).ok, false);
+  const calls = [];
+  const run = async (bin, args) => {
+    calls.push([bin, ...args]);
+    if (args[0] === 'has-session') throw new Error('no such session');
+    return { stdout: '', stderr: '' };
+  };
+  const sp = createSpawner({ run, tmux: 'tmux', launcher: 'claude', sleep: async () => {} });
+  const res = await sp.spawn({ name: 'emb', dir: '/tmp', prompt: '', embed: 'fin' });
+  assert.ok(calls.some((c) => c.join(' ') === 'tmux set-option -p -t emb: @fleet_embed fin'));
+  assert.equal(res.embed, 'fin');
+});

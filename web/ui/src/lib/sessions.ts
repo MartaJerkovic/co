@@ -27,25 +27,32 @@ export function statusLabel(s: Pick<Session, 'status' | 'waiting_for'>): string 
   return meta.key === 'waiting' && why ? `${meta.label} · ${why}` : meta.label
 }
 
-export type StatusFilterId = 'all' | 'waiting' | 'busy' | 'idle' | 'scheduled'
+export type StatusFilterId = 'all' | 'waiting' | 'busy' | 'idle' | 'scheduled' | 'embedded'
 export interface StatusFilter {
   id: StatusFilterId
   label: string
   match: (s: Session) => boolean
+  /** The chip's tooltip. */
+  title?: string
 }
+
+/** The filters for sessions set aside from the rest (bots, app panels): a chip only when there are some. */
+const SET_ASIDE: StatusFilterId[] = ['scheduled', 'embedded']
 
 export const STATUS_FILTERS: StatusFilter[] = [
   { id: 'all', label: 'All', match: () => true },
   { id: 'waiting', label: 'Needs you', match: (s) => statusMeta(s.status).key === 'waiting' },
   { id: 'busy', label: 'Busy', match: (s) => statusMeta(s.status).key === 'busy' },
   { id: 'idle', label: 'Idle', match: (s) => statusMeta(s.status).key === 'idle' },
-  // Only the sessions bots started (every other filter leaves them out unless waiting).
-  { id: 'scheduled', label: 'Bots', match: (s) => isJobSession(s) },
+  // Only the sessions bots started / an app's embedded panel started (every other filter leaves
+  // them out unless waiting).
+  { id: 'scheduled', label: 'Bots', match: (s) => isJobSession(s), title: 'Sessions started by bots' },
+  { id: 'embedded', label: 'Apps', match: (s) => isEmbedSession(s), title: "Sessions started from an app's Fleet panel (embed view)" },
 ]
 
-/** The filters worth a chip: "Bots" only when there are bot sessions, or it is the one picked. */
+/** The filters worth a chip: Bots / Apps only when there are such sessions, or it is the one picked. */
 export function visibleStatusFilters(counts: Record<StatusFilterId, number> | null, current: StatusFilterId): StatusFilter[] {
-  return STATUS_FILTERS.filter((f) => f.id !== 'scheduled' || current === 'scheduled' || (counts?.scheduled ?? 0) > 0)
+  return STATUS_FILTERS.filter((f) => !SET_ASIDE.includes(f.id) || current === f.id || (counts?.[f.id] ?? 0) > 0)
 }
 
 export function findStatusFilter(id: string | null | undefined): StatusFilter {
@@ -86,25 +93,30 @@ export function isJobSession(s: Pick<Session, 'origin'>): boolean {
   return Boolean(s.origin?.job)
 }
 
-/**
- * Job sessions stay out of every filter but "Scheduled" — except one waiting on you, which
- * always shows (and always counts).
- */
-export function hiddenAsScheduled(s: Session): boolean {
-  return isJobSession(s) && statusMeta(s.status).key !== 'waiting'
+/** A session an app's embedded Fleet panel started (`embed`, docs/architecture.md → Embed view). */
+export function isEmbedSession(s: Pick<Session, 'embed'>): boolean {
+  return Boolean(s.embed)
 }
 
 /**
- * `host` null = every host. The "Scheduled" filter shows only job sessions; the others show the
- * rest, plus job sessions waiting on you.
+ * Job and embed sessions stay out of every filter but their own (Bots / Apps) — except one
+ * waiting on you, which always shows (and always counts).
+ */
+export function setAside(s: Session): boolean {
+  return (isJobSession(s) || isEmbedSession(s)) && statusMeta(s.status).key !== 'waiting'
+}
+
+/**
+ * `host` null = every host. Bots / Apps show only job / embed sessions; the other filters show
+ * the rest, plus those waiting on you.
  */
 export function listView(
   fleet: FleetResponse | null | undefined,
   { query = '', host = null, status = 'all' }: { query?: string; host?: string | null; status?: StatusFilterId },
 ): ListView {
   const matched = allSessions(fleet).filter((s) => (host == null || s.host === host) && matchesSearch(s, query))
-  const visible = matched.filter((s) => !hiddenAsScheduled(s))
-  const scope = (f: StatusFilter) => (f.id === 'scheduled' ? matched : visible).filter(f.match)
+  const visible = matched.filter((s) => !setAside(s))
+  const scope = (f: StatusFilter) => (SET_ASIDE.includes(f.id) ? matched : visible).filter(f.match)
   const counts = Object.fromEntries(STATUS_FILTERS.map((f) => [f.id, scope(f).length])) as Record<StatusFilterId, number>
   return { sessions: clusterByStack(scope(findStatusFilter(status)).sort(byLastActivity)), counts }
 }

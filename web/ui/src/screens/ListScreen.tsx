@@ -177,7 +177,7 @@ export function ListScreen() {
           className="no-scrollbar mt-2 w-full overflow-x-auto"
         >
           {visibleStatusFilters(fleet ? view.counts : null, status).map((f) => (
-            <ToggleGroupItem key={f.id} value={f.id} className={chipClass} title={f.id === 'scheduled' ? 'Sessions started by bots' : undefined}>
+            <ToggleGroupItem key={f.id} value={f.id} className={chipClass} title={f.title}>
               <StatusFilterLabel filter={f} />
               <span className="text-xs text-dimmer tabular-nums group-data-[state=on]/toggle:text-accent-foreground/70">
                 {fleet ? view.counts[f.id] : ''}

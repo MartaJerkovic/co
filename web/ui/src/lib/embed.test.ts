@@ -4,8 +4,11 @@ import type { FleetResponse, Session } from '@/api/types'
 import { embedHash, isInside, parseEmbedHash, readEmbed, resolveEmbedDir, sessionsIn } from './embed'
 
 test('parseEmbedHash: host + dir required, theme optional', () => {
-  expect(parseEmbedHash('#/embed?host=workstation&dir=~/Code/project&theme=light')).toEqual({ host: 'workstation', dir: '~/Code/project', theme: 'light' })
-  expect(parseEmbedHash('#/embed?host=w&dir=%2Fsrv%2Fapp')).toEqual({ host: 'w', dir: '/srv/app', theme: null })
+  expect(parseEmbedHash('#/embed?host=workstation&dir=~/Code/project&theme=light')).toEqual({ host: 'workstation', dir: '~/Code/project', theme: 'light', app: 'project' })
+  expect(parseEmbedHash('#/embed?host=w&dir=%2Fsrv%2Fapp')).toEqual({ host: 'w', dir: '/srv/app', theme: null, app: 'app' })
+  expect(parseEmbedHash('#/embed?host=w&dir=/srv/x&app=notes')?.app).toBe('notes')
+  expect(parseEmbedHash('#/embed?host=w&dir=/srv/x&app=a%20b')?.app).toBe('x')
+  expect(parseEmbedHash('#/embed?host=w&dir=/')?.app).toBe('app')
   expect(parseEmbedHash('#/embed?host=w&dir=/x&theme=blue')?.theme).toBeNull()
   expect(parseEmbedHash('#/embed?host=w')).toBeNull()
   expect(parseEmbedHash('#/embed')).toBeNull()
@@ -14,12 +17,12 @@ test('parseEmbedHash: host + dir required, theme optional', () => {
 })
 
 test('embedHash round-trips', () => {
-  const p = { host: 'w', dir: '~/Code/a b', theme: 'dark' as const }
+  const p = { host: 'w', dir: '~/Code/a b', theme: 'dark' as const, app: 'notes' }
   expect(parseEmbedHash(`#${embedHash(p)}`)).toEqual(p)
 })
 
 test('readEmbed: the hash, else the query string the router moved it to', () => {
-  const p = { host: 'w', dir: '~/Code/app', theme: null }
+  const p = { host: 'w', dir: '~/Code/app', theme: null, app: 'app' }
   expect(readEmbed({ hash: '#/embed?host=w&dir=~/Code/app', search: '' })).toEqual(p)
   expect(readEmbed({ hash: '#/embed', search: '?host=w&dir=~/Code/app' })).toEqual(p)
   expect(readEmbed({ hash: '#/s/w/abc', search: '?host=w&dir=~/Code/app' })).toEqual(p)

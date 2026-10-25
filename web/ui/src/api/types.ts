@@ -58,6 +58,8 @@ export interface Session {
    * docs/cli.md → GitHub identities); null = the user's own. Older CLIs omit it.
    */
   gh_identity?: string | null
+  /** The app whose embedded Fleet panel started it (`fleet list --json` → `embed`, the pane's `@fleet_embed`); null / absent = none. */
+  embed?: string | null
   /** The host's voice operator (web/lib/operator.mjs): kept out of session lists. Older servers omit it. */
   operator?: boolean
 }
@@ -426,6 +428,8 @@ export interface SpawnRequest {
   harness?: HarnessId | string
   /** Act on GitHub as this identity (Claude only); absent = the user's own. */
   ghIdentity?: string
+  /** Started from this app's embedded panel (the embed view's `app`): a label on the session. */
+  embed?: string
 }
 
 export interface SpawnResponse {

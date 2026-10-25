@@ -190,7 +190,7 @@ src/
 - **Embed view** (`/?host=…&dir=…[&theme=…]#/embed`, also `#/embed?…`): one directory's sessions
   for another app to frame — its own tree in `App.tsx` (`EmbedApp`, `screens/EmbedScreen.tsx`),
   without Fleet's navigation. List (sessions on that host with their cwd in `dir`) + New session
-  (the form with host / directory fixed, `SpawnPrefill.fixed`) → the mobile session screen with
+  (the form with host / directory fixed, `SpawnPrefill.fixed`; the session is labelled with `app`, `SpawnPrefill.embed`) → the mobile session screen with
   `embedded` (no Review / scratchpad / stack bar) and `onBack` to the list. `theme` forces the
   mode (`ThemeProvider forced`, and index.html's pre-paint) without saving it. Moves replace
   history entries. Contract: [docs/architecture.md → Embed view](../../docs/architecture.md#embed-view).
@@ -201,7 +201,9 @@ src/
   While closed, active filters show on the handle ("Needs you · workstation") with ✕ to clear.
   The List | Board toggle stays next to the search field.
 - **Bot sessions**: a session a bot started (`origin` on its row) wears a bot chip
-  (bot icon + bot name; the run id in a tooltip) on list rows and board cards. **Bots** is a status
+  (bot icon + bot name; the run id in a tooltip) on list rows and board cards. **Apps** does the
+  same for sessions an app's embedded panel started (`embed`: app icon + app name, the Apps
+  filter beside Bots). **Bots** is a status
   filter (the bot-icon chip after Idle, shown when there are job sessions): it lists only job
   sessions. Every other filter leaves them out, except ones waiting on you (they always show, and
   every "needs you" counter counts them); the header counters count every session.

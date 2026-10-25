@@ -158,7 +158,7 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
 
         <ToggleGroup type="single" value={status} onValueChange={(v) => v && setStatus(v as StatusFilterId)} aria-label="Filter by status">
           {visibleStatusFilters(fleet ? lv.counts : null, status).map((f) => (
-            <ToggleGroupItem key={f.id} value={f.id} className={chip} title={f.id === 'scheduled' ? 'Sessions started by bots' : undefined}>
+            <ToggleGroupItem key={f.id} value={f.id} className={chip} title={f.title}>
               <StatusFilterLabel filter={f} />
               <span className="text-[0.6875rem] text-dimmer tabular-nums group-data-[state=on]/toggle:text-accent-foreground/70">
                 {fleet ? lv.counts[f.id] : ''}

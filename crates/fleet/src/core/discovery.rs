@@ -89,6 +89,9 @@ pub struct Session {
     pub origin: Option<crate::core::jobs::Origin>,
     /// The GitHub identity it acts as ([`crate::core::gh_identity`]); `null` = the user's own.
     pub gh_identity: Option<String>,
+    /// The app whose embedded Fleet panel started it (the web embed view's `app`, the pane's
+    /// `@fleet_embed` option); `null` when none.
+    pub embed: Option<String>,
 }
 
 impl Default for Session {
@@ -118,6 +121,7 @@ impl Default for Session {
             transcript: None,
             origin: None,
             gh_identity: None,
+            embed: None,
         }
     }
 }
@@ -233,6 +237,8 @@ pub struct Pane {
     pub job_run: String,
     /// The pane's `@fleet_gh_identity` option: the GitHub identity it acts as (empty when none).
     pub gh_identity: String,
+    /// The pane's `@fleet_embed` option: the app whose embedded panel started it (empty when none).
+    pub embed: String,
 }
 
 /// A canned fleet from `FLEET_FIXTURE=<path/to/sessions.json>`. Bypasses the
@@ -341,6 +347,7 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
             gh_identity: pane
                 .map(|p| p.gh_identity.clone())
                 .filter(|g| !g.is_empty()),
+            embed: pane.map(|p| p.embed.clone()).filter(|e| !e.is_empty()),
         });
     }
     crate::core::context::apply_native_1m(out.iter_mut().filter_map(|s| s.context.as_mut()));
@@ -427,6 +434,7 @@ fn harness_session(
         gh_identity: pane
             .map(|p| p.gh_identity.clone())
             .filter(|g| !g.is_empty()),
+        embed: pane.map(|p| p.embed.clone()).filter(|e| !e.is_empty()),
         title: t.and_then(|t| harness::first_prompt(p.harness, &t.path)),
         model: state.model.or_else(|| p.model_arg()),
         context: state.context,
@@ -665,7 +673,7 @@ fn tmux_panes() -> HashMap<String, Pane> {
             "list-panes",
             "-a",
             "-F",
-            "#{pane_tty}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_id}\t#{window_name}\t#{session_name}\t#{@fleet_job_run}\t#{@fleet_gh_identity}",
+            "#{pane_tty}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_id}\t#{window_name}\t#{session_name}\t#{@fleet_job_run}\t#{@fleet_gh_identity}\t#{@fleet_embed}",
         ])
         .output()
     else {
@@ -677,7 +685,7 @@ fn tmux_panes() -> HashMap<String, Pane> {
     map
 }
 
-/// `pane_tty \t target \t pane_id \t window_name \t session_name \t job_run \t gh_identity` -> (tty, pane).
+/// `pane_tty \t target \t pane_id \t window_name \t session_name \t job_run \t gh_identity \t embed` -> (tty, pane).
 fn parse_pane(line: &str) -> Option<(String, Pane)> {
     let mut parts = line.split('\t');
     let ptty = parts.next()?;
@@ -689,6 +697,7 @@ fn parse_pane(line: &str) -> Option<(String, Pane)> {
     let session_name = parts.next().unwrap_or("").to_string();
     let job_run = parts.next().unwrap_or("").to_string();
     let gh_identity = parts.next().unwrap_or("").to_string();
+    let embed = parts.next().unwrap_or("").to_string();
     Some((
         ptty.to_string(),
         Pane {
@@ -698,6 +707,7 @@ fn parse_pane(line: &str) -> Option<(String, Pane)> {
             session_name,
             job_run,
             gh_identity,
+            embed,
         },
     ))
 }
@@ -1019,6 +1029,16 @@ mod tests {
         let (_, p) = parse_pane("/dev/ttys005\ta:b:1.0\t%1\tvim\ta:b").unwrap();
         assert_eq!(p.session_name, "a:b");
         assert!(parse_pane("garbage").is_none());
+    }
+
+    #[test]
+    fn panes_carry_their_fleet_options() {
+        let (_, p) = parse_pane("/dev/ttys006	fw-1:0.0	%2	zsh	fw-1	nightly/r1	bot	fin").unwrap();
+        assert_eq!(p.job_run, "nightly/r1");
+        assert_eq!(p.gh_identity, "bot");
+        assert_eq!(p.embed, "fin");
+        let (_, p) = parse_pane("/dev/ttys006	fw-1:0.0	%2	zsh	fw-1		").unwrap();
+        assert_eq!(p.embed, "");
     }
 
     #[test]

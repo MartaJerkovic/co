@@ -12,6 +12,16 @@ export interface EmbedParams {
   dir: string
   /** null: follow the OS (and never touch the viewer's Fleet theme setting). */
   theme: EmbedTheme | null
+  /** The framing app's label (`app`, else the dir's last folder): put on the sessions it spawns (`embed`). */
+  app: string
+}
+
+const APP_RE = /^[A-Za-z0-9_-]{1,40}$/
+
+/** The dir's last folder as an app label (`~/Code/fin` → `fin`); `app` when it has no usable name. */
+function defaultApp(dir: string): string {
+  const last = (dir.replace(/\/+$/, '').split('/').pop() ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)
+  return last || 'app'
 }
 
 /** The params from a query string (`host=…&dir=…&theme=…`); null without host / dir. */
@@ -21,7 +31,8 @@ function fromQuery(query: string): EmbedParams | null {
   const dir = q.get('dir')?.trim() ?? ''
   if (!host || !dir) return null
   const t = q.get('theme')
-  return { host, dir, theme: t === 'dark' || t === 'light' ? t : null }
+  const app = q.get('app')?.trim() ?? ''
+  return { host, dir, theme: t === 'dark' || t === 'light' ? t : null, app: APP_RE.test(app) ? app : defaultApp(dir) }
 }
 
 /** `#/embed?host=…&dir=…&theme=…` → its params; null for any other route or without host / dir. */
@@ -31,7 +42,7 @@ export function parseEmbedHash(hash: string): EmbedParams | null {
 }
 
 export function embedHash(p: EmbedParams): string {
-  const q = new URLSearchParams({ host: p.host, dir: p.dir })
+  const q = new URLSearchParams({ host: p.host, dir: p.dir, app: p.app })
   if (p.theme) q.set('theme', p.theme)
   return `/embed?${q}`
 }

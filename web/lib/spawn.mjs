@@ -65,6 +65,8 @@ export function launchCommand({ launcher = 'claude', harness = 'claude', name, p
   return parts.join(' ');
 }
 
+const EMBED_RE = /^[A-Za-z0-9_-]{1,40}$/;
+
 export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
   const errors = [];
   const nameGiven = Boolean(body?.name && sanitizeName(body.name));
@@ -102,8 +104,14 @@ export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
     } else if (harness !== 'claude') errors.push('only Claude sessions take a GitHub identity');
     else ghIdentity = body.ghIdentity;
   }
+  // The app whose embedded panel spawns it (the embed view's `app`): a label on the pane.
+  let embed = null;
+  if (body?.embed != null && body.embed !== '') {
+    if (typeof body.embed !== 'string' || !EMBED_RE.test(body.embed)) errors.push('embed must be 1-40 chars of letters, digits, - or _');
+    else embed = body.embed;
+  }
   if (errors.length) return { ok: false, error: errors.join('; ') };
-  return { ok: true, name, dir, prompt, nameGiven, model, harness, ghIdentity };
+  return { ok: true, name, dir, prompt, nameGiven, model, harness, ghIdentity, embed };
 }
 
 /** True when `child` is `root` or lies beneath it (both already resolved). */
@@ -206,8 +214,8 @@ export function createSpawner({
     await wait(enterDelayMs);
   }
 
-  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness, ghIdentity }} */
-  async function spawn({ name, dir, prompt, nameGiven = true, model = '', harness = 'claude', ghIdentity = null }) {
+  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness, ghIdentity, embed }} */
+  async function spawn({ name, dir, prompt, nameGiven = true, model = '', harness = 'claude', ghIdentity = null, embed = null }) {
     if (ghIdentity && !ghIdentities.some((i) => i.name === ghIdentity)) {
       throw Object.assign(new Error(`no GitHub identity "${ghIdentity}" in this host's fleet config`), { status: 400 });
     }
@@ -245,9 +253,10 @@ export function createSpawner({
     await run(tmux, ['send-keys', '-t', `${name}:`, 'Enter'], { timeout: 8000 });
     // The `fleet list` label; the shell already carries the identity.
     if (ghIdentity) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_gh_identity', ghIdentity], { timeout: 5000 }).catch(() => {});
+    if (embed) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_embed', embed], { timeout: 5000 }).catch(() => {});
     const trusted = await acceptTrustPrompt(name, { harness });
     if (!trusted) await ensureStarted(name, { harness });
-    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness, ghIdentity };
+    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness, ghIdentity, embed };
   }
 
   /**

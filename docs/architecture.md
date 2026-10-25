@@ -286,6 +286,7 @@ by — with no config, `local`):
 | `model` | string \| null | the model it runs, when known (Claude: the context entry's) |
 | `transcript` | string \| null | absolute transcript path (Codex / pi only) |
 | `origin` | object \| null | `{ job, run }` of the [job](cli.md#bots) run that started the session (its tmux pane option `@fleet_job_run`); `null` when none |
+| `embed` | string \| null | the app whose [embedded panel](#embed-view) started the session (its tmux pane option `@fleet_embed`); `null` when none |
 | `host` | string | which machine the row came from |
 
 `list --all-hosts --json` is the same array across every configured host.
@@ -399,7 +400,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | POST | `/api/hosts/:host/sessions/:id/answer` | `{ toolUseId, answers: [{ options: [index…], text? }] }` (one per question) → types the arrows/Enter/text a human would into the pending AskUserQuestion prompt. 400 bad answer (single-select: one option or text; multi-select: at least one), 404 unknown question, **409** (nothing typed) when it is already answered, the session isn't waiting, or the terminal isn't showing that prompt untouched (first question, cursor on option 1) |
 | POST | `/api/hosts/:host/sessions/:id/rename` | `{ title }` (1–64 chars, one line) → `fleet rename <session_id> <title> --json`; 200 with the report, **409** when held (waiting on a prompt, or a busy Codex / pi session; nothing typed), 400 bad title, 502 CLI failure |
 | POST | `/api/hosts/:host/sessions/:id/autoname` | regenerate one session's name → `fleet name <session_id> --apply --refresh`; 200 `{ ok, host, id, name }` (`name` null: unchanged), **409** when held (waiting on a prompt; nothing typed), 502 CLI failure |
-| POST | `/api/hosts/:host/spawn` | `{ name?, dir?, prompt?, model?, harness?, ghIdentity? }` → new tmux session running that [harness](#other-harnesses) (`claude` default, `codex`, `pi`; its launcher is config `claude` / `harnesses.<id>.command`; `-n <name>` for Claude and pi only); `dir` must resolve inside one of the host's `spawnDirs` (else 400); a prompt too long to type (the launch line over ~900 bytes) is written to `~/.claude/fleet-prompts/` and passed as `"$(cat <file>)"`; a first-run trust prompt is accepted (Claude: Down + Enter; Codex: Enter on "Trust and continue"); when the agent never starts (the pane is still just a shell after ~10s) the tmux session is killed and the answer is 502 with the pane's last lines. `ghIdentity` (Claude only; one of the host's `ghIdentities`, else 400): the session acts on GitHub as that [GitHub identity](cli.md#github-identities) — its launcher comes from `fleet --local gh-identity launcher`, and the pane gets `@fleet_gh_identity`. `prs/spawn`, `tasks/spawn` and the stack spawns take it too |
+| POST | `/api/hosts/:host/spawn` | `{ name?, dir?, prompt?, model?, harness?, ghIdentity? }` → new tmux session running that [harness](#other-harnesses) (`claude` default, `codex`, `pi`; its launcher is config `claude` / `harnesses.<id>.command`; `-n <name>` for Claude and pi only); `dir` must resolve inside one of the host's `spawnDirs` (else 400); a prompt too long to type (the launch line over ~900 bytes) is written to `~/.claude/fleet-prompts/` and passed as `"$(cat <file>)"`; a first-run trust prompt is accepted (Claude: Down + Enter; Codex: Enter on "Trust and continue"); when the agent never starts (the pane is still just a shell after ~10s) the tmux session is killed and the answer is 502 with the pane's last lines. `ghIdentity` (Claude only; one of the host's `ghIdentities`, else 400): the session acts on GitHub as that [GitHub identity](cli.md#github-identities) — its launcher comes from `fleet --local gh-identity launcher`, and the pane gets `@fleet_gh_identity`. `prs/spawn`, `tasks/spawn` and the stack spawns take it too. `embed` (`[A-Za-z0-9_-]{1,40}`): the app whose [embedded panel](#embed-view) starts it — the pane gets `@fleet_embed`, `list` reports it as `embed` |
 | GET | `/api/hosts/:host/harnesses[?refresh=1]` | `{ host, harnesses: [{ id, label, command, installed, models }], ghIdentities: [{ name, login }] }` — `fleet --local harness list --json`, cached 10 min; Claude's `models` are `web.models`. An older CLI answers Claude alone |
 | GET | `/api/hosts/:host/usage[?refresh=1]` | that host's Claude subscription limits: `fleet usage --json` + `host` (see [Subscription usage](#subscription-usage)); 502 with the CLI's reason (no login, endpoint down with nothing cached) |
 | POST | `/api/hosts/:host/prs/checkout` | `{ pr: "owner/repo#123" }` → `{ host, worktree }`: `fleet pr checkout --json` on that host |
@@ -473,7 +474,7 @@ full contract (status codes, limits, timeouts) lives with the server: [web/READM
 
 ## Embed view
 
-`#/embed?host=<host>&dir=<dir>[&theme=dark|light]` is Fleet's session chat for one directory,
+`#/embed?host=<host>&dir=<dir>[&theme=dark|light][&app=<name>]` is Fleet's session chat for one directory,
 made for another app to frame (an `<iframe>` panel: Fin's assistant, later Brain) instead of
 each app writing its own chat UI. It is a separate tree in the web UI (`screens/EmbedScreen.tsx`,
 `lib/embed.ts`): no sidebar, no Fleet navigation, no scratchpad, stacks or diff reviewer.
@@ -488,6 +489,10 @@ each app writing its own chat UI. It is a separate tree in the web UI (`screens/
   host; an older server matches a spawn dir with the same tail). It must be one of that host's
   `spawnDirs` or beneath one, else the view shows an error and offers no spawn — the same rule
   the server applies to `/spawn`.
+- **`app`**: the framing app's label (`[A-Za-z0-9_-]{1,40}`, default the dir's last folder).
+  Sessions spawned from the view carry it (`embed` on their `list` row): Fleet's own list sets
+  them aside like bot sessions — out of every status filter but **Apps** (and their app chip on
+  rows / cards), except while one waits on you. A session restored after a reboot loses it.
 - **`theme`**: the framing app's mode; without it the OS preference. It never changes the
   viewer's Fleet theme setting.
 - **URL form**: the hash router moves a route's query into the page's query string, so the

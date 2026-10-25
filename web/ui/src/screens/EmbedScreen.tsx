@@ -118,7 +118,7 @@ function EmbedList({ params }: { params: EmbedParams }) {
           open={spawning}
           onOpenChange={setSpawning}
           onOpenSession={(href) => navigate(href, { replace: true })}
-          prefill={{ host: params.host, dir: dir.path, fixed: true }}
+          prefill={{ host: params.host, dir: dir.path, fixed: true, embed: params.app }}
         />
       ) : null}
     </div>

@@ -6,7 +6,7 @@ import { ContextMeter } from '@/components/ContextMeter'
 import { EditableTitle } from '@/components/EditableTitle'
 import { GhIdentityChip } from '@/components/GhIdentityChip'
 import { HostBadge } from '@/components/HostBadge'
-import { JobChip } from '@/components/JobChip'
+import { EmbedChip, JobChip } from '@/components/JobChip'
 import { PrChip } from '@/components/PrChip'
 import { TaskChip } from '@/components/TaskChip'
 import { StatusDot } from '@/components/StatusDot'
@@ -74,6 +74,7 @@ export function BoardCard({ session: s, now, selected, cursor, onOpen, drag }: B
         <PrChip session={s} />
         <TaskChip session={s} />
         <JobChip session={s} />
+        <EmbedChip session={s} />
         <GhIdentityChip session={s} />
         <span className={cn('min-w-0 truncate', STATUS_TEXT[meta.key])}>{statusLabel(s)}</span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
