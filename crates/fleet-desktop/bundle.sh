@@ -52,7 +52,18 @@ case "$profile" in
     url="${url:-${FIN_DESKTOP_URL:-}}"
     [[ -n "$url" ]] || { echo "--profile finances needs --url <https://…> (or FIN_DESKTOP_URL)" >&2; exit 2; }
     ;;
-  *) echo "unknown profile: $profile (fleet, finances)" >&2; exit 2 ;;
+  brain)
+    name=Brain
+    identifier=dev.fleet.desktop.brain
+    icon="$here/icons/brain.png"
+    category=public.app-category.productivity
+    extra_plist=''
+    url_env=BRAIN_DESKTOP_URL
+    title_bar=overlay
+    url="${url:-${BRAIN_DESKTOP_URL:-}}"
+    [[ -n "$url" ]] || { echo "--profile brain needs --url <https://…> (or BRAIN_DESKTOP_URL)" >&2; exit 2; }
+    ;;
+  *) echo "unknown profile: $profile (fleet, finances, brain)" >&2; exit 2 ;;
 esac
 if [[ -n "$url" ]]; then
   [[ "$profile" != fleet ]] || { echo "--url is for other profiles; Fleet.app reads its config" >&2; exit 2; }

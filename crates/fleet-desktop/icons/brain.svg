@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- the brain web UI's icon (a brain outline on an indigo tile) on the macOS icon grid:
+       824px rounded square, 100px margin -->
+  <g transform="translate(100 100) scale(1.609375)">
+    <rect width="512" height="512" rx="112" fill="#4a46a6"/>
+    <g fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M246 128c-22-22-62-20-80 6-30-2-52 24-46 52-26 12-34 46-16 68-16 22-8 56 18 66 0 30 28 52 58 46 16 24 50 30 66 10z"/>
+      <path d="M266 128c22-22 62-20 80 6 30-2 52 24 46 52 26 12 34 46 16 68 16 22 8 56-18 66 0 30-28 52-58 46-16 24-50 30-66 10z"/>
+      <path d="M256 128v248"/>
+      <path d="M172 200c18 0 32 12 34 30M150 280c22-6 44 4 52 24M340 200c-18 0-32 12-34 30M362 280c-22-6-44 4-52 24"/>
+    </g>
+  </g>
+</svg>

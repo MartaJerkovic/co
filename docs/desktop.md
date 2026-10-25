@@ -147,14 +147,16 @@ it at launch, and without one it is Fleet.app, unchanged. A profile app gets:
   New Session. The rest is shared: the link policy, downloads, the Edit menu, ⌘R / ⌘⇧R,
   ⌘[ / ⌘], ⌘W hides, the remembered window, single instance.
 
-Profiles live in `bundle.sh` (name, identifier, icon, category, URL env var, title bar). The one today:
+Profiles live in `bundle.sh` (name, identifier, icon, category, URL env var, title bar). Today:
 
 | profile | app | identifier | title bar | URL |
 | --- | --- | --- | --- | --- |
 | `finances` | `Financije.app` | `dev.fleet.desktop.finances` | overlay | `--url`, else `FIN_DESKTOP_URL` at build time; `FIN_DESKTOP_URL` at run time overrides it |
+| `brain` | `Brain.app` | `dev.fleet.desktop.brain` | overlay | `--url`, else `BRAIN_DESKTOP_URL` at build time; `BRAIN_DESKTOP_URL` at run time overrides it |
 
 ```sh
 crates/fleet-desktop/bundle.sh --profile finances --url https://workstation.<tailnet>.ts.net:4443 --install
+crates/fleet-desktop/bundle.sh --profile brain --url https://workstation.<tailnet>.ts.net:5443 --install
 ```
 
 The URL is passed at build time, not committed: it is a private tailnet address.
