@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRightIcon, CheckIcon, FolderIcon, GitForkIcon, LayersIcon, Loader2Icon, MicIcon, PaperclipIcon, PlayIcon, SquareIcon } from 'lucide-react'
+import { ArrowRightIcon, FolderIcon, GitForkIcon, LayersIcon, Loader2Icon, MicIcon, PaperclipIcon, PlayIcon, SquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api, ApiError } from '@/api/client'
@@ -529,31 +529,25 @@ function NewSessionForm({
   const dirField = (
     <Field label="Directory">
       {dirs.length ? (
-        <div role="radiogroup" aria-label="Directory" className="grid grid-cols-1 gap-1.5">
-          {dirs.map((d) => {
-            const on = d === dir
-            return (
-              <button
-                key={d.label}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                onClick={() => pickDir(d.label)}
-                className={cn(
-                  'flex min-h-12 items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors',
-                  on ? 'border-primary/50 bg-accent' : 'border-border bg-card active:bg-muted',
-                )}
-              >
-                <FolderIcon className={cn('size-4 shrink-0', on ? 'text-primary' : 'text-dimmer')} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{d.label}</span>
-                  <span className="block truncate font-mono text-[0.6875rem] text-dimmer">{shortCwd(d.path, 60)}</span>
-                </span>
-                {on ? <CheckIcon className="size-4 shrink-0 text-primary" /> : null}
-              </button>
-            )
-          })}
-        </div>
+        <ToggleGroup
+          type="single"
+          value={dir?.label ?? ''}
+          onValueChange={(v) => v && pickDir(v)}
+          aria-label="Directory"
+          className="no-scrollbar w-full justify-start overflow-x-auto"
+        >
+          {dirs.map((d) => (
+            <ToggleGroupItem
+              key={d.label}
+              value={d.label}
+              title={shortCwd(d.path, 60)}
+              className="group h-10 shrink-0 gap-2 rounded-full border border-border bg-card px-4 text-sm data-[state=on]:border-primary/50 data-[state=on]:bg-accent"
+            >
+              <FolderIcon className="size-4 shrink-0 text-dimmer group-data-[state=on]:text-primary" />
+              {d.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       ) : (
         <p className="text-sm text-dimmer">{host} advertises no directories.</p>
       )}
