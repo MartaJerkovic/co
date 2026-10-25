@@ -16,7 +16,9 @@ import { TasksProvider } from '@/providers/TasksProvider'
 import { usePreventFileNavigation } from '@/hooks/useAttach'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { ThemeProvider } from '@/providers/ThemeProvider'
+import { readEmbed } from '@/lib/embed'
 import { DesktopShell } from '@/screens/DesktopShell'
+import { EmbedScreen } from '@/screens/EmbedScreen'
 import { InboxScreen } from '@/screens/InboxScreen'
 import { JobsScreen } from '@/screens/JobsScreen'
 import { MemosScreen } from '@/screens/MemosScreen'
@@ -32,11 +34,18 @@ import { UsageScreen } from '@/screens/UsageScreen'
 
 /**
  * Hash routing: `#/` (list), `#/s/<host>/<session_id>` (detail),
- * plus `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/inbox` (everything waiting on you), `#/bots` (agent sessions from a recipe; `#/jobs` is its old name), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/tasks` (your open Productive tasks), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer) and `#/review/<host>/<session_id>` (the diff reviewer).
+ * plus `#/embed?host=…&dir=…` (one directory's sessions, for another app to frame: its own tree, below), `#/settings` (this viewer's preferences), `#/usage` (the subscription limits), `#/inbox` (everything waiting on you), `#/bots` (agent sessions from a recipe; `#/jobs` is its old name), `#/operator` (talk to the fleet by voice), `#/prs` (the GitHub PRs that need you), `#/tasks` (your open Productive tasks), `#/memos[/<id>]` (voice memos) and `#/notes[/<host>[/<path>]]` (the notes explorer) and `#/review/<host>/<session_id>` (the diff reviewer).
  * No server-side SPA fallback needed; the PWA start_url is `/#/`. Desktop and mobile use the
  * same routes, so links work across both.
  */
+// Read once: inside the frame the hash moves on to `#/s/…`, the embed tree stays.
+const embed = readEmbed()
+
 export default function App() {
+  return embed ? <EmbedApp /> : <FleetApp />
+}
+
+function FleetApp() {
   // ≥ lg: master–detail shell; below it the mobile screens, untouched. Crossing the
   // breakpoint swaps trees (the hash route is shared, so the open session stays open).
   const desktop = useIsDesktop()
@@ -110,6 +119,27 @@ export default function App() {
         </TasksProvider>
         </PrsProvider>
         </DormantProvider>
+        </FleetProvider>
+      </SpeechProvider>
+      </SettingsProvider>
+      </PrefsProvider>
+    </ThemeProvider>
+  )
+}
+
+/** The embed view: the providers a session needs, none of Fleet's navigation or global panels. */
+function EmbedApp() {
+  usePreventFileNavigation()
+  return (
+    <ThemeProvider forced={embed?.theme}>
+      <PrefsProvider>
+      <SettingsProvider>
+      <SpeechProvider>
+        <FleetProvider>
+          <TooltipProvider>
+            <Router hook={useHashLocation}>{embed ? <EmbedScreen params={embed} /> : null}</Router>
+            <Toaster position="top-center" />
+          </TooltipProvider>
         </FleetProvider>
       </SpeechProvider>
       </SettingsProvider>

@@ -7,6 +7,7 @@
 #   crates/fleet-desktop/bundle.sh --install  # ...and copy it to ~/Applications
 #   crates/fleet-desktop/bundle.sh --profile fin --url https://host:4443 [--install]
 #                                             # → Fin.app (URL also from $FIN_DESKTOP_URL)
+#     [--frame-origin https://host:7443]      # an origin the page may frame (Fleet's embed view; repeatable)
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -14,12 +15,14 @@ root="$(cd "$here/../.." && pwd)"
 install=0
 profile=fleet
 url=""
+frame_origins=()
 while (($#)); do
   case "$1" in
     --install) install=1 ;;
     --profile) profile="${2:?--profile needs a name}"; shift ;;
     --url) url="${2:?--url needs a URL}"; shift ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    --frame-origin) frame_origins+=("${2:?--frame-origin needs a URL}"); shift ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -46,7 +49,8 @@ case "$profile" in
     identifier=dev.fleet.desktop.fin
     icon="$here/icons/fin.png"
     category=public.app-category.finance
-    extra_plist=''
+    extra_plist='  <!-- Voice input in the framed Fleet assistant panel. -->
+  <key>NSMicrophoneUsageDescription</key><string>Fin records voice messages for the assistant panel.</string>'
     url_env=FIN_DESKTOP_URL
     title_bar=overlay
     url="${url:-${FIN_DESKTOP_URL:-}}"
@@ -65,6 +69,12 @@ case "$profile" in
     ;;
   *) echo "unknown profile: $profile (fleet, fin, brain)" >&2; exit 2 ;;
 esac
+frames_json=""
+for o in ${frame_origins[@]+"${frame_origins[@]}"}; do
+  [[ "$profile" != fleet ]] || { echo "--frame-origin is for other profiles" >&2; exit 2; }
+  [[ "$o" =~ ^https?://[^\"\\[:space:]/]+/?$ ]] || { echo "bad frame origin: $o" >&2; exit 2; }
+  frames_json+="${frames_json:+, }\"${o%/}\""
+done
 if [[ -n "$url" ]]; then
   [[ "$profile" != fleet ]] || { echo "--url is for other profiles; Fleet.app reads its config" >&2; exit 2; }
   [[ "$url" =~ ^https?://[^\"\\[:space:]]+$ ]] || { echo "bad URL: $url" >&2; exit 2; }
@@ -87,7 +97,8 @@ if [[ "$profile" != fleet ]]; then
   "identifier": "$identifier",
   "url": "$url",
   "urlEnv": "$url_env",
-  "titleBar": "$title_bar"
+  "titleBar": "$title_bar",
+  "frameOrigins": [$frames_json]
 }
 JSON
 fi

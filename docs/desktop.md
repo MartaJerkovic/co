@@ -161,6 +161,18 @@ crates/fleet-desktop/bundle.sh --profile brain --url https://workstation.<tailne
 
 The URL is passed at build time, not committed: it is a private tailnet address.
 
+**Frames.** A navigation inside the page's frames goes through the same link policy, so an
+`<iframe>` on another origin would open in the browser instead. `--frame-origin <origin>`
+(repeatable) bundles `"frameOrigins": […]` into the profile: those origins load in the window,
+frames included. Fin uses it for its assistant panel, which frames Fleet's
+[embed view](architecture.md#embed-view) — pass the Fleet web server's origin (same reason as
+the URL: not committed). Fin's profile also asks for the microphone (voice input in that panel).
+
+```sh
+crates/fleet-desktop/bundle.sh --profile fin --url https://workstation.<tailnet>.ts.net:4443 \
+  --frame-origin https://workstation.<tailnet>.ts.net:7443 --install
+```
+
 ## Develop
 
 ```sh

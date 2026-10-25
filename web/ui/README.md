@@ -47,6 +47,8 @@ src/
                       withStackColumns() (session stacks → `stack:<id>` columns first)
   lib/stacks.ts       session stacks: memberLive()/memberCounts()/memberCountsText(), sortedMembers(),
                       stacksMissing() (server predates stacks), stacksKnown(), conflictUpdated() (409 body)
+  lib/embed.ts        the embed view: parseEmbedHash()/readEmbed() (hash or page query), resolveEmbedDir()
+                      (`~` via the host's home, must be a spawn dir or beneath one), isInside(), sessionsIn()
   lib/styles.ts       static Tailwind class maps: status dot/text colours, host badge colours
   lib/shortcuts.ts    desktop keyboard map: BINDINGS (⌘/Ctrl combos), matchShortcut() (key + platform /
                       typing context → action), shortcutHint() (per browser / Fleet.app), isTypingTarget(),
@@ -185,6 +187,13 @@ src/
 
 ## Features
 
+- **Embed view** (`/?host=…&dir=…[&theme=…]#/embed`, also `#/embed?…`): one directory's sessions
+  for another app to frame — its own tree in `App.tsx` (`EmbedApp`, `screens/EmbedScreen.tsx`),
+  without Fleet's navigation. List (sessions on that host with their cwd in `dir`) + New session
+  (the form with host / directory fixed, `SpawnPrefill.fixed`) → the mobile session screen with
+  `embedded` (no Review / scratchpad / stack bar) and `onBack` to the list. `theme` forces the
+  mode (`ThemeProvider forced`, and index.html's pre-paint) without saving it. Moves replace
+  history entries. Contract: [docs/architecture.md → Embed view](../../docs/architecture.md#embed-view).
 - **List** (`#/`): all sessions across hosts, status + host filter chips, search, unreachable-host
   banners, `+` → New session. Mobile: the filter chips (and the Board's regroup line) sit in a
   drawer under the search field, closed by default — swipe down on the header (not in the

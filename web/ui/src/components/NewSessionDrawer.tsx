@@ -86,6 +86,8 @@ export interface SpawnPrefill {
   /** Absolute on `host` (a session's cwd); must be one of its spawnDirs or beneath one, else the spawn is a 400. */
   dir?: string | null
   prompt?: string
+  /** Host and dir are given, not chosen (the embed view): no Host / Directory field. */
+  fixed?: boolean
   /** Offer Sibling beside Hand off: the same prompt, spawned into this session's stack instead. */
   sibling?: SiblingTarget | null
 }
@@ -182,8 +184,10 @@ function NewSessionForm({
   const hostDirs = hosts.find((h) => h.name === host)?.dirs ?? []
   // A prefilled dir (the session's cwd) is offered first when it is not one of the spawnDirs, and preselected.
   const prefillDir = prefill?.dir && host === prefill.host ? prefill.dir : null
-  const dirs =
-    prefillDir && !hostDirs.some((d) => samePath(d.path, prefillDir)) ? [{ label: PREFILL_DIR_LABEL, path: prefillDir }, ...hostDirs] : hostDirs
+  const fixed = !!prefill?.fixed && !!prefillDir
+  const dirs = fixed && prefillDir
+    ? [{ label: prefillDir.replace(/\/+$/, '').split('/').pop() || prefillDir, path: prefillDir }]
+    : prefillDir && !hostDirs.some((d) => samePath(d.path, prefillDir)) ? [{ label: PREFILL_DIR_LABEL, path: prefillDir }, ...hostDirs] : hostDirs
   const [dirLabels, setDirLabels] = useState<Record<string, string | null>>({})
   // A sibling on the source's host starts in its directory (no choice); on another host the user
   // picks one of that host's directories — the same repo (by folder name) is preselected.
@@ -591,13 +595,15 @@ function NewSessionForm({
       }}
     >
       <Header className="px-0 pt-3 pb-2 text-left">
-        <Title className="text-left text-base font-semibold">{offersSibling ? 'New session from here' : sibling ? 'Spawn sibling' : prefill ? 'Continue in new session' : 'New session'}</Title>
+        <Title className="text-left text-base font-semibold">{offersSibling ? 'New session from here' : sibling ? 'Spawn sibling' : fixed ? 'New session' : prefill ? 'Continue in new session' : 'New session'}</Title>
         <Description className="text-left text-xs">
           {sibling
             ? sibling.creates
               ? `This starts a new stack around this session (one Sonnet call), then a sibling session${siblingSameHost ? ' in the same directory' : ` on ${host}`} that reads the shared StackBrief first.`
               : `A new session in the stack ${sibling.label ? `“${sibling.label}”` : ''}${siblingSameHost ? ', in the same directory' : ` on ${host}`}. It reads the shared StackBrief first${siblingSameHost ? '' : ` (through fleet, from ${sibling.host})`}.`
-            : offersSibling
+            : fixed
+              ? `Starts ${who} in ${shortCwd(dir?.path ?? '', 60)} on ${host}.`
+              : offersSibling
               ? `A separate ${who} session that picks up where this one is, on its own.`
               : `Starts ${who} in a new tmux session. A first-run folder trust prompt is accepted for you.`}
         </Description>
@@ -659,9 +665,9 @@ function NewSessionForm({
         </Alert>
       ) : (
         <div className="space-y-4 pt-1">
-          {hostField}
+          {fixed ? null : hostField}
 
-          {dirField}
+          {fixed ? null : dirField}
 
           {harnessField}
 

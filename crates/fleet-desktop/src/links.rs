@@ -43,13 +43,15 @@ fn same_origin(a: &Url, b: &Url) -> bool {
         && a.port_or_known_default() == b.port_or_known_default()
 }
 
-/// A navigation of the window (or of a frame in it). The app's own pages and the
-/// Fleet server stay in the window; other web pages open in the browser.
-pub fn navigation(url: &Url, server: &Url) -> Action {
+/// A navigation of the window (or of a frame in it). The app's own pages, the
+/// Fleet server and the profile's frame origins (`frames`) stay in the window; other
+/// web pages open in the browser.
+pub fn navigation(url: &Url, server: &Url, frames: &[Url]) -> Action {
     match url.scheme() {
         "tauri" | "about" | "blob" | "data" => Action::Allow,
         "http" | "https" if url.host_str() == Some("tauri.localhost") => Action::Allow,
         "http" | "https" if same_origin(url, server) => Action::Allow,
+        "http" | "https" if frames.iter().any(|f| same_origin(url, f)) => Action::Allow,
         "http" | "https" => Action::Open,
         s if OS_SCHEMES.contains(&s) => Action::Open,
         "fleet" => fleet_link(url),
@@ -78,33 +80,33 @@ mod tests {
     fn server_origin_stays_in_the_window() {
         let server = u("http://127.0.0.1:7777/");
         assert_eq!(
-            navigation(&u("http://127.0.0.1:7777/#/s/laptop/abc"), &server),
+            navigation(&u("http://127.0.0.1:7777/#/s/laptop/abc"), &server, &[]),
             Action::Allow
         );
         assert_eq!(
-            navigation(&u("http://127.0.0.1:7777/api/x"), &server),
+            navigation(&u("http://127.0.0.1:7777/api/x"), &server, &[]),
             Action::Allow
         );
         assert_eq!(
-            navigation(&u("tauri://localhost/index.html"), &server),
+            navigation(&u("tauri://localhost/index.html"), &server, &[]),
             Action::Allow
         );
-        assert_eq!(navigation(&u("about:blank"), &server), Action::Allow);
+        assert_eq!(navigation(&u("about:blank"), &server, &[]), Action::Allow);
     }
 
     #[test]
     fn other_origins_go_to_the_browser() {
         let server = u("http://127.0.0.1:7777/");
         assert_eq!(
-            navigation(&u("http://127.0.0.1:7778/"), &server),
+            navigation(&u("http://127.0.0.1:7778/"), &server, &[]),
             Action::Open
         );
         assert_eq!(
-            navigation(&u("https://127.0.0.1:7777/"), &server),
+            navigation(&u("https://127.0.0.1:7777/"), &server, &[]),
             Action::Open
         );
         assert_eq!(
-            navigation(&u("https://github.com/owner/repo/pull/1"), &server),
+            navigation(&u("https://github.com/owner/repo/pull/1"), &server, &[]),
             Action::Open
         );
     }
@@ -112,13 +114,47 @@ mod tests {
     #[test]
     fn editor_links_go_to_the_os_and_the_rest_is_dropped() {
         let server = u("http://127.0.0.1:7777/");
-        assert_eq!(navigation(&u("vscode://file/tmp/x"), &server), Action::Open);
-        assert_eq!(navigation(&u("cursor://file/tmp/x"), &server), Action::Open);
-        assert_eq!(navigation(&u("file:///etc/passwd"), &server), Action::Deny);
-        assert_eq!(navigation(&u("javascript:alert(1)"), &server), Action::Deny);
         assert_eq!(
-            navigation(&u("x-apple-systempreferences:foo"), &server),
+            navigation(&u("vscode://file/tmp/x"), &server, &[]),
+            Action::Open
+        );
+        assert_eq!(
+            navigation(&u("cursor://file/tmp/x"), &server, &[]),
+            Action::Open
+        );
+        assert_eq!(
+            navigation(&u("file:///etc/passwd"), &server, &[]),
             Action::Deny
+        );
+        assert_eq!(
+            navigation(&u("javascript:alert(1)"), &server, &[]),
+            Action::Deny
+        );
+        assert_eq!(
+            navigation(&u("x-apple-systempreferences:foo"), &server, &[]),
+            Action::Deny
+        );
+    }
+
+    #[test]
+    fn frame_origins_stay_in_the_window() {
+        let server = u("https://app.example.com:4443/");
+        let frames = [u("https://app.example.com:7443")];
+        assert_eq!(
+            navigation(
+                &u("https://app.example.com:7443/?host=h&dir=x#/embed"),
+                &server,
+                &frames
+            ),
+            Action::Allow
+        );
+        assert_eq!(
+            navigation(&u("https://app.example.com:7444/"), &server, &frames),
+            Action::Open
+        );
+        assert_eq!(
+            navigation(&u("https://app.example.com:7443/"), &server, &[]),
+            Action::Open
         );
     }
 
@@ -134,7 +170,11 @@ mod tests {
     fn fleet_attach_links_carry_host_and_session() {
         let server = u("http://127.0.0.1:7777/");
         assert_eq!(
-            navigation(&u("fleet://attach?host=workstation&session=a%20b"), &server),
+            navigation(
+                &u("fleet://attach?host=workstation&session=a%20b"),
+                &server,
+                &[]
+            ),
             Action::Attach {
                 host: "workstation".into(),
                 session: "a b".into()
@@ -146,7 +186,7 @@ mod tests {
             "fleet://run?host=h&session=x",
         ];
         for d in deny {
-            assert_eq!(navigation(&u(d), &server), Action::Deny, "{d}");
+            assert_eq!(navigation(&u(d), &server, &[]), Action::Deny, "{d}");
         }
         assert_eq!(
             new_window(&u("fleet://attach?host=h&session=x")),

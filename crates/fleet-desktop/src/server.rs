@@ -316,6 +316,7 @@ mod tests {
             url: Some("https://app.example.com:4443".into()),
             url_env: Some("EXAMPLE_URL".into()),
             title_bar: profile::TitleBar::Native,
+            frame_origins: vec![],
         };
         let t = resolve_remote(None, &r).unwrap();
         assert_eq!(t.url.as_str(), "https://app.example.com:4443/");

@@ -94,8 +94,13 @@ export interface SessionScreenProps {
   paneRef?: React.RefObject<PaneApi | null>
   /** Pane only: focus the composer on mount (opened with Enter). */
   autoFocusComposer?: boolean
-  /** Pane only: shown beside the diff reviewer — no Review / Details buttons in its header. */
+  /**
+   * Shown beside the diff reviewer (pane) or inside another app (the embed view, screen): no
+   * Review / Details / Scratchpad buttons, no stack bar.
+   */
   embedded?: boolean
+  /** Screen only: Back (and after closing the session) goes here instead of the history / the list. */
+  onBack?: () => void
   /** Pane only: a close button in the header (the Board view's flyout). */
   onClose?: () => void
   /** Pane only: the pane is too narrow for a details column — lay it over the chat instead. */
@@ -118,6 +123,7 @@ export function SessionScreen({
   onClose,
   detailsOverlay = false,
   embedded = false,
+  onBack,
 }: SessionScreenProps) {
   const pane = layout === 'pane'
   const { fleet, refresh: refreshFleet, dropSession } = useFleet()
@@ -412,7 +418,8 @@ export function SessionScreen({
   )
 
   const back = () => {
-    if (window.history.length > 1) window.history.back()
+    if (onBack) onBack()
+    else if (window.history.length > 1) window.history.back()
     else navigate('/', { replace: true })
   }
   // Mobile: swipe right anywhere on the screen = Back (the installed PWA has no native back swipe).
@@ -473,12 +480,13 @@ export function SessionScreen({
     brief: { host, brief, fileLinks },
     onNewFromHere: session ? newFromHere : undefined,
     onClose: pane ? onToggleInspector : undefined,
-    stack: stackMenu,
+    stack: embedded ? null : stackMenu,
     onClosed: () => {
       // Drop it from the list now and keep stale polls from bringing it back.
       dropSession(host, id)
       setTimeout(refreshFleet, 2500)
-      navigate('/', { replace: true })
+      if (onBack) onBack()
+      else navigate('/', { replace: true })
     },
   }
 
@@ -580,7 +588,7 @@ export function SessionScreen({
             </Button>
           ) : (
             <>
-            <ScratchpadButton className="size-11 shrink-0 rounded-xl text-muted-foreground [&_svg:not([class*='size-'])]:size-5" />
+            {embedded ? null : <ScratchpadButton className="size-11 shrink-0 rounded-xl text-muted-foreground [&_svg:not([class*='size-'])]:size-5" />}
             <Button
               variant="ghost"
               size="icon"
@@ -601,7 +609,7 @@ export function SessionScreen({
         </div>
       </header>
 
-      {session?.stack ? <StackBar session={session} pane={pane} /> : null}
+      {session?.stack && !embedded ? <StackBar session={session} pane={pane} /> : null}
 
       {hostDown || missing ? (
         <div className="shrink-0 px-3 px-safe">

@@ -228,8 +228,10 @@ export function createApi({
   // …and marks its voice operator's row (`operator: true`), which the UI keeps out of session lists.
   const stampOperator = (host) => (operator ? operator.stamp(host) : host);
 
+  // `home`: a `~/…` path from the UI (the embed view's `dir`) is matched against the absolute
+  // spawnDirs and session cwds.
   async function buildFleet({ force = false } = {}) {
-    const selfHost = stampOperator({ ...(await fleet.localHost({ force })), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() });
+    const selfHost = stampOperator({ ...(await fleet.localHost({ force })), spawnDirs: config.spawnDirs, home: os.homedir(), ...notesInfo(), ...stacksInfo() });
     const peerNames = Object.keys(config.peers);
     const peerHosts = await Promise.all(
       peerNames.map((n) => fetchPeerHost(n, config.peers[n], { timeoutMs: peerFleetTimeoutMs })),
@@ -268,7 +270,7 @@ export function createApi({
     const withEditors = (body) => ({ ...body, hosts: body.hosts.map((h) => withSessionEditors(h, ec)) });
     if (url.searchParams.get('local') === '1') {
       // Peers poll this: the local host (2s TTL cache), never the merged snapshot.
-      const selfHost = stampOperator({ ...(await fleet.localHost()), spawnDirs: config.spawnDirs, ...notesInfo(), ...stacksInfo() });
+      const selfHost = stampOperator({ ...(await fleet.localHost()), spawnDirs: config.spawnDirs, home: os.homedir(), ...notesInfo(), ...stacksInfo() });
       return { status: 200, body: withEditors({ self: config.self, hosts: [selfHost] }) };
     }
     if (snapshot) return { status: 200, body: withEditors(await snapshot.get()) };

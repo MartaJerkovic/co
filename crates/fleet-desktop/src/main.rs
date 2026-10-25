@@ -310,6 +310,7 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .as_ref()
         .map(|t| t.url.clone())
         .unwrap_or_else(|_| start_page());
+    let frames = st.profile.frame_origins();
     let dl = app.clone();
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title(&name)
@@ -318,7 +319,7 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .visible(false)
         // Let the page get file drops (composer attachments) instead of Tauri.
         .disable_drag_drop_handler()
-        .on_navigation(move |url| match links::navigation(url, &server) {
+        .on_navigation(move |url| match links::navigation(url, &server, &frames) {
             Action::Allow => true,
             Action::Open => {
                 open_external(url.as_str());

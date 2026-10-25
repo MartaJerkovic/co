@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 
-import { THEME_KEY, ThemeContext, resolveTheme, type ThemeChoice } from '@/hooks/useTheme'
+import { THEME_KEY, ThemeContext, resolveTheme, type ResolvedTheme, type ThemeChoice } from '@/hooks/useTheme'
 import { DEFAULT_PALETTE, PALETTE_KEY, parsePalette, themeColor, type PaletteId } from '@/lib/palettes'
 import { storage } from '@/lib/storage'
 
@@ -22,10 +22,11 @@ function readChoice(): ThemeChoice {
  * Toggles the `dark` class on <html> (shadcn's convention) and sets `data-palette` (none for
  * Default). index.html sets both before first paint with the same rules, so there is no flash.
  */
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({ children, forced }: { children: ReactNode; forced?: ResolvedTheme | null }) {
   const [theme, setThemeState] = useState<ThemeChoice>(readChoice)
   const light = useSyncExternalStore(subscribe, prefersLight, () => false)
-  const resolved = resolveTheme(theme, light)
+  // `forced` (the embed view's `theme`): the framing app's mode, without touching the viewer's choice.
+  const resolved = forced ?? resolveTheme(theme, light)
   const [palette, setPaletteState] = useState<PaletteId>(() => parsePalette(storage.get(PALETTE_KEY)))
 
   useEffect(() => {

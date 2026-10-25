@@ -163,6 +163,8 @@ export interface Host {
   error?: string
   fetchedAt?: number
   spawnDirs?: SpawnDir[]
+  /** That host's home directory (expands a `~/…` path); older servers omit it. */
+  home?: string
   /** Set when that host's server has a notes explorer (`web.notes.root`). */
   notes?: { name: string | null }
   sessions: Session[]

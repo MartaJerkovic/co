@@ -391,7 +391,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | --- | --- | --- |
 | GET | `/api/health` | name, version, apiVersion, self, uptime, autoName (`lastRun`) |
 | GET | `/api/settings` | apiVersion, self, host names, quick replies, `transcribe: { enabled }` (this server has a transcription key), `speak: { enabled, voice }` (it can read replies aloud), `operator: { enabled, hosts }` (the [voice operator](#voice-operator) and where it runs), `focus: { host }` (`web.focus.host`, null when unset) |
-| GET | `/api/fleet[?local=1]` | `{ self, hosts: [{ name, ok, error?, sessions, spawnDirs, notes?, stacks? }], snapshotAt }` — `stacks`: that host's [session stacks](#session-stacks), compact (`{ id, label, host, members: [{ session, host, live }] }`), from which the merged view stamps `stack: { id, label, host }` on the rows of members running on *other* hosts; sessions are `list --json` objects + `host` (a Codex session with no transcript yet gets `session_id: "pid-<pid>"` until it has one) (`title` capped at 300 chars) + `editorUrl` (the "Open in editor" link for its cwd, built by the server that answered — see [Session briefs](#session-briefs)); the merged view is a warm background-refreshed snapshot |
+| GET | `/api/fleet[?local=1]` | `{ self, hosts: [{ name, ok, error?, sessions, spawnDirs, home?, notes?, stacks? }], snapshotAt }` — `home`: that host's home directory (for `~/…` paths, e.g. the [embed view](#embed-view)'s `dir`); older servers omit it — `stacks`: that host's [session stacks](#session-stacks), compact (`{ id, label, host, members: [{ session, host, live }] }`), from which the merged view stamps `stack: { id, label, host }` on the rows of members running on *other* hosts; sessions are `list --json` objects + `host` (a Codex session with no transcript yet gets `session_id: "pid-<pid>"` until it has one) (`title` capped at 300 chars) + `editorUrl` (the "Open in editor" link for its cwd, built by the server that answered — see [Session briefs](#session-briefs)); the merged view is a warm background-refreshed snapshot |
 | GET | `/api/hosts/:host/sessions/:id/peek?lines=N` | plain-text screen |
 | GET | `/api/hosts/:host/sessions/:id/messages?limit=N` | conversation (no tool calls) from the transcript; an AskUserQuestion call is a message of `kind: "question"` with `id` (the tool use id), `questions` (`[{ question, header, multiSelect, options: [{ label, description }] }]`), `text` (a markdown rendering) and, once it has a result, `answers` (per question, the answer string) or `declined: true`; a prompt typed while Claude works and still in its queue is a `kind: "user"` message with `queued: true`, always last (prompts it took mid-turn show where it took them) |
 | POST | `/api/hosts/:host/sessions/:id/send` | `{ text }` → typed + Enter |
@@ -470,6 +470,38 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 the `/stacks/:id` routes a stack id (or anything `fleet stack` resolves). The
 full contract (status codes, limits, timeouts) lives with the server: [web/README.md](../web/README.md),
 [web/ARCHITECTURE.md](../web/ARCHITECTURE.md).
+
+## Embed view
+
+`#/embed?host=<host>&dir=<dir>[&theme=dark|light]` is Fleet's session chat for one directory,
+made for another app to frame (an `<iframe>` panel: Fin's assistant, later Brain) instead of
+each app writing its own chat UI. It is a separate tree in the web UI (`screens/EmbedScreen.tsx`,
+`lib/embed.ts`): no sidebar, no Fleet navigation, no scratchpad, stacks or diff reviewer.
+
+- **List**: the live sessions on `host` whose cwd is `dir` or beneath it (worktrees inside the
+  repo), latest first, and **New session**: the New session form with host and directory fixed
+  (agent, model, first prompt, attachments, voice as usual) → `POST /api/hosts/:host/spawn`.
+- **Session**: the mobile session screen (`#/s/:host/:id`, chat / terminal, composer, AskUserQuestion
+  answers, attachments, voice, the details drawer with Close) with Back to the list. Sessions on
+  other hosts are not opened.
+- **`dir`**: absolute or `~/…` (expanded with the host's `home`, now part of each `/api/fleet`
+  host; an older server matches a spawn dir with the same tail). It must be one of that host's
+  `spawnDirs` or beneath one, else the view shows an error and offers no spawn — the same rule
+  the server applies to `/spawn`.
+- **`theme`**: the framing app's mode; without it the OS preference. It never changes the
+  viewer's Fleet theme setting.
+- **URL form**: the hash router moves a route's query into the page's query string, so the
+  canonical URL is `https://<fleet>/?host=…&dir=…[&theme=…]#/embed` (`#/embed?…` works and is
+  rewritten to it). The query stays while the frame moves to `#/s/…`, which is how a reload
+  inside the frame stays in the embed view. Every move inside the view replaces the history
+  entry, so the framing page's Back button stays its own.
+- **Framing**: the server sends no `X-Frame-Options` / `frame-ancestors`, so any page that can
+  reach it can frame it — like the rest of the API it relies on a private network (no auth).
+  The frame talks to its own origin only (same-origin API calls; no cookies), so nothing
+  cross-origin is needed. Voice needs the frame to allow it: `allow="microphone"`. There is no
+  `postMessage` contract.
+- **Desktop shell**: a profile app frames it only with the Fleet origin in its
+  `frameOrigins` ([desktop.md](desktop.md#other-apps-profiles)).
 
 ## Voice operator
 

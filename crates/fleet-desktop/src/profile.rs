@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use tauri::Url;
 
 /// Points at a profile file instead of the bundle's (for `cargo run`).
 pub const PROFILE_ENV: &str = "FLEET_DESKTOP_PROFILE";
@@ -30,6 +31,10 @@ pub struct Remote {
     /// The window chrome; the page has to handle `overlay` (see `shell`).
     #[serde(default)]
     pub title_bar: TitleBar,
+    /// Other origins the page may load in a frame (e.g. Fleet's embed view, an `<iframe>`
+    /// panel); without one, a frame's navigation there would open in the browser.
+    #[serde(default)]
+    pub frame_origins: Vec<String>,
 }
 
 /// `native`: the macOS title bar. `overlay`: Fleet's chrome — no title bar, the traffic
@@ -58,6 +63,18 @@ impl Profile {
 
     pub fn is_fleet(&self) -> bool {
         matches!(self, Profile::Fleet)
+    }
+
+    /// Origins a frame of the page may navigate to (Fleet.app has none: everything it shows is its server's).
+    pub fn frame_origins(&self) -> Vec<Url> {
+        match self {
+            Profile::Fleet => Vec::new(),
+            Profile::Remote(r) => r
+                .frame_origins
+                .iter()
+                .filter_map(|o| Url::parse(o).ok())
+                .collect(),
+        }
     }
 
     /// Fleet's overlay chrome: always for Fleet, opt-in for another profile.
@@ -96,6 +113,12 @@ pub fn parse(text: &str) -> Result<Profile, String> {
     if r.name.trim().is_empty() || r.identifier.trim().is_empty() {
         return Err("name and identifier must not be empty".into());
     }
+    for o in &r.frame_origins {
+        match Url::parse(o) {
+            Ok(u) if matches!(u.scheme(), "http" | "https") && u.host().is_some() => {}
+            _ => return Err(format!("frameOrigins: not an http(s) origin: {o}")),
+        }
+    }
     Ok(Profile::Remote(r))
 }
 
@@ -129,6 +152,30 @@ mod tests {
                 .overlay()
         );
         assert!(parse(r#"{ "name": "X", "identifier": "x", "titleBar": "hidden" }"#).is_err());
+    }
+
+    #[test]
+    fn frame_origins_are_http_urls() {
+        let p = parse(
+            r#"{ "name": "X", "identifier": "x", "frameOrigins": ["https://fleet.example.com:7443"] }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            p.frame_origins(),
+            vec![Url::parse("https://fleet.example.com:7443").unwrap()]
+        );
+        assert!(
+            parse(r#"{ "name": "X", "identifier": "x" }"#)
+                .unwrap()
+                .frame_origins()
+                .is_empty()
+        );
+        assert!(Profile::Fleet.frame_origins().is_empty());
+        for bad in ["file:///tmp", "not a url", "javascript:alert(1)"] {
+            let text =
+                format!(r#"{{ "name": "X", "identifier": "x", "frameOrigins": ["{bad}"] }}"#);
+            assert!(parse(&text).is_err(), "{bad}");
+        }
     }
 
     #[test]
