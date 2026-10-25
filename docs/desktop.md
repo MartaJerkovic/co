@@ -126,6 +126,36 @@ can do: no file, shell, navigation or settings access, and a drag follows the mo
 button is released. Native dragging without IPC would mean hit-testing the page's layout from Rust,
 duplicating the UI's layout knowledge in the app; the narrow grant is the smaller risk.
 
+## Other apps (profiles)
+
+The same crate bundles other web apps as their own Mac app — one binary, no second Tauri
+shell. `bundle.sh --profile <name>` writes `Contents/Resources/profile.json`; the binary reads
+it at launch, and without one it is Fleet.app, unchanged. A profile app gets:
+
+- its own name, icon and bundle identifier (Info.plist, and Tauri's identifier is overridden at
+  launch), so its single-instance lock, remembered window, WebKit storage and macOS prefs are
+  separate from Fleet.app's;
+- a fixed remote URL: the profile's env var when set (for a run from a shell), else the URL
+  baked in at bundle time. It never reads Fleet's config and never starts a server; when
+  `GET /api/health` does not answer 200 (an https URL is checked end to end with `curl`, since
+  a proxy such as `tailscale serve` accepts connections while the app behind it is down), the
+  start page says "<App> server is not running" with Retry;
+- the native title bar, no page script, no `window-drag` grant, no `fleet://` links, no File →
+  New Session. The rest is shared: the link policy, downloads, the Edit menu, ⌘R / ⌘⇧R,
+  ⌘[ / ⌘], ⌘W hides, the remembered window, single instance.
+
+Profiles live in `bundle.sh` (name, identifier, icon, category, URL env var). The one today:
+
+| profile | app | identifier | URL |
+| --- | --- | --- | --- |
+| `finances` | `Financije.app` | `dev.fleet.desktop.finances` | `--url`, else `FIN_DESKTOP_URL` at build time; `FIN_DESKTOP_URL` at run time overrides it |
+
+```sh
+crates/fleet-desktop/bundle.sh --profile finances --url https://workstation.<tailnet>.ts.net:4443 --install
+```
+
+The URL is passed at build time, not committed: it is a private tailnet address.
+
 ## Develop
 
 ```sh
@@ -133,10 +163,15 @@ cargo run -p fleet-desktop                                   # debug build, the 
 FLEET_DESKTOP_URL=http://127.0.0.1:7796 cargo run -p fleet-desktop   # a test server of your own
 cargo test -p fleet-desktop
 cargo clippy -p fleet-desktop --all-targets -- -D warnings
+# another profile, from a profile file instead of the bundle's
+FLEET_DESKTOP_PROFILE=./profile.json cargo run -p fleet-desktop
 ```
 
-Layout: `src/server.rs` (URL resolution, health probe, starting the server), `src/links.rs` (the
+`profile.json`: `{"name": "…", "identifier": "…", "url": "https://…", "urlEnv": "…"}`.
+
+Layout: `src/profile.rs` (Fleet or another app), `src/server.rs` (URL resolution, health probe, starting the server), `src/links.rs` (the
 navigation / new-window policy), `src/shell.rs` (traffic-light position, the page's
 initialization script, the drag capability's URL pattern), `src/main.rs` (window, menu, plugins), `start/index.html` (the
 start page), `tauri.conf.json`, `icons/` (`icon.svg` is the web icon on the macOS icon grid;
-`icon.png` is rendered from it).
+`icon.png` is rendered from it; `finances.svg` / `finances.png` likewise for `Financije.app`,
+e.g. `magick -background none finances.svg -resize 1024x1024 PNG32:finances.png`).
