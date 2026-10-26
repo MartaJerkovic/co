@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 
-import type { ModelOption, QuickReply, SessionKey } from '@/api/types'
+import type { ModelOption, ParkTargets, PromptButton, QuickReply, SessionKey, Space } from '@/api/types'
 import { DEFAULT_MODELS } from '@/lib/models'
 
 export interface SettingsState {
@@ -10,6 +10,13 @@ export interface SettingsState {
   hosts: string[]
   /** Composer text chips (config `web.quickReplies`). */
   quickReplies: QuickReply[]
+  /** PR / task dialog buttons (config `web.prPrompts` / `web.taskPrompts`; null: built-in). */
+  prPrompts: PromptButton[] | null
+  taskPrompts: PromptButton[] | null
+  /** Config `web.spaces` ([]: none). */
+  spaces: Space[]
+  /** Config `web.park`. */
+  park: ParkTargets
   /** This server's `web.uploads.maxMB` (null: unknown — the target host enforces its own). */
   uploadMaxMB: number | null
   /** New session model picker (config `web.models`). */
@@ -42,7 +49,10 @@ export const QUICK_KEYS: { label: string; key: SessionKey }[] = [
   { label: '↓', key: 'Down' },
 ]
 
-export const DEFAULT_SETTINGS: SettingsState = { self: null, hosts: [], quickReplies: DEFAULT_QUICK_REPLIES, uploadMaxMB: null, models: DEFAULT_MODELS, voice: false, speak: false, operator: false, memos: false, focusHost: null, loaded: false }
+/** As the server's default (lib/config.mjs DEFAULT_PARK). */
+export const DEFAULT_PARK: ParkTargets = { idea: { file: 'ideas.md', heading: '# Ideas' }, todo: { file: 'todos.md', heading: '# To-dos' } }
+
+export const DEFAULT_SETTINGS: SettingsState = { self: null, hosts: [], quickReplies: DEFAULT_QUICK_REPLIES, prPrompts: null, taskPrompts: null, spaces: [], park: DEFAULT_PARK, uploadMaxMB: null, models: DEFAULT_MODELS, voice: false, speak: false, operator: false, memos: false, focusHost: null, loaded: false }
 
 export const SettingsContext = createContext<SettingsState>(DEFAULT_SETTINGS)
 

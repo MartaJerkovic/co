@@ -17,7 +17,7 @@ import {
 import { createSnapshot } from './snapshot.mjs';
 import { DISABLED_GROUPS } from './grouping.mjs';
 import { checkInboxSettings } from './inbox.mjs';
-import { DEFAULT_MODELS } from './config.mjs';
+import { DEFAULT_MODELS, DEFAULT_PARK } from './config.mjs';
 import { parseNameOutput } from './autoname.mjs';
 import { SESSION_ID_RE } from './briefs.mjs';
 import { validThreadId } from './reviews.mjs';
@@ -38,8 +38,8 @@ import { validJobName } from './jobs.mjs';
 
 export const API_VERSION = 1;
 
-const SESSION_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/(peek|messages|send|keys|answer|kill|rename|autoname)$/;
-const POST_ACTIONS = new Set(['send', 'keys', 'answer', 'kill', 'rename', 'autoname']);
+const SESSION_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/(peek|previews|messages|send|type|keys|answer|kill|rename|autoname)$/;
+const POST_ACTIONS = new Set(['send', 'type', 'keys', 'answer', 'kill', 'rename', 'autoname']);
 
 const GROUP_ID_RE = /^[A-Za-z0-9._:-]{1,120}$/;
 const MEMBER_HOST_RE = /^[^/\s]{1,128}$/;
@@ -87,6 +87,8 @@ const BRIEF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/brief(\/regenera
 const MEMO_SEGMENT_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/segments\/(\d{1,3})$/;
 const MEMO_FINISH_ROUTE = /^\/api\/memos\/recordings\/([^/]+)\/finish$/;
 const MEMO_ROUTE = /^\/api\/memos\/([^/]+)(\/retry)?$/;
+/** A saved note's JSON body: the 2 MB note cap plus room for escaping. */
+const NOTE_SAVE_LIMIT = 5 * 1024 * 1024;
 const NOTES_ROUTE = /^\/api\/hosts\/([^/]+)\/notes\/(tree|search|file|raw)$/;
 const SPAWN_DIRS_ROUTE = /^\/api\/hosts\/([^/]+)\/spawn-dirs$/;
 const STACKS_ROUTE = /^\/api\/hosts\/([^/]+)\/stacks(\/sync)?$/;
@@ -124,6 +126,8 @@ const DORMANT_ROUTE = /^\/api\/hosts\/([^/]+)\/dormant(?:\/(restore|forget))?$/;
 const DORMANT_PROXY_MS = 6 * 60 * 1000;
 /** Restored sessions register in `fleet list` within seconds: refresh the list and stacks then. */
 const DORMANT_SETTLE_MS = [3000, 10000];
+/** The chat shows `status` from the messages route: a fresher read than the 2 s discovery cache. */
+const MESSAGES_STATUS_MAX_AGE_MS = 500;
 
 export const DEFAULT_QUICK_REPLIES = [
   { label: 'Continue', text: 'Continue.' },
@@ -146,6 +150,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   spawnNamer  lib/autoname.mjs#createSpawnNamer — a targeted naming pass after an unnamed
  *               spawn with a first prompt (only when web.autoName is enabled; absent → none)
  *   uploader    lib/uploads.mjs instance (uploads route; absent → 501)
+ *   clickLog    lib/clicks.mjs#createClickLog (/api/clicks usage log; absent → 501)
  *   transcriber lib/transcribe.mjs instance (POST /api/transcribe, settings.transcribe; absent → off)
  *   speaker     lib/transcribe.mjs#createSpeaker (POST /api/speak, settings.speak; absent → off)
  *   memos       lib/memos.mjs#createMemos (/api/memos…, settings.memos; needs the transcriber's key)
@@ -153,6 +158,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   files       lib/files.mjs instance (files/stat|raw|open; absent → 501)
  *   completer   lib/complete.mjs instance (…/complete: composer autocomplete; absent → 501)
  *   differ      lib/diff.mjs#createDiffer (…/diff, …/diffs: the diff reviewer; absent → 501)
+ *   previews    lib/previews.mjs instance (…/previews: servers the session started; absent → 501)
  *   touched     lib/touched.mjs index — the files a session worked on (…/diffs finds their checkouts)
  *   reviews     lib/reviews.mjs#createReviews (…/review: comment threads sent to the session; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
@@ -184,6 +190,7 @@ export function createApi({
   autoNamer = null,
   spawnNamer = null,
   uploader = null,
+  clickLog = null,
   transcriber = null,
   memos = null,
   speaker = null,
@@ -193,6 +200,7 @@ export function createApi({
   briefs = null,
   differ = null,
   touched = null,
+  previews = null,
   reviews = null,
   notes = null,
   spawnDirs = null,
@@ -277,8 +285,8 @@ export function createApi({
     return { status: 200, body: withEditors({ ...(await buildFleet()), snapshotAt: Date.now() }) };
   }
 
-  async function resolveLocalSession(id) {
-    const host = await fleet.localHost();
+  async function resolveLocalSession(id, opts) {
+    const host = await fleet.localHost(opts);
     if (!host.ok) throw new HttpError(`session discovery failed: ${host.error}`, 503);
     const session = findSession(host.sessions, id);
     if (!session) throw new HttpError(`unknown session: ${id}`, 404);
@@ -289,16 +297,25 @@ export function createApi({
     if (action === 'peek') {
       const lines = clampLines(url.searchParams.get('lines'));
       const session = await resolveLocalSession(id);
-      const text = await backend.peek(session, lines);
+      const ansi = url.searchParams.get('ansi') === '1';
+      const text = await backend.peek(session, lines, { ansi });
+      const cursor = ansi ? await backend.cursor(session).catch(() => null) : undefined;
       return {
         status: 200,
-        body: { host: config.self, id: session.session_id, backend: session.backend, lines, text, capturedAt: Date.now() },
+        body: { host: config.self, id: session.session_id, backend: session.backend, lines, text, cursor, capturedAt: Date.now() },
       };
+    }
+
+    if (action === 'previews') {
+      if (!previews) throw new HttpError('previews are not available', 501);
+      const session = await resolveLocalSession(id);
+      const list = await previews.list(session, { treeOnly: url.searchParams.get('scope') === 'tree' });
+      return { status: 200, body: { host: config.self, id: session.session_id, previews: list.map((p) => ({ ...p, url: `http://localhost:${p.port}` })) } };
     }
 
     if (action === 'messages') {
       const limit = clampLines(url.searchParams.get('limit'), 60, 1, 500);
-      const session = await resolveLocalSession(id);
+      const session = await resolveLocalSession(id, { maxAgeMs: MESSAGES_STATUS_MAX_AGE_MS });
       const result = await transcripts.messages(session, limit);
       if (!result) throw new HttpError('transcript not found for this session', 404);
       return {
@@ -377,6 +394,14 @@ export function createApi({
       if (!check.ok) throw new HttpError(check.error, 400);
       const session = await resolveLocalSession(id);
       await backend.send(session, check.text);
+      return { status: 200, body: { ok: true } };
+    }
+
+    if (action === 'type') {
+      const check = validateSendText(body.text);
+      if (!check.ok) throw new HttpError(check.error, 400);
+      const session = await resolveLocalSession(id);
+      await backend.type(session, check.text);
       return { status: 200, body: { ok: true } };
     }
 
@@ -678,6 +703,10 @@ export function createApi({
           self: config.self,
           hosts: config.hosts,
           quickReplies: config.quickReplies ?? DEFAULT_QUICK_REPLIES,
+          prPrompts: config.prPrompts ?? null,
+          taskPrompts: config.taskPrompts ?? null,
+          spaces: config.spaces ?? [],
+          park: config.park ?? DEFAULT_PARK,
           models: config.models ?? DEFAULT_MODELS,
           uploads: { maxMB: config.uploads?.maxMB ?? null },
           transcribe: { enabled: Boolean(await transcriber?.enabled()) },
@@ -697,6 +726,14 @@ export function createApi({
       if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
       if (!transcriber) throw new HttpError('voice input is not available on this server', 501);
       return { status: 200, body: await transcriber.transcribe(req, url.searchParams.get('hint')) };
+    }
+
+    // Usage log (which buttons / shortcuts get used): always this server, like /api/transcribe.
+    if (url.pathname === '/api/clicks') {
+      if (!clickLog) throw new HttpError('the usage log is not available on this server', 501);
+      if (req.method === 'POST') return { status: 200, body: await clickLog.append(await readJsonBody(req)) };
+      if (req.method === 'GET') return { status: 200, body: await clickLog.summary() };
+      throw new HttpError('method not allowed', 405);
     }
 
     // Voice memos: always this server, like /api/transcribe.
@@ -1122,9 +1159,10 @@ export function createApi({
     const n = NOTES_ROUTE.exec(url.pathname);
     if (n) {
       const [, rawHost, action] = n;
-      if (req.method !== 'GET') throw new HttpError('method not allowed', 405);
+      // PUT notes/file saves an edited note; everything else is read-only.
+      if (req.method !== 'GET' && !(req.method === 'PUT' && action === 'file')) throw new HttpError('method not allowed', 405);
       const host = decodeURIComponent(rawHost);
-      const r = await forHost({ req, url, host, streamResponse: action === 'raw', local: () => localNotes(action, url) });
+      const r = await forHost({ req, url, host, streamResponse: action === 'raw', bodyLimit: req.method === 'PUT' ? NOTE_SAVE_LIMIT : undefined, local: () => (req.method === 'PUT' ? saveNote(req, url) : localNotes(action, url)) });
       // Editor links are built by the server the browser asked (its `web.editor` and ssh aliases).
       if (r.status === 200 && r.body && !r.stream) {
         if (action === 'tree') return { ...r, body: { ...r.body, editorUrl: editorUrl(editorViewer(config, req), host, r.body.rootAbs) } };
@@ -1134,6 +1172,12 @@ export function createApi({
     }
 
     throw new HttpError('not found', 404);
+  }
+
+  async function saveNote(req, url) {
+    if (!notes) throw new HttpError('notes are not configured on this host (web.notes.root)', 501);
+    const body = await readJsonBody(req, NOTE_SAVE_LIMIT);
+    return { status: 200, body: { host: config.self, ...(await notes.save(url.searchParams.get('path'), body?.text, body?.baseMtime, { create: body?.create === true })) } };
   }
 
   async function localNotes(action, url) {
@@ -1268,7 +1312,7 @@ export function createApi({
     const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
     let result;
     try {
-      result = await spawner.spawn({ name: check.name, dir: worktree.path, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
+      result = await spawner.spawn({ name: check.name, title: check.title, dir: worktree.path, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;
@@ -1347,7 +1391,7 @@ export function createApi({
     let result;
     try {
       const dir = await resolveAllowedDir(check.dir, roots);
-      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
+      result = await spawner.spawn({ name: check.name, title: check.title, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;
@@ -1556,6 +1600,7 @@ export function createApi({
           dir: requested,
           prompt,
           ...(check.nameGiven ? { name: check.name } : {}),
+          ...(check.title ? { title: check.title } : {}),
           ...(check.model ? { model: check.model } : {}),
           harness: check.harness,
           ...(check.ghIdentity ? { ghIdentity: check.ghIdentity } : {}),
@@ -1576,7 +1621,7 @@ export function createApi({
     const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
     let result;
     try {
-      result = await spawner.spawn({ name: check.name, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
+      result = await spawner.spawn({ name: check.name, title: check.title, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;

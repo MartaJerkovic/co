@@ -16,7 +16,7 @@ import {
   validateSendText,
 } from '../lib/util.mjs';
 import { resolveStaticPath, readJsonBody, contentTypeFor, HttpError } from '../lib/http.mjs';
-import { createBackend, BackendError, createScriptProvider, ITERM_SCRIPT, TYPE_CHUNK, typeChunks } from '../lib/backends.mjs';
+import { createBackend, BackendError, createScriptProvider, ITERM_SCRIPT, TYPE_CHUNK, typeChunks, imageSegments } from '../lib/backends.mjs';
 import { createFleet, trimTitle, TITLE_MAX } from '../lib/fleet.mjs';
 import { createFleetCli } from '../lib/fleet-cli.mjs';
 import { ensurePath, ensureUtf8Locale } from '../lib/config.mjs';
@@ -154,9 +154,8 @@ test('validateSendText enforces non-empty string <= 8000 chars', () => {
   assert.equal(validateSendText('x'.repeat(8001)).ok, false);
 });
 
-test('validateKey allows only Enter and Escape', () => {
-  assert.equal(validateKey('Enter').ok, true);
-  assert.equal(validateKey('Escape').ok, true);
+test('validateKey allows only the named terminal keys', () => {
+  for (const k of ['Enter', 'Escape', 'Up', 'Down', 'Left', 'Right', 'Tab', 'BTab', 'BSpace', 'Space', 'PageUp', 'PageDown']) assert.equal(validateKey(k).ok, true);
   assert.equal(validateKey('escape').ok, false);
   assert.equal(validateKey('C-c').ok, false);
   assert.equal(validateKey(undefined).ok, false);
@@ -292,6 +291,12 @@ test('tmux send types a long line in pieces so Claude keeps all of it', async ()
   assert.deepEqual(calls.at(-1).args, ['send-keys', '-t', '%1', 'Enter']);
 });
 
+test('imageSegments cuts around standalone image paths only', () => {
+  assert.deepEqual(imageSegments('prva /u/a.png srednji "/x y/b.JPG" kraj'), ['prva ', '/u/a.png', ' srednji ', '"/x y/b.JPG"', ' kraj']);
+  assert.deepEqual(imageSegments('/u/a.png\n\nvidi'), ['/u/a.png', '\n\nvidi']);
+  assert.deepEqual(imageSegments('see https://x.com/a.png and /tmp/notes.md'), ['see https://x.com/a.png and /tmp/notes.md']);
+});
+
 test('typeChunks never splits a character', () => {
   assert.deepEqual(typeChunks('', 4), []);
   assert.deepEqual(typeChunks('abcé-fg', 4), ['abc', 'é-f', 'g']);
@@ -315,6 +320,15 @@ test('tmux keys sends the bare key name', async () => {
   const backend = createBackend({ run, tmux: 'tmux', scriptPath: script, sleep: noSleep });
   await backend.keys({ backend: 'tmux', handle: '%1' }, 'Escape');
   assert.deepEqual(calls[0].args, ['send-keys', '-t', '%1', 'Escape']);
+});
+
+test('tmux cursor: column and the capture lines under its line', async () => {
+  const { calls, run } = recorder(async (file, args) =>
+    args[0] === 'display-message' ? { stdout: '4 26 30 1 1\n', stderr: '' } : { stdout: '──────\n  work | Opus\n\n', stderr: '' },
+  );
+  const backend = createBackend({ run, tmux: 'tmux', scriptPath: script, sleep: noSleep });
+  assert.deepEqual(await backend.cursor({ backend: 'tmux', handle: '%1' }), { x: 4, below: 2, alternate: true });
+  assert.deepEqual(calls[1].args, ['capture-pane', '-p', '-J', '-e', '-t', '%1', '-S', '27', '-E', '29']);
 });
 
 test('iterm backend passes values as argv, never interpolated', async () => {
@@ -398,6 +412,12 @@ test('fleet sorts, tags host and caches for the TTL', async () => {
   clock += 2500;
   await fleet.localHost();
   assert.equal(calls, 2, 'cache expired');
+
+  clock += 600;
+  await fleet.localHost();
+  assert.equal(calls, 2, 'still within the TTL');
+  await fleet.localHost({ maxAgeMs: 500 });
+  assert.equal(calls, 3, 'a tighter maxAgeMs reads again');
 });
 
 test('trimTitle caps long first prompts for transport', () => {

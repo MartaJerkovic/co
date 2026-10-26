@@ -1,6 +1,6 @@
 {
-  "name": "Fleet — Claude sessions",
-  "short_name": "Fleet",
+  "name": "Co — Claude sessions",
+  "short_name": "Co",
   "description": "Supervise and steer the Claude Code fleet across machines.",
   "start_url": "/#/",
   "scope": "/",

@@ -1,4 +1,4 @@
-import type { PullRequest, Session, Task, TaskColumn, TaskColumnId, TaskStatus, TasksResponse } from '@/api/types'
+import type { PromptButton, PullRequest, Session, Task, TaskColumn, TaskColumnId, TaskStatus, TasksResponse } from '@/api/types'
 import type { PrLinks } from '@/lib/prs'
 
 /** Display order and titles when a server sends no `columns` (and the order it should send). */
@@ -127,7 +127,8 @@ export function taskIdsIn(text: string | null | undefined): string[] {
 }
 
 /** Starting prompts offered for a task, the most likely first. */
-export function promptChips(t: Pick<Task, 'status'>): { label: string; text: string }[] {
+export function promptChips(t: Pick<Task, 'status' | 'column'>, custom?: PromptButton[] | null): PromptButton[] {
+  if (custom?.length) return custom.filter((b) => !b.columns?.length || b.columns.includes(t.column))
   const plan = {
     label: 'Plan',
     text: 'Read the task (and its comments) in Productive, look at the code it concerns, and propose a plan before changing anything.',

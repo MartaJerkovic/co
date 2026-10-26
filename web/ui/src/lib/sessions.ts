@@ -1,5 +1,6 @@
 // Session list logic: status metadata, filtering, search, sorting — pure, unit-tested.
 import type { FleetResponse, Session, SessionStatus } from '@/api/types'
+import { stripAnsi } from '@/lib/ansi'
 
 export type StatusKey = SessionStatus
 export interface StatusMeta {
@@ -232,4 +233,85 @@ export function stackRuns(sessions: Session[]): ListEntry[] {
     i = j
   }
   return out
+}
+
+/**
+ * The text Claude Code pre-fills in its prompt (the grey suggestion you accept with Tab), read from a
+ * terminal capture: the last `❯ …` line inside the input box (a rule right below it). null when empty.
+ */
+export function promptSuggestion(capture: string | null | undefined): string | null {
+  if (!capture) return null
+  const lines = capture.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^\s*❯\s?(.*)$/.exec(lines[i])
+    if (!m) continue
+    const below = lines.slice(i + 1, i + 3).some((l) => /^[─━]{10,}/.test(l.trim()))
+    const text = m[1].trim()
+    return below && text ? text : null
+  }
+  return null
+}
+
+const RULE_START_RE = /^[▔─━]{20,}/
+const RULE_RE = /^[▔─━]{20,}$/
+const TAIL_WINDOW = 60
+/** The key hints at the bottom of every Claude Code prompt and dialog. */
+const PROMPT_FOOTER_RE = /Esc to (?:cancel|go back|exit)|Enter to (?:select|confirm|continue)|to navigate/i
+/** The cursor on a numbered choice: the Submit step of a multi-question prompt has no key hints. */
+const PROMPT_CHOICE_RE = /^\s*❯ \d+\. /m
+
+/**
+ * What Claude Code shows at the bottom of the terminal while it waits there (a question, a permission
+ * prompt, a dialog): from the first full-width rule of the last screenful down, colours kept. null
+ * when the screen shows no prompt (no key hints, no choice cursor), e.g. right after it was answered.
+ */
+export function screenTail(capture: string | null | undefined): string | null {
+  if (!capture) return null
+  const lines = capture.trimEnd().split('\n').slice(-TAIL_WINDOW)
+  const plain = lines.map((l) => stripAnsi(l).trim())
+  let end = lines.length
+  while (end > 0 && (!plain[end - 1] || RULE_START_RE.test(plain[end - 1]))) end--
+  const rule = plain.slice(0, end).findIndex((l) => RULE_RE.test(l))
+  const start = rule >= 0 ? rule + 1 : Math.max(0, end - 16)
+  const tail = lines.slice(start, end).join('\n').replace(/^(\s*\n)+/, '')
+  const plainTail = stripAnsi(tail)
+  return PROMPT_FOOTER_RE.test(plainTail) || PROMPT_CHOICE_RE.test(plainTail) ? tail : null
+}
+
+export interface WorkingInfo {
+  /** Claude Code's spinner word, e.g. `Perambulating…`. */
+  verb: string
+  /** What the spinner shows in brackets: elapsed time, tokens (no "esc to interrupt"). */
+  meta: string | null
+  /** The step it is on: the last `⏺ …` line above the spinner (a tool call or a sentence). */
+  step: string | null
+  /** Its to-do list, when one is shown: done / total and the item in progress. */
+  todos: { done: number; total: number; current: string | null } | null
+}
+
+const SPINNER_RE = /^[✳✻✶✢✽*·] (\S[^(]*…)\s*(?:\((.*)\))?\s*$/
+const TODO_RE = /^\s*(?:⎿\s+)?([☐☒◼□■✔])\s+(.+)$/
+
+/** What a busy session is doing, read from a terminal capture; null when no spinner is on screen. */
+export function workingInfo(capture: string | null | undefined): WorkingInfo | null {
+  if (!capture) return null
+  const lines = capture.split('\n')
+  const at = lines.findLastIndex((l) => SPINNER_RE.test(l))
+  if (at < 0) return null
+  const [, verb, rawMeta] = SPINNER_RE.exec(lines[at])!
+  const meta = rawMeta?.split('·').map((p) => p.trim()).filter((p) => p && !/interrupt/i.test(p)).join(' · ') || null
+  const stepLine = lines.slice(0, at).findLast((l) => /^⏺ \S/.test(l))
+  const step = stepLine ? stepLine.slice(2).trim().slice(0, 140) : null
+  const items = lines.slice(at + 1).flatMap((l) => {
+    const m = TODO_RE.exec(l)
+    return m ? [{ mark: m[1], text: m[2].trim() }] : []
+  })
+  const todos = items.length
+    ? {
+        done: items.filter((t) => t.mark === '☒' || t.mark === '✔').length,
+        total: items.length,
+        current: items.find((t) => t.mark === '◼' || t.mark === '■')?.text ?? null,
+      }
+    : null
+  return { verb: verb.trim(), meta, step, todos }
 }

@@ -137,7 +137,7 @@ function capText(s, max) {
 }
 
 /** The whole prompt handed to `claude -p`. Pure. */
-export function buildPrompt({ brief, delta, host, cwd, branch, todosFromSession, maxBriefChars = 3000, recap = false }) {
+export function buildPrompt({ brief, delta, host, cwd, branch, todosFromSession, maxBriefChars = 3000, recap = false, language = null }) {
   const where = [host ? `host ${host}` : null, cwd ? `directory ${cwd}` : null, branch ? `git branch ${branch}` : null].filter(Boolean).join(', ');
   const current = [`## Summary\n${brief.summary || '(none yet)'}`, todosFromSession ? null : `## Todos\n${brief.todosText || '(none yet)'}`]
     .filter(Boolean)
@@ -149,12 +149,13 @@ export function buildPrompt({ brief, delta, host, cwd, branch, todosFromSession,
     `The current brief.${edited}\n<brief>\n${capText(current, maxBriefChars)}\n</brief>`,
     `${recap ? 'The recent conversation' : 'What happened since the brief was last updated'} (user prompts and the assistant's replies, truncated):\n<conversation>\n${delta.text || '(nothing)'}\n</conversation>`,
     'Update the brief: keep what is still true, fix what changed, add what is new. Do not rewrite it from scratch — unless the session has clearly moved on to a different task, then write the Summary for that task.',
+    language ? `Write the Summary and the todos in ${language}; keep the headings as they are.` : null,
     'Answer with ONLY the following markdown, nothing before or after it:',
     todosFromSession
       ? '## Summary\n<at most 3 sentences, under 80 words: what exactly the session is doing and why, where it stands now, and what comes next; name the repo, branch or host only where it adds something beyond the location above>'
       : '## Summary\n<at most 3 sentences, under 80 words: what exactly the session is doing and why, where it stands now, and what comes next; name the repo, branch or host only where it adds something beyond the location above>\n\n## Todos\n- [x] <done todo>\n- [ ] <open todo>\n(3–8 short todos in order; keep existing todos and their wording while accurate, tick finished ones, add what comes next)',
   ];
-  return out.join('\n\n');
+  return out.filter(Boolean).join('\n\n');
 }
 
 // ------------------------------------------------------------------ the service
@@ -317,6 +318,7 @@ export function createBriefs({
       todosFromSession: Boolean(ext.todos),
       maxBriefChars: cfg.maxBriefChars,
       recap,
+      language: cfg.language ?? null,
     });
     const startedAt = now();
     calls.push(startedAt);

@@ -27,6 +27,7 @@ import { useBoardColumns, useGroups, useViewMode } from '@/hooks/useGroups'
 import { useSettings } from '@/hooks/useSettings'
 import { useNow } from '@/hooks/useNow'
 import { ALL_HOSTS, useSessionList } from '@/hooks/useSessionList'
+import { APP_NAME } from '@/lib/app'
 import { pullIntent } from '@/lib/gestures'
 import { allSessions, stackRuns, visibleStatusFilters, findStatusFilter, type StatusFilterId } from '@/lib/sessions'
 import { cn } from '@/lib/utils'
@@ -75,7 +76,7 @@ export function ListScreen() {
       <ScreenHeader>
         <div onTouchStart={onTouchStart} onTouchEnd={(e) => onTouchEnd(e, false)}>
         <div className="flex min-h-8 items-center gap-0.5 min-[400px]:gap-1 sm:gap-2.5">
-          <h1 className="mr-1 shrink-0 text-xl font-bold tracking-tight sm:mr-0">Fleet</h1>
+          <h1 className="mr-1 shrink-0 text-xl font-bold tracking-tight sm:mr-0">{APP_NAME}</h1>
           {fleet ? (
             <div className="flex min-w-0 items-center gap-2 overflow-hidden text-xs text-muted-foreground tabular-nums" aria-label="Status summary">
               {summary.waiting > 0 ? (
@@ -291,8 +292,8 @@ export function ListScreen() {
             <EmptyState anySessions={allSessions(fleet).length > 0} />
           ) : null}
 
-          {fleet ? <DormantSection now={now} host={host} query={query} className="mt-6" /> : null}
-          {fleet ? <ClosedSection now={now} host={host} query={query} className="mt-4" /> : null}
+          {fleet && status === 'all' ? <DormantSection now={now} host={host} query={query} className="mt-6" /> : null}
+          {fleet && status === 'all' ? <ClosedSection now={now} host={host} query={query} className="mt-4" /> : null}
         </div>
       </main>
 

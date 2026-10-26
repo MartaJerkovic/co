@@ -463,6 +463,40 @@ export function createNotes({ config, home, run = null, now = Date.now } = {}) {
     };
   }
 
+  /**
+   * Overwrite a listed text note with `text`. `baseMtime` (the mtime the editor loaded) guards against
+   * clobbering a change made elsewhere: a newer file is a 409. Notes with hidden secrets are not writable.
+   */
+  async function save(relRaw, text, baseMtime, { create = false } = {}) {
+    if (typeof text !== 'string') throw new HttpError('text must be a string', 400);
+    if (Buffer.byteLength(text) > NOTE_MAX_BYTES) throw new HttpError(`too large (max ${NOTE_MAX_BYTES} bytes)`, 413);
+    if (create) await createNote(relRaw);
+    const f = await entryFor(relRaw);
+    if (f.kind === 'image') throw new HttpError('an image is not editable', 400);
+    const abs = await resolveReal(f.path);
+    const st = await fsp.stat(abs);
+    if (Number.isFinite(baseMtime) && Math.round(st.mtimeMs) > baseMtime) throw new HttpError('the note changed elsewhere — reload it', 409);
+    if (withoutSecrets(await fsp.readFile(abs, 'utf8')).encrypted) throw new HttpError('a note with hidden secrets is not editable here', 403);
+    await fsp.writeFile(abs, text, 'utf8');
+    tree = null;
+    return file(f.path);
+  }
+
+  /** `create`: a missing markdown note at the root (or an existing folder) starts empty. */
+  async function createNote(relRaw) {
+    const rel = cleanRel(relRaw);
+    if (!rel || !rel.endsWith('.md')) throw new HttpError('only a .md note can be created', 400);
+    const real = realRoot ?? (await rootReal());
+    const abs = path.join(real, rel);
+    if (!inside(abs, real)) throw new HttpError('outside the notes root', 403);
+    const dir = await fsp.realpath(path.dirname(abs)).catch(() => null);
+    if (!dir || !inside(dir, real)) throw new HttpError('no such folder in the notes', 404);
+    await fsp.writeFile(abs, '', { flag: 'wx' }).catch((err) => {
+      if (err.code !== 'EEXIST') throw err;
+    });
+    tree = null;
+  }
+
   /** Images referenced by notes: streamed with the files API's safe headers. */
   async function raw(relRaw) {
     const f = await entryFor(relRaw);
@@ -548,7 +582,7 @@ export function createNotes({ config, home, run = null, now = Date.now } = {}) {
     return { q, engine: 'builtin', ...(await builtinSearch(terms, limit)), ms: now() - started };
   }
 
-  return { tree: treeResponse, file, raw, search, root, name: config.name };
+  return { tree: treeResponse, file, save, raw, search, root, name: config.name };
 }
 
 const inside = (p, r) => p === r || p.startsWith(r.endsWith(path.sep) ? r : r + path.sep);

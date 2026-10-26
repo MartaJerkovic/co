@@ -56,7 +56,7 @@ pub enum Profile {
 impl Profile {
     pub fn name(&self) -> &str {
         match self {
-            Profile::Fleet => "Fleet",
+            Profile::Fleet => "Co",
             Profile::Remote(r) => &r.name,
         }
     }
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn no_profile_is_fleet() {
-        assert_eq!(Profile::Fleet.name(), "Fleet");
+        assert_eq!(Profile::Fleet.name(), "Co");
         assert!(Profile::Fleet.is_fleet());
         let dir = tempfile::tempdir().unwrap();
         assert!(read(&dir.path().join("missing.json")).is_err());

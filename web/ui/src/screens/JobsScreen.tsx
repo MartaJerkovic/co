@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import { BotIcon, ChevronDownIcon, ChevronLeftIcon, Loader2Icon, PlayIcon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
+import { useNotesTree } from '@/hooks/useNotes'
+import { notesHref } from '@/lib/notes'
 
 import { ApiError, api } from '@/api/client'
 import type { FleetResponse, Job, JobRun } from '@/api/types'
@@ -15,10 +17,12 @@ import { Switch } from '@/components/ui/switch'
 import { useFleet } from '@/hooks/useFleet'
 import { useJobShow, useJobs } from '@/hooks/useJobs'
 import { useNow } from '@/hooks/useNow'
+import { useSettings } from '@/hooks/useSettings'
 import { useSwipeBack } from '@/hooks/useSwipeBack'
 import { relTime } from '@/lib/format'
-import { OUTCOME_TEXT, jobKey, keepLabel, liveSession, liveSummary, outcomeTone, promptLabel, runTree, whenLabel } from '@/lib/jobs'
+import { OUTCOME_TEXT, jobKey, keepLabel, liveSession, liveSummary, outcomeTone, promptLabel, promptNotePath, runTree, whenLabel } from '@/lib/jobs'
 import { sessionHref, statusLabel, statusMeta } from '@/lib/sessions'
+import { spaceOf } from '@/lib/spaces'
 import { STATUS_TEXT } from '@/lib/styles'
 import { sessionTitle } from '@/lib/title'
 import { cn } from '@/lib/utils'
@@ -33,13 +37,11 @@ type HostedJob = Job & { host: string }
 export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }) {
   const pane = layout === 'pane'
   const [, navigate] = useLocation()
-  const { jobs, errors, loading, reload, patch } = useJobs()
-  const { fleet, refresh: refreshFleet } = useFleet()
-  const now = useNow(30_000)
-  const [open, setOpen] = useState<Set<string>>(() => new Set())
-  const [confirm, setConfirm] = useState<HostedJob | null>(null)
-  // A run that started: bumps the expanded job's runs.
-  const [runEpoch, setRunEpoch] = useState(0)
+  const { jobs: allJobs, errors, loading, reload, patch } = useJobs()
+  const { fleet } = useFleet()
+  const { spaces } = useSettings()
+  // A space's bots live on that space's screen.
+  const jobs = allJobs.filter((j) => !spaceOf(spaces, fleet, j.host, j.dir))
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
@@ -47,25 +49,6 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)
-
-  const toggle = (key: string) =>
-    setOpen((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-
-  const setEnabled = async (j: HostedJob, enabled: boolean) => {
-    patch(j.host, j.name, { enabled })
-    try {
-      const r = await api.setJobEnabled(j.host, j.name, enabled)
-      if (r.job) patch(j.host, j.name, { enabled: r.job.enabled, nextRun: r.job.nextRun })
-    } catch (err) {
-      patch(j.host, j.name, { enabled: !enabled })
-      toast.error(`Could not ${enabled ? 'enable' : 'pause'} ${j.name}`, { description: (err as Error)?.message })
-    }
-  }
 
   const refreshButton = (
     <Button
@@ -88,19 +71,7 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
           <Skeleton className="h-3 w-full" />
         </div>
       ) : null}
-      {jobs.map((j) => (
-        <JobCard
-          key={jobKey(j)}
-          job={j}
-          now={now}
-          fleet={fleet}
-          open={open.has(jobKey(j))}
-          runEpoch={runEpoch}
-          onToggle={() => toggle(jobKey(j))}
-          onEnabled={(v) => void setEnabled(j, v)}
-          onRun={() => setConfirm(j)}
-        />
-      ))}
+      <BotList jobs={jobs} patch={patch} reload={reload} />
       {errors.length ? (
         <ul className="space-y-1.5">
           {errors.map((e) => (
@@ -122,20 +93,6 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
     </div>
   )
 
-  const dialog = confirm ? (
-    <RunDialog
-      job={confirm}
-      onClose={() => setConfirm(null)}
-      onStarted={() => {
-        setConfirm(null)
-        setOpen((prev) => new Set(prev).add(jobKey(confirm)))
-        setRunEpoch((n) => n + 1)
-        reload()
-        refreshFleet()
-      }}
-    />
-  ) : null
-
   if (pane) {
     return (
       <section aria-label="Bots" className="flex h-full min-w-0 flex-1 flex-col bg-background">
@@ -152,7 +109,6 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
           </Button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">{content}</div>
-        {dialog}
       </section>
     )
   }
@@ -169,8 +125,87 @@ export function JobsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' }
         </div>
       </ScreenHeader>
       {content}
-      {dialog}
     </div>
+  )
+}
+
+/**
+ * Bot cards as on the Bots screen: schedule, enabled switch, Run now (with its confirm), and the
+ * runs when expanded. Shared by the Bots screen and a space's screen.
+ */
+export function BotList({ jobs, patch, reload }: { jobs: HostedJob[]; patch: (host: string, name: string, change: Partial<Job>) => void; reload: () => void }) {
+  const { fleet, refresh: refreshFleet } = useFleet()
+  const now = useNow(30_000)
+  const [open, setOpen] = useState<Set<string>>(() => new Set())
+  // A run refused because the bot is still working: asks whether to start one anyway.
+  const [confirm, setConfirm] = useState<{ job: HostedJob; refused: string } | null>(null)
+  // A run that started: bumps the expanded job's runs.
+  const [runEpoch, setRunEpoch] = useState(0)
+
+  const started = (j: HostedJob) => {
+    setOpen((prev) => new Set(prev).add(jobKey(j)))
+    setRunEpoch((n) => n + 1)
+    reload()
+    refreshFleet()
+  }
+
+  const runNow = async (j: HostedJob) => {
+    try {
+      const r = await api.runJob(j.host, j.name)
+      toast.success(`Started ${j.name} on ${j.host}`, { description: r.output.replace(/^→\s*/, '') || undefined })
+      started(j)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) setConfirm({ job: j, refused: err.message })
+      else toast.error(`Could not start ${j.name}`, { description: (err as Error)?.message })
+    }
+  }
+
+  const toggle = (key: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const setEnabled = async (j: HostedJob, enabled: boolean) => {
+    patch(j.host, j.name, { enabled })
+    try {
+      const r = await api.setJobEnabled(j.host, j.name, enabled)
+      if (r.job) patch(j.host, j.name, { enabled: r.job.enabled, nextRun: r.job.nextRun })
+    } catch (err) {
+      patch(j.host, j.name, { enabled: !enabled })
+      toast.error(`Could not ${enabled ? 'enable' : 'pause'} ${j.name}`, { description: (err as Error)?.message })
+    }
+  }
+
+  return (
+    <>
+      {jobs.map((j) => (
+        <JobCard
+          key={jobKey(j)}
+          job={j}
+          now={now}
+          fleet={fleet}
+          open={open.has(jobKey(j))}
+          runEpoch={runEpoch}
+          onToggle={() => toggle(jobKey(j))}
+          onEnabled={(v) => void setEnabled(j, v)}
+          onRun={() => void runNow(j)}
+        />
+      ))}
+      {confirm ? (
+        <RunDialog
+          job={confirm.job}
+          refused={confirm.refused}
+          onClose={() => setConfirm(null)}
+          onStarted={() => {
+            setConfirm(null)
+            started(confirm.job)
+          }}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -197,6 +232,10 @@ function JobCard({
   const live = liveSummary(j)
   const waiting = j.live?.some((l) => l.status === 'waiting')
   const prompt = promptLabel(j.prompt)
+  // A prompt file inside the notes opens in Fleet's notes, not the editor.
+  const notesRoot = useNotesTree(j.host).tree?.rootAbs
+  const notePath = promptNotePath(j.prompt, notesRoot)
+  const promptNote = notePath ? notesHref(j.host, notePath) : null
   return (
     <section aria-label={`Job ${j.name} on ${j.host}`} className="rounded-xl border bg-card">
       <div className="flex items-start gap-3 p-3.5">
@@ -245,7 +284,11 @@ function JobCard({
               <>
                 <dt className="text-dimmer">prompt</dt>
                 <dd className="line-clamp-2 break-words">
-                  {j.prompt && 'file' in j.prompt && j.prompt.editorUrl ? (
+                  {promptNote ? (
+                    <Link href={promptNote} className="underline decoration-dimmer underline-offset-2 hover:text-foreground">
+                      {prompt}
+                    </Link>
+                  ) : j.prompt && 'file' in j.prompt && j.prompt.editorUrl ? (
                     <a
                       href={j.prompt.rootEditorUrl ?? j.prompt.editorUrl}
                       onClick={() => openPromptFile(j.prompt)}
@@ -360,20 +403,19 @@ function RunItem({ run: r, host, now, fleet }: { run: JobRun; host: string; now:
 }
 
 /** "Run now" confirmation; a 409 (a session of the job still works) offers "Run anyway" (`--force`). */
-function RunDialog({ job: j, onClose, onStarted }: { job: HostedJob; onClose: () => void; onStarted: () => void }) {
+/** Run now was refused because the bot is still working: start another run anyway? */
+function RunDialog({ job: j, refused, onClose, onStarted }: { job: HostedJob; refused: string; onClose: () => void; onStarted: () => void }) {
   const [busy, setBusy] = useState(false)
-  const [refused, setRefused] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const run = async (force: boolean) => {
+  const run = async () => {
     setBusy(true)
     setError(null)
     try {
-      const r = await api.runJob(j.host, j.name, force)
+      const r = await api.runJob(j.host, j.name, true)
       toast.success(`Started ${j.name} on ${j.host}`, { description: r.output.replace(/^→\s*/, '') || undefined })
       onStarted()
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) setRefused(err.message)
-      else setError((err as Error)?.message || 'could not start the run')
+      setError((err as Error)?.message || 'could not start the run')
     } finally {
       setBusy(false)
     }
@@ -382,20 +424,17 @@ function RunDialog({ job: j, onClose, onStarted }: { job: HostedJob; onClose: ()
     <Dialog open onOpenChange={(o) => (o || busy ? null : onClose())}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Run {j.name} now?</DialogTitle>
-          <DialogDescription>
-            Starts a new agent session on {j.host} in <span className="font-mono">{j.dir}</span>, whatever the schedule says.
-          </DialogDescription>
+          <DialogTitle>{j.name} is still working</DialogTitle>
+          <DialogDescription>{refused}</DialogDescription>
         </DialogHeader>
-        {refused ? <p className="text-sm text-status-waiting">{refused}</p> : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void run(Boolean(refused))} disabled={busy}>
+          <Button onClick={() => void run()} disabled={busy}>
             {busy ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
-            {refused ? 'Run anyway' : 'Run now'}
+            Run anyway
           </Button>
         </DialogFooter>
       </DialogContent>

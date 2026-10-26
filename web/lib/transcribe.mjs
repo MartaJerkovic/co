@@ -2,6 +2,10 @@
 // endpoint and answers with the text, which the UI appends to the prompt. The key comes from
 // $OPENAI_SPEECH_TO_TEXT_API_KEY, else (macOS) the Keychain item of that name — never from
 // the config file. No key → the feature is off (/api/settings says so, the mic is hidden).
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { HttpError } from './http.mjs';
 
 export const KEY_NAME = 'OPENAI_SPEECH_TO_TEXT_API_KEY';
@@ -146,6 +150,49 @@ export function createTranscriber({ getKey, model = DEFAULT_TRANSCRIBE_MODEL, ma
       throw new HttpError(`transcription failed: ${msg}`, res.status === 429 ? 429 : 502);
     }
     return { text: String(data?.text ?? '').trim(), model };
+  }
+
+  return { enabled, transcribe, transcribeAudio };
+}
+
+/**
+ * The same transcriber on this machine, with no key and nothing leaving it: whisper.cpp
+ * (`whisper-cli`) after ffmpeg turns the browser's recording into 16 kHz mono WAV.
+ * Config `web.transcribe.local`: `{ model, language?, whisper?, ffmpeg? }` — `model` a ggml file.
+ * On when the model file exists; the binaries are found on PATH (or given).
+ */
+export function createLocalTranscriber({ model, language = 'auto', whisper = 'whisper-cli', ffmpeg = 'ffmpeg', run, maxBytes = TRANSCRIBE_MAX_BYTES, timeoutMs = 120 * 1000, fsImpl = fs, tmpdir = os.tmpdir(), log = () => {} }) {
+  const name = `whisper.cpp ${path.basename(model).replace(/^ggml-|\.bin$/g, '')}`;
+
+  async function enabled() {
+    return Boolean(model && fsImpl.existsSync(model));
+  }
+
+  async function transcribe(req, hint) {
+    if (!(await enabled())) throw new HttpError(`voice input is off: whisper model not found (${model})`, 501);
+    const type = audioType(req.headers?.['content-type']);
+    if (!type) throw new HttpError('expected an audio body (webm, ogg, mp4, mp3 or wav)', 415);
+    const audio = await readAudio(req, maxBytes);
+    if (!audio.length) throw new HttpError('empty recording', 400);
+    return transcribeAudio(audio, type, buildPrompt(hint));
+  }
+
+  async function transcribeAudio(audio, type, prompt = BASE_PROMPT) {
+    const dir = fsImpl.mkdtempSync(path.join(tmpdir, 'fleet-voice-'));
+    const input = path.join(dir, `voice.${EXT[type] ?? 'webm'}`);
+    const wav = path.join(dir, 'voice-16k.wav');
+    try {
+      fsImpl.writeFileSync(input, audio);
+      await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-ar', '16000', '-ac', '1', wav], { timeout: 30 * 1000 });
+      const { stdout } = await run(whisper, ['-m', model, '-f', wav, '-l', language, '-nt', '-np', '--prompt', prompt], { timeout: timeoutMs });
+      const text = stdout.replace(/\s+/g, ' ').trim();
+      return { text, model: name };
+    } catch (err) {
+      log(`transcribe (local): ${err?.message ?? err}`);
+      throw new HttpError(`local transcription failed: ${String(err?.message ?? err).split('\n')[0]}`, 502);
+    } finally {
+      fsImpl.rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   return { enabled, transcribe, transcribeAudio };

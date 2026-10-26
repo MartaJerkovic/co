@@ -30,7 +30,7 @@ export interface OutboxItem {
 
 /** Send delay choices (Settings → Chat), ms. */
 export const SEND_DELAYS = [0, 3000, 5000] as const
-export const DEFAULT_SEND_DELAY = 3000
+export const DEFAULT_SEND_DELAY = 0
 export const SEND_DELAY_LABELS: Record<number, string> = { 0: 'Off', 3000: '3 s', 5000: '5 s' }
 export const parseSendDelay = (raw: string): number | undefined => {
   const n = Number(raw)
@@ -51,11 +51,21 @@ export function normalizeText(text: string): string {
     .trim()
 }
 
-/** Same message? Normalized equality, or the same first 32 chars (Claude Code may rewrite attached paths). */
+/** Without attachments: Claude Code turns an attached image path into `[Image #1]`. */
+const withoutAttachments = (text: string) =>
+  normalizeText(String(text ?? '').replace(/\[Image #\d+\]/g, ' ').replace(/(^|\s)\/\S+/g, ' '))
+
+/** Same message? Normalized equality, the same without attachments, or the same first 32 chars. */
 export function sameText(a: string, b: string): boolean {
   const x = normalizeText(a)
   const y = normalizeText(b)
   if (x === y) return true
+  const bareX = withoutAttachments(a)
+  const bareY = withoutAttachments(b)
+  if (bareX && bareX === bareY) return true
+  // Text left in the agent's prompt box gets glued in front of what was sent ("12" + message).
+  const [short, long] = bareX.length <= bareY.length ? [bareX, bareY] : [bareY, bareX]
+  if (short.length >= 8 && long.endsWith(short)) return true
   return x.length >= 32 && y.length >= 32 && x.slice(0, 32) === y.slice(0, 32)
 }
 
@@ -162,7 +172,7 @@ export function reconcile(items: OutboxItem[], messages: Message[] | null | unde
     }
     for (let j = Math.max(start, floor); j < list.length; j++) {
       const m = list[j]
-      if (msgKind(m) !== 'user' || !sameText(String(m.text ?? ''), it.text)) continue
+      if ((msgKind(m) !== 'user' && msgKind(m) !== 'command') || !sameText(String(m.text ?? ''), it.text)) continue
       matched.add(it.id)
       floor = j + 1
       break

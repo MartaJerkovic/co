@@ -32,6 +32,14 @@ const chipClass = cn(
 )
 
 export interface ComposerProps {
+  /** Claude is working: an empty composer's send button becomes Stop. */
+  working?: boolean
+  /** What Stop does (default: Esc). */
+  onStop?: () => void
+  /** Claude Code's pre-filled next message; shown as the placeholder, Tab or → puts it in the box. */
+  suggestion?: string | null
+  /** Rendered before the input row's buttons (the session's Chat / Terminal switch). */
+  leading?: ReactNode
   quickReplies: QuickReply[]
   /** Why steering is impossible (gone / unknown backend); null = enabled. */
   lockedReason: string | null
@@ -74,6 +82,10 @@ export interface ComposerApi {
 const MAX_TEXTAREA_PX = 21 * 5 + 22 // ~5 rows + padding
 
 export function Composer({
+  leading,
+  working = false,
+  onStop,
+  suggestion,
   quickReplies,
   lockedReason,
   onSend,
@@ -185,7 +197,10 @@ export function Composer({
     const el = ta.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(MAX_TEXTAREA_PX, Math.max(44, el.scrollHeight))}px`
+    // scrollHeight leaves out the border (border-box): without it the box is 2px short and shows a scrollbar.
+    const full = el.scrollHeight + el.offsetHeight - el.clientHeight
+    el.style.height = `${Math.min(MAX_TEXTAREA_PX, Math.max(44, full))}px`
+    el.style.overflowY = full > MAX_TEXTAREA_PX ? 'auto' : 'hidden'
     if (caretToEnd.current) {
       caretToEnd.current = false
       el.focus()
@@ -256,7 +271,7 @@ export function Composer({
         </button>
       )}
       <form
-        className={cn(desktop ? 'mx-auto w-full max-w-4xl px-4 pt-2 pb-2' : 'mx-auto w-full max-w-3xl px-3 pb-2', locked && 'opacity-60')}
+        className={cn(desktop ? 'w-full px-4 pt-2 pb-2' : 'mx-auto w-full max-w-3xl px-3 pb-2', locked && 'opacity-60')}
         onSubmit={(e) => {
           e.preventDefault()
           submit()
@@ -325,6 +340,7 @@ export function Composer({
               onPick={pick}
             />
           ) : null}
+          {leading}
           <input
             ref={picker}
             type="file"
@@ -386,6 +402,11 @@ export function Composer({
                   return
                 }
               }
+              if (suggestion && !text && (e.key === 'Tab' || e.key === 'ArrowRight') && !e.shiftKey) {
+                e.preventDefault()
+                setText(suggestion)
+                return
+              }
               if (isTouch && !desktop) return
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
@@ -393,7 +414,7 @@ export function Composer({
               }
             }}
             disabled={locked}
-            placeholder={locked ? 'Read-only' : desktop ? `Message ${agent}…  (Enter to send, Shift+Enter for a new line)` : `Message ${agent}…`}
+            placeholder={locked ? 'Read-only' : suggestion ? `${suggestion}   (Tab)` : `Message ${agent}…`}
             aria-label="Message"
             role="combobox"
             aria-autocomplete="list"
@@ -423,15 +444,31 @@ export function Composer({
               )}
             />
           ) : null}
-          <Button
-            type="submit"
-            size="icon"
-            aria-label="Send"
-            disabled={locked || empty || tooLong}
-            className="size-11 rounded-full [&_svg:not([class*='size-'])]:size-5"
-          >
-            <SendHorizontalIcon />
-          </Button>
+          {working && empty ? (
+            // While Claude works and nothing is typed, the button stops it (Esc), as in the terminal.
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              aria-label="Stop Claude"
+              title="Stop"
+              disabled={locked}
+              onClick={() => (onStop ? onStop() : onKey('Escape'))}
+              className="size-11 rounded-full"
+            >
+              <SquareIcon className="size-4 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              aria-label="Send"
+              disabled={locked || empty || tooLong}
+              className="size-11 rounded-full [&_svg:not([class*='size-'])]:size-5"
+            >
+              <SendHorizontalIcon />
+            </Button>
+          )}
         </div>
         {voice.state !== 'idle' ? (
           <div className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 text-xs text-muted-foreground" role="status">

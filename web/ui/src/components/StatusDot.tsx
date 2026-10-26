@@ -9,7 +9,7 @@ export function StatusDot({ status, title, className }: { status: string | null 
       role="img"
       aria-label={title ?? meta.label}
       title={title}
-      className={cn('inline-block size-2.5 shrink-0 rounded-full', STATUS_DOT[meta.key], className)}
+      className={cn('inline-block size-2.5 shrink-0 rounded-full', STATUS_DOT[meta.key], meta.key === 'busy' && 'animate-breathe motion-reduce:animate-none', className)}
     />
   )
 }

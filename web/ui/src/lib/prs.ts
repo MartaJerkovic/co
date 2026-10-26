@@ -1,4 +1,4 @@
-import type { PrColumn, PrColumnId, PrRotting, PrsResponse, PullRequest, Session } from '@/api/types'
+import type { PrColumn, PrColumnId, PromptButton, PrRotting, PrsResponse, PullRequest, Session } from '@/api/types'
 
 /** Display order and titles when a server sends no `columns` (and the order it should send). */
 export const PR_COLUMNS: { id: PrColumnId; title: string }[] = [
@@ -87,7 +87,8 @@ export function reviewLabel(p: PullRequest): string | null {
 export const prRef = (p: Pick<PullRequest, 'owner' | 'repo' | 'number'>) => `${p.owner}/${p.repo}#${p.number}`
 
 /** Starting prompts offered for a PR, the most likely first. */
-export function promptChips(p: Pick<PullRequest, 'column' | 'checks'>): { label: string; text: string }[] {
+export function promptChips(p: Pick<PullRequest, 'column' | 'checks'>, custom?: PromptButton[] | null): PromptButton[] {
+  if (custom?.length) return custom.filter((b) => !b.columns?.length || b.columns.includes(p.column))
   const review = {
     label: 'Review',
     text: 'Review this pull request: read the description and the diff, run what is worth running, and list what should change before it merges.',

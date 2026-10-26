@@ -27,6 +27,8 @@
 //! job's sessions act as on GitHub — see [`crate::core::gh_identity`]. `enabled: false` pauses
 //! the job. `keep` (default `24h`, `"never"` to keep forever): a run's sessions are closed once
 //! they are idle and the run is older than this; a session waiting for input is never closed.
+//! `when`: a shell command a scheduled slot runs first, in `dir`; the run starts only if it
+//! exits 0, otherwise the slot passes with no run recorded. A manual `run` ignores it.
 //!
 //! The launchd agent runs `fleet jobs tick` every minute. A tick fires a job when its latest
 //! scheduled slot is newer than the last slot it saw; a slot more than [`CATCH_UP_SECS`] old
@@ -396,6 +398,8 @@ pub struct Job {
     pub model: Option<String>,
     /// Launcher for the job's sessions and their descendants (`FLEET_CMD`).
     pub command: Option<String>,
+    /// Shell command that must exit 0 for a scheduled slot to start a run (`when`).
+    pub when: Option<String>,
     /// The GitHub identity its sessions act as (`ghIdentity`, see [`crate::core::gh_identity`]).
     pub gh_identity: Option<String>,
     pub enabled: bool,
@@ -526,11 +530,28 @@ fn job_from_value(name: &str, v: &Value) -> std::result::Result<Job, String> {
         harness,
         model: text("model")?,
         command: text("command")?,
+        when: text("when")?,
         gh_identity,
         enabled,
         keep,
         section: "bots",
     })
+}
+
+/// Whether `j`'s `when` command allows a scheduled run: no command, or it exits 0 in `dir`.
+pub fn when_passes(j: &Job) -> bool {
+    let Some(cmd) = &j.when else {
+        return true;
+    };
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(tools::expand_tilde(&j.dir))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 // --- tags ----------------------------------------------------------------------
@@ -943,6 +964,22 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(Settings::from_value(&json!([1]), "bots").problems.len(), 1);
+    }
+
+    #[test]
+    fn when_gates_scheduled_runs() {
+        let s = Settings::from_value(
+            &json!({
+            "always": { "schedule": "@hourly", "dir": "/tmp" },
+            "yes": { "schedule": "@hourly", "dir": "/tmp", "when": "true" },
+            "no": { "schedule": "@hourly", "dir": "/tmp", "when": "exit 1" }
+            }),
+            "bots",
+        );
+        assert_eq!(s.get("yes").unwrap().when.as_deref(), Some("true"));
+        assert!(when_passes(s.get("always").unwrap()));
+        assert!(when_passes(s.get("yes").unwrap()));
+        assert!(!when_passes(s.get("no").unwrap()));
     }
 
     #[test]

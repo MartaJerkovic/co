@@ -1,15 +1,19 @@
 import type { ReactNode } from 'react'
+import { useLocation } from 'wouter'
 import { AudioLinesIcon, InboxIcon, BotIcon, CircleDotIcon, GaugeIcon, GitPullRequestIcon, NotebookPenIcon, SquareCheckBigIcon, NotebookTextIcon, Settings2Icon } from 'lucide-react'
 
+import { SpaceIcon } from '@/components/SpaceIcon'
 import { Button } from '@/components/ui/button'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { useNotesHosts } from '@/hooks/useNotes'
 import { useSettings } from '@/hooks/useSettings'
 import { scratchpad } from '@/lib/scratchpad'
+import { spaceHref } from '@/lib/spaces'
 import { withHint, type ShortcutAction } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 
-export type ModuleId = 'inbox' | 'scratchpad' | 'memos' | 'operator' | 'prs' | 'tasks' | 'notes' | 'jobs' | 'usage' | 'settings'
+/** A space's module is `space:<id>` (config `web.spaces`). */
+export type ModuleId = 'inbox' | 'scratchpad' | 'memos' | 'operator' | 'prs' | 'tasks' | 'notes' | 'jobs' | 'usage' | 'settings' | `space:${string}`
 
 export interface Module {
   id: ModuleId
@@ -19,8 +23,8 @@ export interface Module {
   href?: string
   run?: () => void
   hint?: ShortcutAction
-  /** `work`: the modules you work in; `utility`: the helper screens (usage, settings). */
-  group: 'work' | 'utility'
+  /** `sessions`: the session lists kept apart (Bots, the spaces); `work`: the modules you work in; `utility`: the helper screens (usage, settings). */
+  group: 'sessions' | 'work' | 'utility'
 }
 
 /**
@@ -39,7 +43,8 @@ function useModules(): Module[] {
     settings.memos ? { id: 'memos', label: 'Voice memos', icon: <CircleDotIcon />, href: '#/memos', hint: 'memos', group: 'work' } : null,
     { id: 'scratchpad', label: 'Scratchpad', icon: <NotebookPenIcon />, run: () => (scratchpad.isOpen() ? scratchpad.hide() : scratchpad.show()), hint: 'scratchpad', group: 'work' },
     notesHosts.length ? { id: 'notes', label: 'Notes', icon: <NotebookTextIcon />, href: '#/notes', hint: 'notes', group: 'work' } : null,
-    { id: 'jobs', label: 'Bots', icon: <BotIcon />, href: '#/bots', hint: 'jobs', group: 'work' },
+    { id: 'jobs', label: 'Bots', icon: <BotIcon />, href: '#/bots', hint: 'jobs', group: 'sessions' },
+    ...settings.spaces.map((s): Module => ({ id: `space:${s.id}`, label: s.label, icon: <SpaceIcon icon={s.icon} />, href: spaceHref(s.id), group: 'sessions' })),
     { id: 'usage', label: 'Usage limits', icon: <GaugeIcon />, href: '#/usage', hint: 'usage', group: 'utility' },
     { id: 'settings', label: 'Settings', icon: <Settings2Icon />, href: '#/settings', hint: 'settings', group: 'utility' },
   ]
@@ -52,23 +57,37 @@ export function ModuleButtons({
   className,
   exclude = [],
   group,
+  badges = {},
+  current,
 }: {
   size?: 'icon' | 'icon-sm'
   className?: string
   exclude?: ModuleId[]
   /** Only this group (absent: all). */
   group?: Module['group']
+  /** A count on a module's icon (e.g. bot runs waiting for you). */
+  badges?: Partial<Record<ModuleId, number>>
+  /** The module the open screen belongs to, when its URL doesn't say (a bot run opened from Bots). */
+  current?: ModuleId
 }) {
   const modules = useModules().filter((m) => m.id !== 'scratchpad' && !exclude.includes(m.id) && (!group || m.group === group))
+  const [location] = useLocation()
   return (
     <>
       {modules.map((m) => {
         const title = m.hint ? withHint(m.label, m.hint) : m.label
-        const cls = cn('text-dimmer hover:text-foreground', className)
+        const active = m.id === current || (!!m.href && (location === m.href.slice(1) || location.startsWith(`${m.href.slice(1)}/`)))
+        const cls = cn('relative text-dimmer hover:text-foreground', active && 'bg-accent text-foreground', className)
+        const badge = badges[m.id] ?? 0
         return m.href ? (
           <Button key={m.id} asChild variant="ghost" size={size} className={cls}>
-            <a href={m.href} aria-label={m.label} title={title}>
+            <a href={m.href} aria-label={m.label} title={title} aria-current={active ? 'page' : undefined}>
               {m.icon}
+              {badge > 0 ? (
+                <span className="absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full bg-status-waiting px-1 text-[0.625rem] font-semibold text-background tabular-nums">
+                  {badge}
+                </span>
+              ) : null}
             </a>
           </Button>
         ) : (

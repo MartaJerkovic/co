@@ -23,6 +23,7 @@ export type ShortcutAction =
   | 'rename'
   | 'notes'
   | 'scratchpad'
+  | 'park'
   | 'inbox'
   | 'operator'
   | 'memos'
@@ -90,6 +91,7 @@ export const BINDINGS: readonly Binding[] = [
   { action: 'rename', combo: ['mod', 'E'] },
   { action: 'notes', combo: ['mod', 'shift', 'E'] },
   { action: 'scratchpad', combo: ['mod', 'shift', 'S'] },
+  { action: 'park', combo: ['mod', 'shift', 'J'] },
   // The modules (again → back to the sessions). ⌘, is the macOS settings key: Fleet.app and
   // Safari pass it to the page, Chrome keeps it for its own settings.
   { action: 'inbox', combo: ['mod', 'shift', 'I'] },
@@ -250,6 +252,7 @@ export const SHORTCUT_HELP: { title: string; items: ShortcutHelp[] }[] = [
       { action: 'rename', label: 'Rename (the open session, else the cursor row)' },
       { keys: [['F2']], label: 'Rename (outside a field)' },
       { action: 'mode', label: 'Switch Chat / Terminal' },
+      { action: 'park', label: 'Park a thought (an idea or a to-do, from anywhere)' },
       { action: 'close', label: 'Close session (press twice; the open one, else the cursor row)' },
       { keys: [['Enter'], ['mod', 'Enter']], label: 'Send (in the composer)' },
       { keys: [['shift', 'Enter']], label: 'New line' },

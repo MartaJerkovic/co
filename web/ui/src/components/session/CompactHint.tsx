@@ -8,11 +8,25 @@ import { cn } from '@/lib/utils'
 /** Context use (%) from which the chat offers a one-tap `/compact`. */
 export const COMPACT_HINT_PCT = 30
 
-/** Floating "Compact · 42%" pill (bottom-left; "Latest" sits bottom-right) once the context passes
- *  COMPACT_HINT_PCT. A tap sends `/compact` through the outbox, so the undo window still applies. */
-export function CompactHint({ context: c, onCompact }: { context?: ContextUsage | null; onCompact: () => void }) {
+/** "Compact" once the context passes COMPACT_HINT_PCT. A tap sends `/compact` through the outbox,
+ *  so the undo window still applies. `inline`: a small chip for the session header, beside the
+ *  context meter; otherwise the floating pill (bottom-left, "Latest" sits bottom-right). */
+export function CompactHint({ context: c, onCompact, inline = false }: { context?: ContextUsage | null; onCompact: () => void; inline?: boolean }) {
   if (!c || !Number.isFinite(c.pct) || c.pct < COMPACT_HINT_PCT) return null
   const pct = Math.round(c.pct)
+  if (inline) {
+    return (
+      <button
+        type="button"
+        onClick={onCompact}
+        title={`${100 - pct}% context left — send /compact to summarise the conversation`}
+        className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-2 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <ShrinkIcon className="size-3" />
+        Compact
+      </button>
+    )
+  }
   return (
     <button
       type="button"

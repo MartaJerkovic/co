@@ -10,6 +10,17 @@ import { tailLines, sleep as defaultSleep } from './util.mjs';
 // only what follows the first 1 KB.
 export const TYPE_CHUNK = 512;
 
+// Claude Code turns an image path into `[Image #N]` in place only when the path arrives as a paste
+// of its own; inside a longer paste it moves every image to the front of the message.
+const IMAGE_PATH_RE = /((?<!\S)"\/(?:[^"\\]|\\.)*\.(?:png|jpe?g|gif|webp)"|(?<!\S)\/\S+\.(?:png|jpe?g|gif|webp)(?!\S))/i;
+// Pause between those pastes, so each lands before the next one starts.
+const IMAGE_PASTE_GAP_MS = 400;
+
+/** `text` cut around image paths: text, path, text, … (empty pieces dropped). */
+export function imageSegments(text) {
+  return text.split(new RegExp(IMAGE_PATH_RE.source, 'gi')).filter((part) => part !== '');
+}
+
 /** Split `text` into pieces of at most `max` UTF-8 bytes, never inside a character. */
 export function typeChunks(text, max = TYPE_CHUNK) {
   const out = [];
@@ -158,11 +169,19 @@ export function createBackend({
     }
   }
 
-  async function peek(session, lines) {
+  /** One bracketed paste of `text` (the TUI keeps its newlines). */
+  async function pasteText(handle, text) {
+    const buf = `fleet-send-${process.pid}-${++pasteSeq}`;
+    await run(tmux, ['load-buffer', '-b', buf, '-'], { input: text, timeout: 8000 });
+    await run(tmux, ['paste-buffer', '-p', '-r', '-d', '-b', buf, '-t', handle], { timeout: 8000 });
+  }
+
+  /** The last `lines` of the screen; `ansi` keeps the colours (tmux SGR escapes) for the terminal view. */
+  async function peek(session, lines, { ansi = false } = {}) {
     const backend = backendOf(session);
     const handle = requireHandle(session);
     if (backend === 'tmux') {
-      const { stdout } = await run(tmux, ['capture-pane', '-p', '-J', '-t', handle, '-S', `-${lines}`], {
+      const { stdout } = await run(tmux, ['capture-pane', '-p', '-J', ...(ansi ? ['-e'] : []), '-t', handle, '-S', `-${lines}`], {
         timeout: 8000,
       });
       return tailLines(stdout, lines);
@@ -171,16 +190,40 @@ export function createBackend({
     return tailLines(stdout, lines);
   }
 
+  /**
+   * Where the terminal cursor is (tmux): column `x`, and `below` = lines of the capture under the
+   * cursor's line; `alternate`: the app draws a full screen of its own (Claude Code's fullscreen
+   * TUI), so its history scrolls with PageUp / PageDown, not the terminal's. null when not tmux.
+   */
+  async function cursor(session) {
+    if (backendOf(session) !== 'tmux') return null;
+    const handle = requireHandle(session);
+    const { stdout } = await run(tmux, ['display-message', '-p', '-t', handle, '#{cursor_x} #{cursor_y} #{pane_height} #{cursor_flag} #{alternate_on}'], { timeout: 8000 });
+    const [x, y, height, shown, alt] = stdout.trim().split(' ').map(Number);
+    if (![x, y, height].every(Number.isFinite)) return null;
+    const alternate = alt === 1;
+    if (!shown) return { x: null, below: 0, alternate };
+    if (y + 1 > height - 1) return { x, below: 0, alternate };
+    // Captured the same way as the ansi peek (`-e`), so blank lines are trimmed alike.
+    const rows = await run(tmux, ['capture-pane', '-p', '-J', '-e', '-t', handle, '-S', String(y + 1), '-E', String(height - 1)], { timeout: 8000 });
+    const under = tailLines(rows.stdout, 0);
+    return { x, below: under ? under.split('\n').length : 0, alternate };
+  }
+
   async function send(session, text) {
     const backend = backendOf(session);
     const handle = requireHandle(session);
     if (backend === 'tmux') {
-      if (/[\r\n]/.test(text)) {
+      const parts = imageSegments(text);
+      if (parts.length > 1) {
+        for (const [i, part] of parts.entries()) {
+          if (i > 0) await sleep(IMAGE_PASTE_GAP_MS);
+          await pasteText(handle, part);
+        }
+      } else if (/[\r\n]/.test(text)) {
         // tmux (3.6) drops newlines typed by `send-keys -l`, so a multi-line message would reach
         // Claude as one line. Paste it as a bracketed paste instead: the TUI keeps the newlines.
-        const buf = `fleet-send-${process.pid}-${++pasteSeq}`;
-        await run(tmux, ['load-buffer', '-b', buf, '-'], { input: text, timeout: 8000 });
-        await run(tmux, ['paste-buffer', '-p', '-r', '-d', '-b', buf, '-t', handle], { timeout: 8000 });
+        await pasteText(handle, text);
       } else {
         await typeText(handle, text);
       }
@@ -198,7 +241,8 @@ export function createBackend({
       await run(tmux, ['send-keys', '-t', handle, key], { timeout: 8000 });
       return;
     }
-    const mode = { Escape: 'escape', Enter: 'enter', Up: 'up', Down: 'down' }[key] ?? 'enter';
+    const mode = { Escape: 'escape', Enter: 'enter', Up: 'up', Down: 'down' }[key];
+    if (!mode) throw new BackendError(`iTerm sessions take only Enter, Escape, Up and Down`, 409);
     await run(osascript, [scriptPath(), mode, handle], { timeout: 15000 });
   }
 
@@ -207,7 +251,9 @@ export function createBackend({
     const backend = backendOf(session);
     const handle = requireHandle(session);
     if (backend === 'tmux') {
-      await typeText(handle, text);
+      // tmux drops newlines typed by `send-keys -l`: multi-line text goes in as a bracketed paste.
+      if (/[\r\n]/.test(text)) await pasteText(handle, text);
+      else await typeText(handle, text);
       return;
     }
     await run(osascript, [scriptPath(), 'type', handle, text], { timeout: 15000 });
@@ -219,5 +265,6 @@ export function createBackend({
     await run(osascript, [scriptPath(), 'close', handle], { timeout: 15000 });
   }
 
-  return { peek, send, keys, type, closeIterm };
+  return { peek, cursor, send, keys, type, closeIterm };
 }
+

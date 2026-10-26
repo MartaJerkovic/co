@@ -37,8 +37,9 @@ export function createFleet({ cli, self = 'local', ttlMs = 2000, now = Date.now 
     }
   }
 
-  async function localHost({ force = false } = {}) {
-    if (!force && cached && now() - cached.at < ttlMs) return cached.value;
+  /** `maxAgeMs`: a tighter TTL for this read (a chat that follows one live session). */
+  async function localHost({ force = false, maxAgeMs = ttlMs } = {}) {
+    if (!force && cached && now() - cached.at < Math.min(ttlMs, maxAgeMs)) return cached.value;
     if (inFlight) return inFlight;
     inFlight = discover()
       .then((value) => {

@@ -33,7 +33,7 @@ done
 # no profile.json; any other app gets one in Resources, which the binary reads at launch.
 case "$profile" in
   fleet)
-    name=Fleet
+    name=Co
     identifier=dev.fleet.desktop
     icon="$here/icons/icon.png"
     category=public.app-category.developer-tools

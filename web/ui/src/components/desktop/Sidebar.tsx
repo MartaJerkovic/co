@@ -1,28 +1,29 @@
-import { useEffect, useRef, type KeyboardEvent, type Ref } from 'react'
-import { NotebookTextIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, XIcon } from 'lucide-react'
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type Ref } from 'react'
+import { ChevronRightIcon, LightbulbIcon, MessagesSquareIcon, NotebookTextIcon, PanelLeftCloseIcon, PlusIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
 import { FocusToggle } from '@/components/FocusToggle'
 import { HostDot } from '@/components/HostBadge'
-import { StatusFilterLabel } from '@/components/JobChip'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
-import type { Session } from '@/api/types'
+import type { Session, Space } from '@/api/types'
 import { SessionRow } from '@/components/SessionRow'
 import { StackGroup } from '@/components/stack/StackGroup'
-import { StatusDot } from '@/components/StatusDot'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { ModuleButtons } from '@/components/ModuleNav'
+import { ModuleButtons, type ModuleId } from '@/components/ModuleNav'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
 import { useNotesHosts } from '@/hooks/useNotes'
+import type { SidebarView } from '@/hooks/useSidebarView'
 import { ALL_HOSTS, type SessionListState } from '@/hooks/useSessionList'
+import { APP_NAME } from '@/lib/app'
 import type { ViewMode } from '@/lib/groups'
-import { allSessions, stackRuns, visibleStatusFilters, type StatusFilterId } from '@/lib/sessions'
+import { allSessions, stackRuns } from '@/lib/sessions'
 import { ariaShortcut, sessionKey, shortcutHint, withHint } from '@/lib/shortcuts'
+import { openPark } from '@/lib/park'
 import { cn } from '@/lib/utils'
 
 const chip = cn(
@@ -32,13 +33,16 @@ const chip = cn(
 
 export interface SidebarProps {
   list: SessionListState
+  /** What the list shows (All / Your turn, the long-idle fold); shared with the shell's j/k. */
+  sidebarView: SidebarView
+  /** A list kept apart from the work sessions (Bots, a space): only its own sessions, no closed ones. */
+  space?: 'bots' | Space | null
   now: number
   cursorKey: string | null
   selectedKey: string | null
   searchRef: Ref<HTMLInputElement>
   /** ↑ / ↓ / Enter inside the search field drive the list cursor. */
   onSearchNav: (action: 'next' | 'prev' | 'open') => void
-  onNew: () => void
   onCollapse: () => void
   /** List | Board toggle (omitted → no toggle). */
   viewMode?: ViewMode
@@ -46,8 +50,9 @@ export interface SidebarProps {
 }
 
 /** Desktop left column: header + summary, search, status/host filters, the session list. */
-export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearchNav, onNew, onCollapse, viewMode, onViewMode }: SidebarProps) {
-  const { fleet, error, query, setQuery, status, setStatus, setHostFilter, hosts, hostNames, host, view, hostCounts, summary, unreachable, note } = list
+export function Sidebar({ list, sidebarView, space = null, now, cursorKey, selectedKey, searchRef, onSearchNav, onCollapse, viewMode, onViewMode }: SidebarProps) {
+  const { fleet, error, query, setQuery, setHostFilter, hosts, hostNames, host, hostCounts, unreachable, note } = list
+  const { turnOnly, turnCount, isTurn, setTurnOnly, toggleIdle, shown, fresh, stale, staleOpen } = sidebarView
   const listRef = useRef<HTMLDivElement>(null)
 
   // Keep the cursor row visible (j/k past the edge).
@@ -77,35 +82,14 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
     <div className="flex h-full min-w-0 flex-col">
       <div data-tauri-drag-region className="shrink-0 space-y-2 border-b px-3 pt-3 pb-2.5">
         {/* The desktop app's traffic lights sit over this row (see index.css → Desktop app). */}
-        <div data-tauri-drag-region="deep" className="titlebar-lead flex min-h-8 items-center gap-2 [--titlebar-offset:0.75rem]">
-          <h1 className="text-lg font-bold tracking-tight">Fleet</h1>
-          {fleet ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums" aria-label="Status summary">
-              {summary.waiting > 0 ? (
-                <span className="flex items-center gap-1 font-semibold text-status-waiting" title="Needs you">
-                  <StatusDot status="waiting" className="size-2" />
-                  {summary.waiting}
-                </span>
-              ) : null}
-              <span className="flex items-center gap-1" title="Busy">
-                <StatusDot status="busy" className="size-2" />
-                {summary.busy}
-              </span>
-              <span className="flex items-center gap-1" title="Idle">
-                <StatusDot status="idle" className="size-2" />
-                {summary.idle}
-              </span>
-            </div>
-          ) : null}
+        <div data-tauri-drag-region="deep" className="titlebar-lead flex min-h-8 items-center gap-2 [--titlebar-offset:calc(3rem+0.75rem)]">
+          <h1 className="text-lg font-bold tracking-tight">{APP_NAME}</h1>
           <span
             className={cn('ml-auto truncate text-right text-[0.6875rem] tabular-nums', note.error ? 'text-destructive' : 'text-dimmer')}
             aria-live="polite"
           >
             {note.error ? note.text : null}
           </span>
-          <Button size="icon" aria-label="New session" title={withHint('New session', 'new')} onClick={onNew} className="shrink-0 rounded-full">
-            <PlusIcon />
-          </Button>
           <Button variant="ghost" size="icon" aria-label="Collapse sidebar" title={withHint('Collapse sidebar', 'sidebar')} onClick={onCollapse} className="shrink-0">
             <PanelLeftCloseIcon />
           </Button>
@@ -145,22 +129,16 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
           {viewMode && onViewMode ? <ViewToggle value={viewMode} onChange={onViewMode} labels={false} className="p-px" /> : null}
         </div>
 
-        <ToggleGroup
-          type="single"
-          value={status}
-          onValueChange={(v) => v && setStatus(v as StatusFilterId)}
-          aria-label="Filter by status"
-          className="no-scrollbar w-full flex-wrap"
-        >
-          {visibleStatusFilters(fleet ? view.counts : null, status).map((f) => (
-            <ToggleGroupItem key={f.id} value={f.id} className={chip} title={f.title}>
-              <StatusFilterLabel filter={f} />
-              <span className="text-[0.6875rem] text-dimmer tabular-nums group-data-[state=on]/toggle:text-accent-foreground/70">
-                {fleet ? view.counts[f.id] : ''}
-              </span>
-            </ToggleGroupItem>
-          ))}
+        <ToggleGroup type="single" value={turnOnly ? 'turn' : 'all'} onValueChange={(v) => v && setTurnOnly(v === 'turn')} aria-label="Show" className="justify-start">
+          <ToggleGroupItem value="all" className={chip}>
+            All
+          </ToggleGroupItem>
+          <ToggleGroupItem value="turn" className={chip} title="Claude asked you something, or finished a reply you haven't opened">
+            Your turn
+            {turnCount ? <span className="ml-0.5 min-w-4 rounded-full bg-status-waiting px-1 text-[0.625rem] font-semibold text-background tabular-nums">{turnCount}</span> : null}
+          </ToggleGroupItem>
         </ToggleGroup>
+
 
         {hostNames.length > 1 ? (
           <ToggleGroup
@@ -201,12 +179,14 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
         ))}
         {!fleet ? (
           <SessionListSkeleton />
-        ) : view.sessions.length > 0 ? (
+        ) : turnOnly && shown.length === 0 && !query ? (
+          <div className="px-4 py-10 text-center text-sm text-dimmer">Nothing is waiting for you.</div>
+        ) : shown.length > 0 ? (
           <nav aria-label="Sessions" className="flex flex-col gap-1.5">
-            {stackRuns(view.sessions).map((e) => {
+            {stackRuns(fresh).map((e) => {
               const row = (s: Session, inStack?: boolean) => {
                 const key = sessionKey(s)
-                return <SessionRow key={key} session={s} now={now} selected={key === selectedKey} cursor={key === cursorKey && key !== selectedKey} inStack={inStack} />
+                return <SessionRow key={key} session={s} now={now} selected={key === selectedKey} cursor={key === cursorKey && key !== selectedKey} inStack={inStack} turn={isTurn(s)} />
               }
               return e.kind === 'stack' ? (
                 <StackGroup
@@ -220,67 +200,86 @@ export function Sidebar({ list, now, cursorKey, selectedKey, searchRef, onSearch
                 row(e.session)
               )
             })}
+            <IdleGroup
+              label="Older than a day"
+              sessions={stale}
+              open={staleOpen || stale.some((x) => sessionKey(x) === cursorKey)}
+              onToggle={toggleIdle}
+              renderRow={(x) => <SessionRow key={sessionKey(x)} session={x} now={now} selected={sessionKey(x) === selectedKey} cursor={sessionKey(x) === cursorKey && sessionKey(x) !== selectedKey} turn={isTurn(x)} />}
+            />
           </nav>
         ) : unreachable.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-dimmer">
-            {allSessions(fleet).length > 0 ? 'Nothing matches.' : 'No Claude sessions running.'}
+            {space === 'bots' ? 'No bot is running right now.' : space ? space.empty : allSessions(fleet).length > 0 ? 'Nothing matches.' : 'No Claude sessions running.'}
           </div>
         ) : null}
-        {fleet ? <DormantSection now={now} host={host} query={query} desktop className="mt-4" /> : null}
-        {fleet ? <ClosedSection now={now} host={host} query={query} desktop className="mt-3" /> : null}
+        {fleet && !space ? <DormantSection now={now} host={host} query={query} desktop className="mt-4" /> : null}
+        {fleet && !space ? <ClosedSection now={now} host={host} query={query} desktop className="mt-3" /> : null}
       </div>
 
-      <div className="shrink-0 border-t px-2 py-1.5 text-xs text-dimmer">
-        {/* Work modules on the left, helper screens (usage, settings) on the right. Jump and the shortcuts live in ⌘K / ⌘? and Settings. */}
-        <nav aria-label="Modules" className="flex items-center gap-1">
-          <ModuleButtons size="icon-sm" group="work" />
-          <span className="ml-auto" />
-          <FocusToggle size="icon-sm" />
-          <ModuleButtons size="icon-sm" group="utility" />
-        </nav>
-      </div>
     </div>
   )
 }
 
-/** The collapsed sidebar: a thin rail with the essentials. */
+/**
+ * The app rail: always on the left, on every screen. Sessions (the list beside it) first, then
+ * new / jump, the modules, and the helper screens at the bottom — one place to switch from.
+ */
 export function SidebarRail({
   waiting,
-  onExpand,
+  spaceTurn,
+  spaceActive,
+  sessionsActive,
+  onSessions,
   onNew,
   onPalette,
 }: {
   waiting: number
-  onExpand: () => void
+  /** Sessions waiting for you in the lists kept apart (badges on the Bots and space icons). */
+  spaceTurn?: Partial<Record<ModuleId, number>>
+  /** A bot run or a space's session is open: its icon is the current place, not Sessions. */
+  spaceActive?: ModuleId
+  /** The sessions screen is showing (with or without its list). */
+  sessionsActive: boolean
+  onSessions: () => void
   onNew: () => void
   onPalette: () => void
 }) {
   return (
-    <div data-tauri-drag-region className="titlebar-rail flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r py-3">
-      <Button variant="ghost" size="icon" aria-label="Expand sidebar" title={withHint('Expand sidebar', 'sidebar')} onClick={onExpand}>
-        <PanelLeftOpenIcon />
+    <nav aria-label="App" data-sidebar-rail data-tauri-drag-region className="titlebar-rail flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r py-3">
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Sessions"
+        aria-current={sessionsActive ? 'page' : undefined}
+        title={withHint('Sessions', 'sidebar')}
+        onClick={onSessions}
+        className={cn('relative text-dimmer hover:text-foreground', sessionsActive && 'bg-accent text-foreground')}
+      >
+        <MessagesSquareIcon />
+        {waiting > 0 ? (
+          <span className="absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full bg-status-waiting px-1 text-[0.625rem] font-semibold text-background tabular-nums" aria-label={`${waiting} sessions waiting for you`}>
+            {waiting}
+          </span>
+        ) : null}
       </Button>
       <Button size="icon" aria-label="New session" title={withHint('New session', 'new')} onClick={onNew} className="rounded-full">
         <PlusIcon />
       </Button>
-      <Button variant="ghost" size="icon" aria-label="Jump to a session" title={withHint('Jump to a session', 'palette')} onClick={onPalette}>
+      <ModuleButtons group="sessions" badges={spaceTurn} current={spaceActive} />
+      <Button variant="ghost" size="icon" aria-label="Jump to a session" title={withHint('Jump to a session', 'palette')} onClick={onPalette} className="text-dimmer hover:text-foreground">
         <SearchIcon />
       </Button>
-      {waiting > 0 ? (
-        <span
-          className="mt-1 flex items-center gap-1 text-xs font-semibold text-status-waiting tabular-nums"
-          title={`${waiting} need you`}
-          aria-label={`${waiting} sessions need you`}
-        >
-          <StatusDot status="waiting" className="size-2" />
-          {waiting}
-        </span>
-      ) : null}
+      <Button variant="ghost" size="icon" aria-label="Park a thought" title={withHint('Park a thought', 'park')} onClick={openPark} className="text-dimmer hover:text-foreground">
+        <LightbulbIcon />
+      </Button>
+      <span aria-hidden className="my-1 h-px w-6 bg-border" />
+      <ModuleButtons group="work" />
       <div className="mt-auto flex flex-col items-center gap-1">
         <FocusToggle />
-        <ModuleButtons />
+        <ModuleButtons group="utility" />
       </div>
-    </div>
+    </nav>
   )
 }
 
@@ -297,3 +296,22 @@ export function NotesLink({ className, size = 'icon' }: { className?: string; si
   )
 }
 
+
+/** Idle sessions folded into one row ("Idle · 12"); open while searching or when one is selected. */
+function IdleGroup({ label, sessions, open, onToggle, renderRow }: { label: string; sessions: Session[]; open: boolean; onToggle: () => void; renderRow: (s: Session) => ReactNode }) {
+  if (!sessions.length) return null
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-dimmer hover:text-foreground"
+      >
+        <ChevronRightIcon className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+        {label} · {sessions.length}
+      </button>
+      {open ? <div className="mt-1.5 flex flex-col gap-1.5">{sessions.map(renderRow)}</div> : null}
+    </div>
+  )
+}

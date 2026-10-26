@@ -52,6 +52,9 @@ pub struct ContextUsage {
     pub pct: u32,
     /// `message.model` of that entry, e.g. `claude-opus-4-5`.
     pub model: Option<String>,
+    /// The entry's reasoning effort (`low` … `max`), when the transcript records one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 impl ContextUsage {
@@ -66,7 +69,13 @@ impl ContextUsage {
             window,
             pct,
             model,
+            effort: None,
         }
+    }
+
+    pub fn with_effort(mut self, effort: Option<String>) -> Self {
+        self.effort = effort;
+        self
     }
 }
 
@@ -108,7 +117,8 @@ pub fn locate_transcript(home: &Path, cwd: Option<&str>, session_id: &str) -> Op
 
 type CacheKey = (PathBuf, u64, Option<SystemTime>);
 /// transcript path -> ((path, size, mtime), last usage).
-type Raw = Option<(u64, Option<String>)>;
+/// (used, model, effort) of the last main-thread assistant entry.
+type Raw = Option<(u64, Option<String>, Option<String>)>;
 static CACHE: LazyLock<Mutex<HashMap<PathBuf, (CacheKey, Raw)>>> = LazyLock::new(Default::default);
 
 /// What says a model runs with a 1M window, besides its own id.
@@ -210,9 +220,9 @@ pub fn for_session(home: &Path, cwd: Option<&str>, session_id: &str) -> Option<C
             raw
         }
     };
-    let (used, model) = raw?;
+    let (used, model, effort) = raw?;
     let window = window_for(model.as_deref(), used, cwd, &HINTS);
-    Some(ContextUsage::new(used, window, model))
+    Some(ContextUsage::new(used, window, model).with_effort(effort))
 }
 
 /// A model that some session has already pushed past 200k *without* a `[1m]`
@@ -227,7 +237,7 @@ pub fn apply_native_1m<'a>(contexts: impl IntoIterator<Item = &'a mut ContextUsa
         .collect();
     for c in all.iter_mut() {
         if c.window < WINDOW_1M && c.model.as_ref().is_some_and(|m| native.contains(m)) {
-            **c = ContextUsage::new(c.used, WINDOW_1M, c.model.take());
+            **c = ContextUsage::new(c.used, WINDOW_1M, c.model.take()).with_effort(c.effort.take());
         }
     }
 }
@@ -235,9 +245,9 @@ pub fn apply_native_1m<'a>(contexts: impl IntoIterator<Item = &'a mut ContextUsa
 /// Uncached read of one transcript's tail, with the window inferred from the
 /// model id and `hints`.
 pub fn from_transcript(path: &Path, cwd: Option<&str>, hints: &Hints) -> Option<ContextUsage> {
-    let (used, model) = last_usage_in(path)?;
+    let (used, model, effort) = last_usage_in(path)?;
     let window = window_for(model.as_deref(), used, cwd, hints);
-    Some(ContextUsage::new(used, window, model))
+    Some(ContextUsage::new(used, window, model).with_effort(effort))
 }
 
 /// (used, model) of the last usable assistant entry, reading only the tail.
@@ -268,8 +278,8 @@ fn last_usage_in(path: &Path) -> Raw {
     None
 }
 
-/// The last main-thread assistant entry with real usage in `text`: (used, model).
-fn last_usage(text: &str) -> Option<(u64, Option<String>)> {
+/// The last main-thread assistant entry with real usage in `text`: (used, model, effort).
+fn last_usage(text: &str) -> Raw {
     for line in text.lines().rev() {
         // Cheap pre-filter before parsing: most lines are tool results.
         if !line.contains("\"usage\"") || !line.contains("\"assistant\"") {
@@ -293,7 +303,8 @@ fn last_usage(text: &str) -> Option<(u64, Option<String>)> {
         if used == 0 {
             continue;
         }
-        return Some((used, model));
+        let effort = v["effort"].as_str().map(str::to_string);
+        return Some((used, model, effort));
     }
     None
 }

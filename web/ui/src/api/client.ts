@@ -36,6 +36,7 @@ import type {
   NotesTree,
   OkResponse,
   PeekResponse,
+  PreviewsResponse,
   QuestionAnswer,
   RegenerateNameResponse,
   RenameResponse,
@@ -136,8 +137,11 @@ export const api = {
   settings: (o: Opts = {}) => request<Settings>('/api/settings', o),
   fleet: (o: Opts = {}) => request<FleetResponse>('/api/fleet', o),
 
-  peek: (host: string, id: string, lines = 200, o: Opts = {}) =>
-    request<PeekResponse>(`${sessionPath(host, id, 'peek')}?lines=${lines}`, o),
+  /** The screen's last lines; `ansi` keeps the colours (tmux) for the terminal view. */
+  peek: (host: string, id: string, lines = 200, o: Opts = {}, ansi = false) =>
+    request<PeekResponse>(`${sessionPath(host, id, 'peek')}?lines=${lines}${ansi ? '&ansi=1' : ''}`, o),
+  previews: (host: string, id: string, treeOnly = false, o: Opts = {}) =>
+    request<PreviewsResponse>(`${sessionPath(host, id, 'previews')}${treeOnly ? '?scope=tree' : ''}`, o),
   messages: (host: string, id: string, limit = 60, o: Opts = {}) =>
     request<MessagesResponse>(`${sessionPath(host, id, 'messages')}?limit=${limit}`, o),
 
@@ -169,6 +173,9 @@ export const api = {
 
   send: (host: string, id: string, text: string, o: Opts & { keepalive?: boolean } = {}) =>
     request<OkResponse>(sessionPath(host, id, 'send'), { ...o, method: 'POST', body: { text } }),
+  /** Type text into the terminal without Enter. */
+  type: (host: string, id: string, text: string, o: Opts = {}) =>
+    request<OkResponse>(sessionPath(host, id, 'type'), { ...o, method: 'POST', body: { text } }),
   keys: (host: string, id: string, key: SessionKey, o: Opts = {}) =>
     request<OkResponse>(sessionPath(host, id, 'keys'), { ...o, method: 'POST', body: { key } }),
   answer: (host: string, id: string, toolUseId: string, answers: QuestionAnswer[], o: Opts = {}) =>
@@ -284,6 +291,8 @@ export const api = {
   notesSearch: (host: string, q: string, limit = 50, o: Opts = {}) =>
     request<NotesSearch>(`${hostPath(host)}/notes/search?q=${enc(q)}&limit=${limit}`, o),
   noteFile: (host: string, path: string, o: Opts = {}) => request<NoteFile>(`${hostPath(host)}/notes/file?path=${enc(path)}`, o),
+  saveNote: (host: string, path: string, text: string, baseMtime: number | null, o: Opts & { create?: boolean } = {}) =>
+    request<NoteFile>(`${hostPath(host)}/notes/file?path=${enc(path)}`, { ...o, method: 'PUT', body: { text, baseMtime, ...(o.create ? { create: true } : {}) } }),
 
   /** Session stacks on `host` (404 / 501 on servers that predate stacks — see lib/stacks.ts `stacksMissing`). */
   stacks: (host: string, o: Opts = {}) => request<StacksResponse>(`${hostPath(host)}/stacks`, o),

@@ -26,3 +26,5 @@ import './diff.test.mjs';
 import './reviews.test.mjs';
 import './focus.test.mjs';
 import './inbox.test.mjs';
+import './previews.test.mjs';
+import './clicks.test.mjs';

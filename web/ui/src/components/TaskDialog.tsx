@@ -23,6 +23,7 @@ import { isMacPlatform, isSubmitChord } from '@/lib/shortcuts'
 import { storage } from '@/lib/storage'
 import { DUE_TONE, dueInfo, promptChips, statusOptions, statusTone } from '@/lib/tasks'
 import { cn } from '@/lib/utils'
+import { useSettings } from '@/hooks/useSettings'
 
 // The directory last used for a project's tasks, else for a new session on that host.
 const projectDirKey = (host: string, project: string) => `fleet.taskDirLabel.${host}.${project}`
@@ -58,6 +59,7 @@ export function TaskDialog({
   const { fleet, applyFleet } = useFleet()
   const now = useNow(60_000)
   const [prompt, setPrompt] = useState('')
+  const settings = useSettings()
   const [busy, setBusy] = useState<null | 'spawn' | 'status'>(null)
   const [error, setError] = useState<string | null>(null)
   const [dirLabel, setDirLabel] = useState<string | null>(null)
@@ -83,13 +85,13 @@ export function TaskDialog({
     }
   }
 
-  const spawn = async () => {
+  const spawn = async (text: string = prompt) => {
     if (busy || !dir) return
     setBusy('spawn')
     setError(null)
     try {
       storage.set(projectDirKey(host, t.project.id), dir.label)
-      const res = await api.taskSpawn(host, { task: t.id, dir: dir.path, prompt: prompt.trim() || undefined })
+      const res = await api.taskSpawn(host, { task: t.id, dir: dir.path, prompt: text.trim() || undefined })
       const name = res.spawn?.name || res.spawn?.tmuxSession || `#${t.number}`
       onClose()
       onChanged()
@@ -242,11 +244,11 @@ export function TaskDialog({
             <p className="text-sm text-dimmer">{host} advertises no directories — add some in Settings → Start directories.</p>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {promptChips(t).map((c) => (
+            {promptChips(t, settings.taskPrompts).map((c) => (
               <button
                 key={c.label}
                 type="button"
-                onClick={() => setPrompt(c.text)}
+                onClick={() => (c.start ? void spawn(c.text) : setPrompt(c.text))}
                 className="rounded-full border px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               >
                 {c.label}

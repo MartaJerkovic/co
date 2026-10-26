@@ -20,6 +20,9 @@ import {
   withoutClosed,
   withoutSession,
   closedKey,
+  promptSuggestion,
+  screenTail,
+  workingInfo,
 } from './sessions'
 
 const s = (over: Partial<Session>): Session => ({ host: 'laptop', session_id: 'id', status: 'idle', ...over })
@@ -243,4 +246,56 @@ test('stackRuns: 2+ adjacent members of one stack form a group; a lone member st
   const runs = stackRuns(rows)
   expect(runs.map((r) => (r.kind === 'stack' ? r.sessions.map((x) => x.session_id).join('+') : r.session.session_id))).toEqual(['a+b', 'c', 'd'])
   expect(runs[0]).toMatchObject({ kind: 'stack', key: 'laptop/st-1' })
+})
+
+const rule = '─'.repeat(40)
+
+test('promptSuggestion: the pre-filled prompt inside the input box', () => {
+  expect(promptSuggestion(`⏺ Done.\n${rule}\n❯ uzmi zadnja 3 pitanja\n${rule}\n  work | Opus`)).toBe('uzmi zadnja 3 pitanja')
+  expect(promptSuggestion(`${rule}\n❯ \n${rule}`)).toBeNull()
+  expect(promptSuggestion('❯ old prompt in scrollback\n⏺ reply')).toBeNull()
+})
+
+test('workingInfo: spinner, current step and to-do progress from a busy capture', () => {
+  const screen = [
+    '⏺ Prvo završavam.',
+    '⏺ Bash(npm test)',
+    '  ⎿  Running…',
+    '',
+    '✶ Perambulating… (4m 30s · ↓ 14.6k tokens · esc to interrupt)',
+    '  ⎿  ☒ Server route',
+    '     ◼ UI tracker',
+    '     ☐ Tests',
+    rule,
+    '❯ ',
+  ].join('\n')
+  expect(workingInfo(screen)).toEqual({
+    verb: 'Perambulating…',
+    meta: '4m 30s · ↓ 14.6k tokens',
+    step: 'Bash(npm test)',
+    todos: { done: 1, total: 3, current: 'UI tracker' },
+  })
+  expect(workingInfo('✻ Baking…')).toEqual({ verb: 'Baking…', meta: null, step: null, todos: null })
+  expect(workingInfo('⏺ Done.\n❯ ')).toBeNull()
+})
+
+test('screenTail: the bottom of the screen from the first rule down, colours kept', () => {
+  const login = ['✻ Brewed for 8m 53s', '\x1b[2m' + '▔'.repeat(40) + '\x1b[0m', '', '   Login', '', '   \x1b[31mOAuth error\x1b[0m', '   Esc to cancel', '', ''].join('\n')
+  expect(screenTail(login)).toBe('   Login\n\n   \x1b[31mOAuth error\x1b[0m\n   Esc to cancel')
+  const question = [
+    '❯ poravi',
+    rule,
+    '←  ☒ Popravak  ✔ Submit  →',
+    '❯ 1. [ ] Tijela u indeksu',
+    '     Submit',
+    rule,
+    '  2. Chat about this',
+    '',
+    'Enter to select · ↑/↓ to navigate · Esc to cancel',
+    `${rule} session-name ─`,
+  ].join('\n')
+  expect(screenTail(question)).toBe(['←  ☒ Popravak  ✔ Submit  →', '❯ 1. [ ] Tijela u indeksu', '     Submit', rule, '  2. Chat about this', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n'))
+  expect(screenTail(`\n${rule}\n  `)).toBeNull()
+  const submit = ['❯ Call AskUserQuestion', rule, '←  ☒ Colour  ☒ Size  ✔ Submit  →', '', 'Review your answers', '', 'Ready to submit your answers?', '', '❯ 1. Submit answers', '  2. Cancel', ''].join('\n')
+  expect(screenTail(submit)).toBe(['←  ☒ Colour  ☒ Size  ✔ Submit  →', '', 'Review your answers', '', 'Ready to submit your answers?', '', '❯ 1. Submit answers', '  2. Cancel'].join('\n'))
 })

@@ -345,6 +345,15 @@
   animation: fleet-dot 1.2s infinite ease-in-out;
 }
 
+/* A working session's status dot: it slowly breathes (fades and grows a touch). */
+@keyframes fleet-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+@utility animate-breathe {
+  animation: fleet-breathe 2.4s infinite ease-in-out;
+}
+
 /* The outbox's countdown ring (components/session/OutboxBubbles.tsx): full → empty. */
 @keyframes fleet-countdown {
   to { stroke-dashoffset: var(--ring-len); }

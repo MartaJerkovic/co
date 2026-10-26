@@ -1,9 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { CircleAlertIcon, CodeXmlIcon, CopyIcon, Loader2Icon, LockIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useLocation } from 'wouter'
 
-import { noteRawUrl } from '@/api/client'
+import { api, noteRawUrl } from '@/api/client'
 import type { NoteEntry, NoteFile } from '@/api/types'
 import { HostBadge } from '@/components/HostBadge'
 import { Linkified, Markdown } from '@/components/Markdown'
@@ -36,7 +36,14 @@ export interface NoteViewProps {
 /** One note: title, path, frontmatter, then the body — links to other notes stay in the explorer. */
 export function NoteView({ host, path, entry, index, highlight, scrollToHit, desktop = false, header }: NoteViewProps) {
   const [, navigate] = useLocation()
-  const { file, error, loading } = useNoteFile(host, entry?.kind === 'image' ? null : path, entry?.mtime)
+  const loaded = useNoteFile(host, entry?.kind === 'image' ? null : path, entry?.mtime)
+  // A save returns the note as written; show that until the next load catches up.
+  const [saved, setSaved] = useState<NoteFile | null>(null)
+  const file = saved && saved.path === path && (!loaded.file || loaded.file.path !== path || saved.mtime >= loaded.file.mtime) ? saved : loaded.file
+  const { error, loading } = loaded
+  const [editingFor, setEditingFor] = useState<string | null>(null)
+  const editing = editingFor === `${host}/${path}`
+  const editable = !!file && !file.encrypted && file.kind === 'markdown'
   const [sourceFor, setSourceFor] = useState<string | null>(null)
   const source = sourceFor === `${host}/${path}`
   const [sendOpen, setSendOpen] = useState(false)
@@ -86,9 +93,16 @@ export function NoteView({ host, path, entry, index, highlight, scrollToHit, des
         <Loader2Icon className="size-4 animate-spin" /> Loading…
       </p>
     )
+  } else if (editing && editable) {
+    body = <NoteEditor key={`${host}/${path}`} host={host} file={file} desktop={desktop} onSaved={setSaved} onDone={() => setEditingFor(null)} />
   } else if (file.kind === 'markdown' && !source) {
     body = (
-      <div className={cn('mx-auto w-full px-4 pt-2 pb-10', desktop ? 'max-w-3xl' : 'max-w-2xl')} style={{ fontSize: '0.9375rem', lineHeight: 1.6 }}>
+      <div
+        className={cn('mx-auto w-full px-4 pt-2 pb-10', desktop ? 'max-w-3xl' : 'max-w-2xl', editable && 'cursor-text')}
+        style={{ fontSize: '0.9375rem', lineHeight: 1.6 }}
+        onClick={(e) => editable && startEditing(e, () => setEditingFor(`${host}/${path}`))}
+        title={editable ? 'Click to edit' : undefined}
+      >
         {file.meta.length ? <Frontmatter meta={file.meta} /> : null}
         {file.encrypted ? (
           <p className="mb-3 flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
@@ -150,6 +164,97 @@ export function NoteView({ host, path, entry, index, highlight, scrollToHit, des
       </div>
       {abs ? <SendNoteDialog open={sendOpen} onOpenChange={setSendOpen} host={host} absPath={abs} /> : null}
     </article>
+  )
+}
+
+/** A click on the note's text (not on a link, image or selection) opens the editor. */
+function startEditing(e: MouseEvent, open: () => void) {
+  if ((e.target as HTMLElement).closest('a, button, img, input, summary')) return
+  if (window.getSelection()?.toString()) return
+  open()
+}
+
+/** How long typing pauses before the note is written. */
+const SAVE_DELAY_MS = 600
+
+/** The note as plain text, saved as you type; Esc or clicking away goes back to the rendered note. */
+function NoteEditor({ host, file, desktop, onSaved, onDone }: { host: string; file: NoteFile; desktop: boolean; onSaved: (f: NoteFile) => void; onDone: () => void }) {
+  const [text, setText] = useState(file.text)
+  const [state, setState] = useState<'saved' | 'saving' | 'error'>('saved')
+  const base = useRef(file.mtime)
+  const written = useRef(file.text)
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  // Saves run one after another, each with the mtime the previous one returned: two in flight
+  // would carry the same base and the second would be refused as a conflict.
+  const queue = useRef<Promise<void>>(Promise.resolve())
+  const save = (value: string) => {
+    queue.current = queue.current.then(() => write(value))
+    return queue.current
+  }
+  const write = async (value: string) => {
+    if (value === written.current) return
+    setState('saving')
+    try {
+      const f = await api.saveNote(host, file.path, value, base.current)
+      base.current = f.mtime
+      written.current = value
+      onSaved(f)
+      setState('saved')
+    } catch (err) {
+      setState('error')
+      toast.error(err instanceof Error ? err.message : 'Could not save the note')
+    }
+  }
+
+  useEffect(() => {
+    if (text === written.current) return
+    const t = setTimeout(() => void save(text), SAVE_DELAY_MS)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text])
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [text])
+
+  useEffect(() => {
+    const el = ref.current
+    el?.focus()
+    el?.setSelectionRange(el.value.length, el.value.length)
+  }, [])
+
+  const finish = () => {
+    void save(text)
+    onDone()
+  }
+
+  return (
+    <div className={cn('mx-auto w-full px-4 pt-2 pb-10', desktop ? 'max-w-3xl' : 'max-w-2xl')}>
+      <textarea
+        ref={ref}
+        aria-label={`Edit ${file.path}`}
+        value={text}
+        spellCheck={false}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={finish}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            finish()
+          }
+        }}
+        className="block w-full resize-none overflow-hidden bg-transparent font-sans outline-none"
+        style={{ fontSize: '0.9375rem', lineHeight: 1.6 }}
+      />
+      <p className="pt-2 text-[0.6875rem] text-dimmer" aria-live="polite">
+        {state === 'saving' ? 'Saving…' : state === 'error' ? 'Not saved' : 'Saved · Esc to finish'}
+      </p>
+    </div>
   )
 }
 

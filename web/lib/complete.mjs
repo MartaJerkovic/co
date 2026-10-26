@@ -192,7 +192,15 @@ export function brainRefs(notes) {
  *   run    lib/run.mjs (git ls-files)
  *   now    clock, for the caches
  */
-export function createCompleter({ home, run, now = Date.now } = {}) {
+/**
+ * `/model <id>` for each configured model: switches straight away, without Claude Code's picker,
+ * which needs arrow keys a Terminal.app session can't receive.
+ */
+export function modelCommands(models = []) {
+  return models.filter((m) => m?.id).map((m) => ({ name: `model ${m.id}`, description: `Switch to ${m.label || m.id}`, source: 'builtin' }));
+}
+
+export function createCompleter({ home, run, models = [], now = Date.now } = {}) {
   const cache = new Map(); // `${kind}\0${cwd}` → { at, value }
   const titles = new Map(); // abs → { mtimeMs, title }
 
@@ -207,7 +215,7 @@ export function createCompleter({ home, run, now = Date.now } = {}) {
 
   async function skills(cwd) {
     const claude = path.join(home, '.claude');
-    const out = [...BUILTIN_COMMANDS];
+    const out = [...BUILTIN_COMMANDS, ...modelCommands(models)];
     out.push(...(await skillsIn(path.join(claude, 'skills'), 'user')));
     out.push(...(await commandsIn(path.join(claude, 'commands'), 'user')));
     const projectDirs = cwd ? ancestors(cwd, home).filter((d) => d !== home) : [];

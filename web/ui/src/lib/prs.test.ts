@@ -110,6 +110,16 @@ describe('actions', () => {
     expect(promptChips(pr({ column: 'draftMine' })).map((c) => c.label)).toEqual(['Continue', 'Address review', 'Fix CI'])
     expect(promptChips(pr({ column: 'draftMine', checks: 'failure' }))[0].label).toBe('Fix CI')
   })
+
+  it('configured prompt buttons replace the built-in ones, per column', () => {
+    const custom = [
+      { label: 'Review', text: 'r', columns: ['waitingOnMe'], start: true },
+      { label: 'Fix CI', text: 'c', columns: null },
+    ]
+    expect(promptChips(pr({}), custom).map((c) => c.label)).toEqual(['Review', 'Fix CI'])
+    expect(promptChips(pr({ column: 'draftMine' }), custom).map((c) => c.label)).toEqual(['Fix CI'])
+    expect(promptChips(pr({}), [])[0].label).toBe('Review')
+  })
 })
 
 describe('links', () => {

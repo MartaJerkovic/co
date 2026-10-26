@@ -5,7 +5,7 @@ export type DetailMode = 'chat' | 'term'
 
 export const TERM_FONT_SIZES = [11, 12, 14] as const
 export const CHAT_FONT_SIZES = [13, 15, 17] as const
-export const TERM_LINES = [200, 600] as const
+export const TERM_LINES = [200, 600, 2000] as const
 /** "Load older" steps through these message limits. */
 export const CHAT_LIMITS = [60, 200, 500] as const
 /** Captions only on the last message of a same-speaker burst this close in time. */

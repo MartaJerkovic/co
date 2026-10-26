@@ -84,6 +84,14 @@ describe('pure transitions', () => {
     expect(sameText('line 1\nline 2', '\n\n<pasted_content id="7eaf">\nline 1\nline 2\n</pasted_content id="7eaf">')).toBe(true)
     const long = 'please look at the attached screenshot and fix the layout'
     expect(sameText(`${long} /tmp/a.png`, `${long} [Image #1]`)).toBe(true)
+    expect(sameText('/tmp/uploads/shot.png\n\nvidi scroll', '[Image #1]vidi scroll')).toBe(true)
+    expect(sameText('/tmp/a.png', '[Image #1]')).toBe(false)
+    expect(sameText('/u/shot.png\n\nsta je ovo za boga', '12[Image #14]\n\nsta je ovo za boga')).toBe(true)
+  })
+
+  test('reconcile: a slash command shows up as a command message', () => {
+    const items = [{ id: 1, text: '/fleet rename it', state: 'sent', anchor: '', createdAt: 0, sentAt: 0 }] as OutboxItem[]
+    expect(reconcile(items, [{ role: 'user', kind: 'command', text: '/fleet rename it', name: '/fleet', args: 'rename it', ts: 1 }] as Message[], 1)).toEqual([])
   })
 
   test('restoreText: alone, or before what was typed since', () => {

@@ -114,6 +114,8 @@ export interface ContextUsage {
   /** Whole percent, rounded; may exceed 100. */
   pct: number
   model?: string | null
+  /** Reasoning effort of the last reply (low … max), when recorded. */
+  effort?: string | null
 }
 
 export interface SpawnDir {
@@ -185,6 +187,36 @@ export interface QuickReply {
   text: string
 }
 
+/** A starting-prompt button of the PR / task dialog (config `web.prPrompts` / `web.taskPrompts`). */
+export interface PromptButton {
+  label: string
+  text: string
+  /** Only in these columns (null: every column). */
+  columns?: string[] | null
+  /** Spawn on click instead of filling the prompt box. */
+  start?: boolean
+}
+
+/** A place kept apart from the work sessions (`web.spaces`): the Start directory labelled `label`. */
+export interface Space {
+  id: string
+  label: string
+  blurb: string
+  /** The start screen's button. */
+  action: string
+  /** The sidebar when it has no sessions. */
+  empty: string
+  /** A lucide icon name (`flask`, `sprout`, …); null: a folder. */
+  icon: string | null
+  /** Offer the servers its sessions start (`…/previews`). */
+  previews: boolean
+}
+
+export type ParkKind = 'idea' | 'todo'
+
+/** Where "Park a thought" appends, per kind (`web.park`): a notes file and the heading a new one starts with. */
+export type ParkTargets = Record<ParkKind, { file: string; heading: string }>
+
 /** One New session model choice (`web.models`); id '' = no `--model`, Claude's default. */
 export interface ModelOption {
   id: string
@@ -209,6 +241,11 @@ export interface Settings {
   self: string
   hosts: string[]
   quickReplies: QuickReply[]
+  /** `web.prPrompts` / `web.taskPrompts` (null or absent: the built-in buttons). */
+  prPrompts?: PromptButton[] | null
+  taskPrompts?: PromptButton[] | null
+  spaces?: Space[]
+  park?: ParkTargets
   /** `web.uploads.maxMB` of this server (older servers: absent). */
   uploads?: { maxMB: number | null }
   /** Voice prompts (POST /api/transcribe): this server has a transcription key (older servers: absent). */
@@ -351,12 +388,35 @@ export interface Health {
 }
 
 /** GET /api/hosts/:host/sessions/:id/peek */
+/** Where the terminal cursor is: column `x` (null: hidden) on the line `below` lines above the last one. */
+export interface TermCursor {
+  x: number | null
+  below: number
+  /** A fullscreen app (Claude Code's fullscreen TUI): its history scrolls with PageUp / PageDown. */
+  alternate?: boolean
+}
+
+/** GET …/previews: a server the session started (a listening port in its process tree or directory). */
+export interface Preview {
+  port: number
+  command: string
+  url: string
+}
+
+export interface PreviewsResponse {
+  host: string
+  id: string
+  previews: Preview[]
+}
+
 export interface PeekResponse {
   host: string
   id: string
   backend: Backend | string
   lines: number
   text: string
+  /** With `ansi`: the terminal cursor (tmux), null when hidden. */
+  cursor?: TermCursor | null
   capturedAt: number
 }
 
@@ -415,11 +475,13 @@ export interface MessagesResponse {
   capturedAt: number
 }
 
-export type SessionKey = 'Enter' | 'Escape' | 'Up' | 'Down'
+export type SessionKey = 'Enter' | 'Escape' | 'Up' | 'Down' | 'Left' | 'Right' | 'Tab' | 'BTab' | 'BSpace' | 'Space' | 'PageUp' | 'PageDown'
 
 export interface SpawnRequest {
   /** Still accepted by the server; the UI leaves naming to the auto-namer. */
   name?: string
+  /** The session's name as typed (the agent's display name; tmux gets a slug of it). Absent = auto-named. */
+  title?: string
   dir?: string
   prompt?: string
   /** A `models` id; '' / absent = the harness's default. */
@@ -599,6 +661,8 @@ export interface StacksResponse {
 
 /** The body of both stack spawn routes. */
 export interface StackSpawnRequest {
+  /** As in SpawnRequest. */
+  title?: string
   prompt?: string
   name?: string
   model?: string

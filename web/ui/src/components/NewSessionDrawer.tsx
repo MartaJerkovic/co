@@ -8,6 +8,7 @@ import { DropOverlay } from '@/components/DropOverlay'
 import { HostDot } from '@/components/HostBadge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
@@ -211,6 +212,8 @@ function NewSessionForm({
   // remembered — a forgotten choice must not start the next session as a bot. Claude only.
   const ghIdentities = useGhIdentities(host)
   const [ghIdentityChoice, setGhIdentityChoice] = useState('')
+  // Blank = named automatically.
+  const [title, setTitle] = useState('')
   const ghIdentity = harness === 'claude' && ghIdentities.some((i) => i.name === ghIdentityChoice) ? ghIdentityChoice : ''
   const [prompt, setPrompt] = useState(() => prefill?.prompt ?? (sibling ? '' : loadDraft()))
   // Keep the draft on every change (attachments typed in included); a prefill / sibling is never a draft.
@@ -284,6 +287,7 @@ function NewSessionForm({
     try {
       const sent = prompt
       const body = {
+        title: title.trim() || undefined,
         prompt: sent.trim() ? sent : undefined,
         model: model || undefined,
         harness: harness === 'claude' ? undefined : harness,
@@ -328,6 +332,7 @@ function NewSessionForm({
     try {
       const sent = prompt
       const res = await api.spawn(host, {
+        title: title.trim() || undefined,
         dir: dir.path,
         prompt: sent.trim() ? sent : undefined,
         model: model || undefined,
@@ -442,6 +447,19 @@ function NewSessionForm({
         </ToggleGroup>
       </Field>
     ) : null
+  const titleField = (
+    <Field label="Title" hint="optional">
+      <Input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={64}
+        placeholder="Leave empty to name it automatically"
+        aria-label="Session title"
+        className="h-10 rounded-xl bg-card px-3 text-base md:text-base"
+      />
+    </Field>
+  )
+
   const promptField = (
     <Field label="First prompt" hint="optional">
       <Textarea
@@ -598,7 +616,7 @@ function NewSessionForm({
       }}
     >
       <Header className="px-0 pt-3 pb-2 text-left">
-        <Title className="text-left text-base font-semibold">{offersSibling ? 'New session from here' : sibling ? 'Spawn sibling' : fixed ? 'New session' : prefill ? 'Continue in new session' : 'New session'}</Title>
+        <Title className="text-left text-base font-semibold">{offersSibling ? 'New session from here' : sibling ? 'Spawn sibling' : fixed ? 'New session' : prefill?.prompt ? 'Continue in new session' : 'New session'}</Title>
         <Description className="text-left text-xs">
           {sibling
             ? sibling.creates
@@ -658,6 +676,7 @@ function NewSessionForm({
           {harnessField}
           {modelField}
           {ghIdentityField}
+          {titleField}
           {promptField}
           {errorBox}
           {submitButton}
@@ -678,6 +697,7 @@ function NewSessionForm({
 
           {ghIdentityField}
 
+          {titleField}
           {promptField}
 
           {errorBox}

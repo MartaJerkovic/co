@@ -17,6 +17,7 @@ import {
   MessageSquareTextIcon,
   MonitorIcon,
   MoonIcon,
+  LightbulbIcon,
   NotebookPenIcon,
   NotebookTextIcon,
   PaletteIcon,
@@ -39,10 +40,10 @@ import type { Session } from '@/api/types'
 import { Board } from '@/components/board/Board'
 import { CommandPalette, type PaletteAction } from '@/components/desktop/CommandPalette'
 import { ShortcutsDialog } from '@/components/desktop/ShortcutsDialog'
+import { NowPane } from '@/components/desktop/NowPane'
 import { Sidebar, SidebarRail } from '@/components/desktop/Sidebar'
-import { NewSessionDialog } from '@/components/NewSessionDrawer'
-import { StatusDot } from '@/components/StatusDot'
-import { Kbd } from '@/components/ui/kbd'
+import { type ModuleId } from '@/components/ModuleNav'
+import { NewSessionDialog, type SpawnPrefill } from '@/components/NewSessionDrawer'
 import { useFleet } from '@/hooks/useFleet'
 import { focusLeft, toggleFocus, useFocus } from '@/hooks/useFocus'
 import { useBoardColumns, useGroups, useViewMode } from '@/hooks/useGroups'
@@ -55,15 +56,20 @@ import { useSettings } from '@/hooks/useSettings'
 import { openStackLink } from '@/hooks/useStackUi'
 import { useTheme } from '@/hooks/useTheme'
 import { openTitleEditor, startEditing, useSessionTitle } from '@/hooks/useTitles'
+import { APP_NAME } from '@/lib/app'
 import { editorLabel } from '@/lib/brief'
 import { canAttachInApp, copyWithToast, sessionAttachCommand, sessionAttachLink } from '@/lib/clipboard'
 import { boardOrder } from '@/lib/groups'
 import { parseMemosLocation } from '@/lib/memos'
 import { notesHref, parseNotesLocation } from '@/lib/notes'
+import { openPark } from '@/lib/park'
 import { scratchpad } from '@/lib/scratchpad'
+import { useSidebarView } from '@/hooks/useSidebarView'
 import { PALETTES } from '@/lib/palettes'
 import { stacksKnown } from '@/lib/stacks'
-import { STATUS_FILTERS, allSessions, byLastActivity, findSession, sessionHref, statusLabel } from '@/lib/sessions'
+import { storage } from '@/lib/storage'
+import { STATUS_FILTERS, allSessions, byLastActivity, findSession, isJobSession, listView, matchesSearch, sessionHref } from '@/lib/sessions'
+import { spaceDir, spaceOf } from '@/lib/spaces'
 import {
   clampFlyoutWidth,
   clampSidebarWidth,
@@ -87,6 +93,8 @@ import {
   stepCursor,
   type ShortcutAction,
 } from '@/lib/shortcuts'
+import { track } from '@/lib/track'
+import { setDockBadge } from '@/lib/badge'
 import { sessionTitle } from '@/lib/title'
 import { cn } from '@/lib/utils'
 import { NotesScreen } from '@/screens/NotesScreen'
@@ -101,6 +109,7 @@ import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
 import { InboxScreen } from '@/screens/InboxScreen'
 import { JobsScreen } from '@/screens/JobsScreen'
+import { SpaceScreen } from '@/screens/SpaceScreen'
 import { MemosScreen } from '@/screens/MemosScreen'
 import { OperatorScreen } from '@/screens/OperatorScreen'
 
@@ -112,6 +121,8 @@ const parseBool01 = (raw: string) => (raw === '1' ? true : raw === '0' ? false :
  * `#/` = nothing selected, `#/s/:host/:id` = that session open. One window keydown
  * listener drives the keyboard shortcuts (lib/shortcuts.ts).
  */
+const LAST_SESSION_KEY = 'fleet.lastSession'
+
 export function DesktopShell() {
   const now = useNow(1000)
   const focus = useFocus()
@@ -123,10 +134,13 @@ export function DesktopShell() {
   const [settingsOpen] = useRoute('/settings')
   const [usageOpen] = useRoute('/usage')
   const [jobsOpen] = useRoute(/^\/(?:bots|jobs)$/)
+  const settings = useSettings()
+  const { spaces } = settings
+  // `#/space/<id>`: a space's start screen beside its own session list.
+  const spaceOpen = spaces.find((x) => location === `/space/${x.id}`) ?? null
   const [inboxOpen] = useRoute('/inbox')
   const [operatorOpen] = useRoute('/operator')
   const memosOpen = parseMemosLocation(location) !== null
-  const settings = useSettings()
   // `#/prs`: the pull requests board takes the whole window too.
   const prsOpen = isPrsLocation(location)
   // `#/tasks`: the tasks board too.
@@ -162,11 +176,57 @@ export function DesktopShell() {
   const board = mode === 'board'
   const toggleView = () => setMode(board ? 'list' : 'board')
   const groups = useGroups(board)
-  const { columns, moveColumn } = useBoardColumns(board, list.view.sessions, groups.groups, fleet, list.host, list.query)
+  // The sidebar has no status filter (All / Your turn instead); the board keeps it.
+  const listed = useMemo(() => (board ? list.view.sessions : listView(fleet, { query: list.query, host: list.host, status: 'all' }).sessions), [board, list.view.sessions, fleet, list.query, list.host])
+  const mainSessions = useMemo(() => listed.filter((s) => !isJobSession(s) && !spaceOf(spaces, fleet, s.host, s.cwd)), [listed, spaces, fleet])
+  const { columns, moveColumn } = useBoardColumns(board, mainSessions, groups.groups, fleet, list.host, list.query)
   // The cursor walks the sessions in on-screen order: the list, or the board column by column.
-  const ordered = useMemo(() => (board ? boardOrder(columns) : list.view.sessions), [board, columns, list.view.sessions])
+  // Bot runs never mix with the other sessions: the Bots screen (and a bot run opened from it) lists only them.
+  const botSessions = useMemo(
+    () =>
+      allSessions(fleet)
+        .filter((s) => isJobSession(s) && !spaceOf(spaces, fleet, s.host, s.cwd) && (list.host == null || s.host === list.host) && matchesSearch(s, list.query))
+        .sort(byLastActivity),
+    [spaces, fleet, list.host, list.query],
+  )
+  // Each space lists its own sessions and bot runs, apart from the work list and Bots.
+  const spaceSessions = useMemo(() => {
+    const out: Record<string, Session[]> = Object.fromEntries(spaces.map((x) => [x.id, []]))
+    for (const s of allSessions(fleet).sort(byLastActivity)) {
+      const space = spaceOf(spaces, fleet, s.host, s.cwd)
+      if (space && (list.host == null || s.host === list.host) && matchesSearch(s, list.query)) out[space.id].push(s)
+    }
+    return out
+  }, [spaces, fleet, list.host, list.query])
+  // The open session's own place (from the unfiltered fleet, so a search never moves it): its space,
+  // else Bots for a bot run, else the work list.
+  const selectedSpace = selectedSession ? (spaceOf(spaces, fleet, selected?.host, selectedSession.cwd) ?? (isJobSession(selectedSession) ? 'bots' : null)) : null
+  const space = jobsOpen ? 'bots' : (spaceOpen ?? selectedSpace)
+  const spaceModule: ModuleId | undefined = space === 'bots' ? 'jobs' : space ? `space:${space.id}` : undefined
+  // The session you had open last (not a bot run or a space's session): the Sessions icon goes straight back to it.
+  const workSessionOpen = !!selectedSession && !space
+  useEffect(() => {
+    if (selectedKey && workSessionOpen) storage.set(LAST_SESSION_KEY, selectedKey)
+  }, [selectedKey, workSessionOpen])
+  const allListed = useMemo(() => [...mainSessions, ...botSessions, ...Object.values(spaceSessions).flat()], [mainSessions, botSessions, spaceSessions])
+  const sidebarView = useSidebarView(space === 'bots' ? botSessions : space ? spaceSessions[space.id] : mainSessions, selectedKey, now, list.query, allListed)
+  // "Your turn" per list: Sessions, Bots and each space's icon carry their own, the Dock icon all.
+  const turnIn = (xs: Session[]) => xs.filter((x) => sidebarView.isTurn(x) && sessionKey(x) !== selectedKey).length
+  const mainTurn = turnIn(mainSessions)
+  const spaceTurn: Partial<Record<ModuleId, number>> = { jobs: turnIn(botSessions), ...Object.fromEntries(spaces.map((x) => [`space:${x.id}`, turnIn(spaceSessions[x.id])])) }
+  const turnCount = mainTurn + Object.values(spaceTurn).reduce<number>((a, n) => a + (n ?? 0), 0)
+  useEffect(() => setDockBadge(turnCount), [turnCount])
+  const sidebarRows = sidebarView.visible
+  const ordered = useMemo(() => (board ? boardOrder(columns) : sidebarRows), [board, columns, sidebarRows])
 
   const [newOpen, setNewOpen] = useState(false)
+  const [newPrefill, setNewPrefill] = useState<SpawnPrefill | null>(null)
+  const openSpaceDir = spaceOpen ? spaceDir(fleet, fleet?.self, spaceOpen) : null
+  const newInSpace = () => {
+    if (!openSpaceDir || !fleet?.self) return
+    setNewPrefill({ host: fleet.self, dir: openSpaceDir })
+    setNewOpen(true)
+  }
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   useEffect(() => {
@@ -237,14 +297,13 @@ export function DesktopShell() {
     if (next && document.activeElement?.closest('[data-session-list]')) setFocusReq((r) => ({ to: 'row', key: next, n: (r?.n ?? 0) + 1 }))
   }
 
-  // --- document title: "(2) name · Fleet" -------------------------------------
-  const waiting = list.summary.waiting
+  // --- document title: "(2) name · Co" -------------------------------------
   const { title: selectedTitle } = useSessionTitle(selectedSession, selectedKey ?? undefined)
   useEffect(() => {
     const name = selectedSession ? selectedTitle : ''
-    document.title = `${waiting > 0 ? `(${waiting}) ` : ''}${name ? `${name} · ` : ''}Fleet`
-  }, [waiting, selectedSession, selectedTitle])
-  useEffect(() => () => void (document.title = 'Fleet'), [])
+    document.title = `${turnCount > 0 ? `(${turnCount}) ` : ''}${name ? `${name} · ` : ''}${APP_NAME}`
+  }, [turnCount, selectedSession, selectedTitle])
+  useEffect(() => () => void (document.title = APP_NAME), [])
 
   // --- keyboard ----------------------------------------------------------------
   const dialogOpen = newOpen || paletteOpen || helpOpen
@@ -278,10 +337,10 @@ export function DesktopShell() {
   const run = (action: ShortcutAction, target: HTMLElement | null): boolean => {
     const cur = cursorKey ? byKey.get(cursorKey) : null
     // The session list isn't on screen in the notes explorer: its keys do nothing there.
-    if (notesOpen && !['search', 'new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
-    if (reviewOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad'].includes(action)) return false
-    if (prsOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'tasks'].includes(action)) return false
-    if (tasksOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'prs'].includes(action)) return false
+    if (notesOpen && !['search', 'new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'park'].includes(action)) return false
+    if (reviewOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'park'].includes(action)) return false
+    if (prsOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'park', 'tasks'].includes(action)) return false
+    if (tasksOpen && !['new', 'back', 'blur', 'palette', 'help', 'notes', 'scratchpad', 'park', 'prs'].includes(action)) return false
     switch (action) {
       case 'next':
         moveCursor(1)
@@ -311,7 +370,7 @@ export function DesktopShell() {
           navigate(sessionHref({ host: reviewLoc.host, session_id: reviewLoc.id }))
           return true
         }
-        if (selectedKey || settingsOpen || usageOpen || jobsOpen || inboxOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen) {
+        if (selectedKey || settingsOpen || usageOpen || jobsOpen || spaceOpen || inboxOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen) {
           navigate('/')
           return true
         }
@@ -369,6 +428,9 @@ export function DesktopShell() {
       case 'scratchpad':
         scratchpad.toggle(!!target?.closest('[data-scratchpad]'))
         return true
+      case 'park':
+        openPark()
+        return true
       case 'close': {
         const s = selectedSession ?? cur
         if (!s) return false
@@ -405,7 +467,10 @@ export function DesktopShell() {
       // With a dialog open only ⌘K toggles the palette (and ⌘? closes the help); the dialog owns
       // every other key.
       if (anyDialog() && action !== 'palette' && !(action === 'help' && dialogRef.current.help && !dialogRef.current.others)) return
-      if (runRef.current(action, target)) e.preventDefault()
+      if (runRef.current(action, target)) {
+        e.preventDefault()
+        track('key', action)
+      }
     }
     // Fleet.app's native menu (New Session ⌘N — a combo browsers keep for themselves).
     const onCommand = (e: Event) => {
@@ -568,6 +633,7 @@ export function DesktopShell() {
               ]
             })()
           : []),
+        { id: 'park', label: 'Park a thought', icon: <LightbulbIcon />, shortcut: shortcutHint('park'), keywords: ['idea', 'ideja', 'todo', 'zadatak', 'capture', 'note'], run: openPark },
         { id: 'scratchpad', label: 'Scratchpad', icon: <NotebookPenIcon />, shortcut: shortcutHint('scratchpad'), keywords: ['editor', 'text', 'paste', 'clipboard', 'draft'], run: () => scratchpad.show() },
         ...(notesHosts.length
           ? [{ id: 'notes', label: 'Notes…', icon: <NotebookTextIcon />, shortcut: shortcutHint('notes'), keywords: ['notes', 'markdown', 'knowledge', 'wiki', 'search'], run: () => navigate(notesHref()) }]
@@ -652,7 +718,9 @@ export function DesktopShell() {
   ]
 
   // Anything but `/`, `/settings`, `/usage`, `/bots`, `/inbox`, `/prs`, `/tasks`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
+  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !spaceOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
+
+  const sessionsScreen = !settingsOpen && !usageOpen && !jobsOpen && !spaceOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen
 
   const onSearchNav = (a: 'next' | 'prev' | 'open') => {
     if (a === 'open') {
@@ -680,6 +748,8 @@ export function DesktopShell() {
     <UsageScreen layout="pane" />
   ) : jobsOpen ? (
     <JobsScreen layout="pane" />
+  ) : spaceOpen ? (
+    <SpaceScreen space={spaceOpen} dir={openSpaceDir} onNew={newInSpace} />
   ) : inboxOpen ? (
     <InboxScreen layout="pane" />
   ) : operatorOpen ? (
@@ -690,24 +760,40 @@ export function DesktopShell() {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
-      {notesOpen ? (
-        <main className="flex min-w-0 flex-1">
-          <NotesScreen layout="pane" searchRef={notesSearchRef} />
-        </main>
-      ) : prsOpen ? (
-        <main className="flex min-w-0 flex-1">
-          <PrsScreen layout="pane" />
-        </main>
-      ) : tasksOpen ? (
-        <main className="flex min-w-0 flex-1">
-          <TasksScreen layout="pane" />
-        </main>
-      ) : reviewOpen ? (
-        <main className="flex min-w-0 flex-1">
-          <ReviewScreen layout="pane" />
-        </main>
+      {/* The app rail: the same place on every screen. */}
+      <SidebarRail
+        waiting={mainTurn}
+        spaceTurn={spaceTurn}
+        spaceActive={jobsOpen || spaceOpen ? undefined : spaceModule}
+        sessionsActive={sessionsScreen && !space}
+        onSessions={() => {
+          if (sessionsScreen && !space && selectedKey) toggleSidebar()
+          else {
+            if (!sidebarOpen) toggleSidebar()
+            const last = storage.get(LAST_SESSION_KEY)
+            const open = mainSessions.find((s) => sessionKey(s) === last) ?? mainSessions[0]
+            navigate(open ? sessionHref(open) : '/')
+          }
+        }}
+        onNew={() => setNewOpen(true)}
+        onPalette={() => setPaletteOpen(true)}
+      />
+      {notesOpen || prsOpen || tasksOpen || reviewOpen ? (
+        <>
+          <main className="flex min-w-0 flex-1" style={titlebarOffset('3rem')}>
+            {notesOpen ? (
+              <NotesScreen layout="pane" searchRef={notesSearchRef} />
+            ) : prsOpen ? (
+              <PrsScreen layout="pane" />
+            ) : tasksOpen ? (
+              <TasksScreen layout="pane" />
+            ) : (
+              <ReviewScreen layout="pane" />
+            )}
+          </main>
+        </>
       ) : board ? (
-        <div ref={boardAreaRef} className="relative flex min-w-0 flex-1">
+        <div ref={boardAreaRef} className="relative flex min-w-0 flex-1" style={titlebarOffset('3rem')}>
           <section aria-label="Session board" className="flex min-w-0 flex-1">
             <Board
               list={list}
@@ -733,7 +819,7 @@ export function DesktopShell() {
                 'absolute inset-y-0 right-0 z-20 flex border-l bg-background shadow-2xl',
                 'animate-in duration-200 ease-out fade-in-0 slide-in-from-right-8 motion-reduce:animate-none',
               )}
-              style={{ width: flyoutW, ...titlebarOffset(boardW - flyoutW) }}
+              style={{ width: flyoutW, ...titlebarOffset(`calc(3rem + ${boardW - flyoutW}px)`) }}
             >
               <div
                 role="separator"
@@ -778,12 +864,13 @@ export function DesktopShell() {
         <aside aria-label="Session list" className="relative shrink-0 border-r bg-background" style={{ width: sidebarW }}>
           <Sidebar
             list={list}
+            space={space}
+            sidebarView={sidebarView}
             now={now}
             cursorKey={cursorKey}
             selectedKey={selectedKey}
             searchRef={searchRef}
             onSearchNav={onSearchNav}
-            onNew={() => setNewOpen(true)}
             onCollapse={toggleSidebar}
             viewMode={mode}
             onViewMode={setMode}
@@ -815,27 +902,28 @@ export function DesktopShell() {
             )}
           />
         </aside>
-      ) : (
-        <SidebarRail
-          waiting={waiting}
-          onExpand={toggleSidebar}
-          onNew={() => setNewOpen(true)}
-          onPalette={() => setPaletteOpen(true)}
-        />
-      )}
+      ) : null}
 
       {board || notesOpen || prsOpen || tasksOpen || reviewOpen ? null : (
-        <main className="flex min-w-0 flex-1" style={titlebarOffset(sidebarOpen ? sidebarW : '3rem')}>
+        <main className="flex min-w-0 flex-1" style={titlebarOffset(sidebarOpen ? `calc(3rem + ${sidebarW}px)` : '3rem')}>
           {pane ?? (
-            <EmptyPane
-              waitingSessions={paletteSessions.filter((s) => s.status === 'waiting').slice(0, 6)}
+            <NowPane
+              waitingSessions={paletteSessions.filter(sidebarView.isTurn)}
               onOpen={(s) => openSession(s, true)}
             />
           )}
         </main>
       )}
 
-      <NewSessionDialog open={newOpen} onOpenChange={setNewOpen} onOpenSession={(href) => navigate(href)} />
+      <NewSessionDialog
+        open={newOpen}
+        onOpenChange={(open) => {
+          setNewOpen(open)
+          if (!open) setNewPrefill(null)
+        }}
+        onOpenSession={(href) => navigate(href)}
+        prefill={newPrefill}
+      />
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
@@ -855,50 +943,3 @@ function titlebarOffset(left: number | string): CSSProperties {
   return { '--titlebar-offset': typeof left === 'number' ? `${left}px` : left } as CSSProperties
 }
 
-function EmptyPane({ waitingSessions, onOpen }: { waitingSessions: Session[]; onOpen: (s: Session) => void }) {
-  const hints: [string[], string][] = [
-    [['↑', '↓'], 'move'],
-    [['Enter'], 'open'],
-    [[shortcutHint('search')], 'search'],
-    [[shortcutHint('new')], 'new session'],
-    [[shortcutHint('palette')], 'jump'],
-    [[shortcutHint('help')], 'all shortcuts'],
-  ]
-  return (
-    <div data-tauri-drag-region className="flex flex-1 flex-col items-center justify-center gap-6 p-8 text-center">
-      <div>
-        <p className="text-base font-semibold">No session open</p>
-        <p className="mt-1 text-sm text-dimmer">Pick one from the list, or use the keyboard.</p>
-      </div>
-      <ul className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground" aria-label="Keyboard hints">
-        {hints.map(([ks, label]) => (
-          <li key={label} className="flex items-center gap-1">
-            {ks.map((k) => (
-              <Kbd key={k}>{k}</Kbd>
-            ))}
-            <span className="ml-0.5">{label}</span>
-          </li>
-        ))}
-      </ul>
-      {waitingSessions.length ? (
-        <section aria-label="Needs you" className="w-full max-w-md text-left">
-          <h2 className="pb-1.5 text-[0.6875rem] font-semibold tracking-wider text-status-waiting uppercase">Needs you</h2>
-          <div className="flex flex-col gap-1.5">
-            {waitingSessions.map((s) => (
-              <button
-                key={sessionKey(s)}
-                type="button"
-                onClick={() => onOpen(s)}
-                className="flex items-center gap-2 rounded-lg border border-status-waiting/35 bg-card px-3 py-2 text-left text-sm outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <StatusDot status={s.status} className="size-2" />
-                <span className="min-w-0 flex-1 truncate font-medium">{sessionTitle(s)}</span>
-                <span className="shrink-0 truncate text-xs text-status-waiting">{statusLabel(s)}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
-    </div>
-  )
-}

@@ -350,6 +350,7 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
             embed: pane.map(|p| p.embed.clone()).filter(|e| !e.is_empty()),
         });
     }
+    drop_suspended_twins(&mut out, is_stopped);
     crate::core::context::apply_native_1m(out.iter_mut().filter_map(|s| s.context.as_mut()));
     out.extend(discover_harnesses(&panes));
     out.sort_by_key(|s| std::cmp::Reverse(s.updated_at.unwrap_or(0)));
@@ -592,6 +593,47 @@ fn ppid_of(pid: i64) -> Option<i64> {
         return None;
     }
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+/// A session suspended with Ctrl-Z and then `claude --resume`d in the same terminal leaves
+/// two live processes on one session id. The stopped one is the stale copy: it is dropped
+/// whenever a running process carries the same session.
+fn drop_suspended_twins(rows: &mut Vec<Session>, stopped: impl Fn(i64) -> bool) {
+    let mut seen = std::collections::HashMap::<&str, usize>::new();
+    for id in rows.iter().filter_map(|r| r.session_id.as_deref()) {
+        *seen.entry(id).or_default() += 1;
+    }
+    let stopped_pids: std::collections::HashSet<i64> = rows
+        .iter()
+        .filter(|r| r.session_id.as_deref().is_some_and(|id| seen[id] > 1))
+        .map(|r| r.pid)
+        .filter(|&p| stopped(p))
+        .collect();
+    if stopped_pids.is_empty() {
+        return;
+    }
+    let running: std::collections::HashSet<String> = rows
+        .iter()
+        .filter(|r| !stopped_pids.contains(&r.pid))
+        .filter_map(|r| r.session_id.clone())
+        .collect();
+    rows.retain(|r| {
+        !(stopped_pids.contains(&r.pid)
+            && r.session_id.as_ref().is_some_and(|id| running.contains(id)))
+    });
+}
+
+/// The process is stopped (`ps` state `T`: Ctrl-Z, SIGSTOP).
+fn is_stopped(pid: i64) -> bool {
+    Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim_start()
+                .starts_with('T')
+        })
+        .unwrap_or(false)
 }
 
 /// Returns the tty of a live process, `None` if the process is dead. A live
@@ -1039,6 +1081,24 @@ mod tests {
         assert_eq!(p.embed, "fin");
         let (_, p) = parse_pane("/dev/ttys006	fw-1:0.0	%2	zsh	fw-1		").unwrap();
         assert_eq!(p.embed, "");
+    }
+
+    #[test]
+    fn a_suspended_twin_of_a_running_session_is_dropped() {
+        let row = |pid: i64, id: &str| Session {
+            pid,
+            session_id: Some(id.into()),
+            ..Session::default()
+        };
+        let mut rows = vec![row(1, "a"), row(2, "a"), row(3, "b")];
+        let asked = std::cell::RefCell::new(vec![]);
+        drop_suspended_twins(&mut rows, |p| {
+            asked.borrow_mut().push(p);
+            p == 1 || p == 3
+        });
+        // pid 1: stopped, its session runs as pid 2 → gone. pid 3: alone → kept, never checked.
+        assert_eq!(rows.iter().map(|r| r.pid).collect::<Vec<_>>(), vec![2, 3]);
+        assert_eq!(asked.into_inner(), vec![1, 2]);
     }
 
     #[test]

@@ -413,11 +413,13 @@ fn sync_shell(w: &WebviewWindow, force: bool) {
 /// Window dragging for the page's top bar (`data-tauri-drag-region`): Tauri's
 /// drag script calls these two window commands. Granted to the start page and
 /// the server's origin, in this window only — nothing else is exposed to the page.
+/// Plus the Dock badge: the page sets the count of sessions waiting for you.
 fn allow_window_drag(app: &AppHandle) -> tauri::Result<()> {
     let mut cap = CapabilityBuilder::new("window-drag")
         .window("main")
         .permission("core:window:allow-start-dragging")
-        .permission("core:window:allow-internal-toggle-maximize");
+        .permission("core:window:allow-internal-toggle-maximize")
+        .permission("core:window:allow-set-badge-count");
     let st = app.state::<State>();
     if let Some(p) = st
         .target

@@ -282,20 +282,18 @@ pub struct RenameOpts {
 
 /// Why a rename was held.
 ///
-/// Only a session **waiting on the user** is held: it is sitting on a permission
-/// prompt or a question, where typed keys are its *answer* — `/rename foo` plus
-/// Enter could pick an option. A **busy** session is not held: Claude Code runs
-/// `/rename` as a local command the moment it is submitted, mid-turn, without
-/// interrupting the turn (verified live: the numbers kept streaming, "Session
-/// renamed to …" appeared inline, the turn finished normally; the model gets a
-/// system reminder about the new name). An older Claude that queues input while
-/// busy would run it after the turn instead — also harmless.
+/// A session **waiting on the user** is held: it is sitting on a permission prompt
+/// or a question, where typed keys are its *answer* — `/rename foo` plus Enter
+/// could pick an option. A **busy** session is held too: its turn can open such a
+/// prompt between the check and the Enter, which then answers it (seen live: an
+/// auto-name pass picked an AskUserQuestion option and ticked another). It is
+/// renamed once the turn is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Hold {
     /// On a permission prompt / question: `/rename foo` would be its answer.
     Waiting,
-    /// Mid-turn in a harness that would queue the text as a message (Codex, pi).
+    /// Mid-turn: a prompt may open under the typed keys (Codex and pi would also queue the text as a message).
     Busy,
 }
 
@@ -304,7 +302,7 @@ pub fn hold(s: &Session) -> Option<Hold> {
     if s.is_waiting() {
         return Some(Hold::Waiting);
     }
-    (s.harness != crate::core::harness::Harness::Claude && s.status == "busy").then_some(Hold::Busy)
+    (s.status == "busy").then_some(Hold::Busy)
 }
 
 impl Hold {
@@ -549,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_waiting_session_is_held_unless_forced() {
+    fn a_waiting_or_busy_session_is_held_unless_forced() {
         let mut s = named("auth-spike", "user");
         s.status = "waiting".into();
         assert_eq!(hold(&s), Some(Hold::Waiting));
@@ -562,8 +560,9 @@ mod tests {
             }
             other => panic!("a waiting session must not be typed into: {other:?}"),
         }
-        // Busy is fine: Claude runs `/rename` mid-turn without disturbing it.
-        for status in ["busy", "idle", "unknown"] {
+        s.status = "busy".into();
+        assert_eq!(hold(&s), Some(Hold::Busy));
+        for status in ["idle", "unknown"] {
             s.status = status.into();
             assert_eq!(hold(&s), None, "{status}");
         }

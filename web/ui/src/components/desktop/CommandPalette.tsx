@@ -9,6 +9,7 @@ import { shortCwd } from '@/lib/format'
 import { paletteFilter } from '@/lib/palette'
 import { statusLabel } from '@/lib/sessions'
 import { sessionKey } from '@/lib/shortcuts'
+import { track } from '@/lib/track'
 import { sessionTitle } from '@/lib/title'
 
 export interface PaletteAction {
@@ -74,7 +75,7 @@ export function CommandPalette({ open, onOpenChange, sessions, selectedKey, onOp
               g.items.length ? (
                 <CommandGroup key={g.heading} heading={g.heading}>
                   {g.items.map((a) => (
-                    <CommandItem key={a.id} value={`action ${a.id}`} keywords={[a.label, ...(a.keywords ?? [])]} onSelect={() => pick(a.run)}>
+                    <CommandItem key={a.id} value={`action ${a.id}`} keywords={[a.label, ...(a.keywords ?? [])]} onSelect={() => pick(() => (track('key', `palette: ${a.id}`), a.run()))}>
                       {a.icon}
                       {a.label}
                       {a.shortcut ? <CommandShortcut>{a.shortcut}</CommandShortcut> : null}

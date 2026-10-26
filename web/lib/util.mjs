@@ -87,7 +87,7 @@ export function validateTitle(title) {
   return { ok: true, title: t };
 }
 
-export const ALLOWED_KEYS = ['Enter', 'Escape', 'Up', 'Down'];
+export const ALLOWED_KEYS = ['Enter', 'Escape', 'Up', 'Down', 'Left', 'Right', 'Tab', 'BTab', 'BSpace', 'Space', 'PageUp', 'PageDown'];
 
 export function validateKey(key) {
   if (typeof key !== 'string' || !ALLOWED_KEYS.includes(key)) {

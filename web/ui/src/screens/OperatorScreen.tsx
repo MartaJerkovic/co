@@ -96,8 +96,13 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
         setChat({ key: sessionKey(session), list: r.messages })
         setOpStatus(r.status)
       } catch (err) {
+        // A fresh operator has no transcript until its first message: an empty conversation,
+        // not a gone session (treating it as gone made the screen flicker between the two).
+        if (err instanceof ApiError && err.status === 404 && /transcript not found/i.test(err.message)) {
+          setChat({ key: sessionKey(session), list: [] })
+        }
         // Gone (closed, host restarted): look for the operator again.
-        if (err instanceof ApiError && err.status === 404) setStatus(null)
+        else if (err instanceof ApiError && err.status === 404) setStatus(null)
         else throw err
       }
     },

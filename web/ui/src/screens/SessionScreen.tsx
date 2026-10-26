@@ -4,6 +4,7 @@ import {
   CircleAlertIcon,
   EllipsisIcon,
   FileDiffIcon,
+  GlobeIcon,
   MessageSquareTextIcon,
   PanelRightIcon,
   SquareTerminalIcon,
@@ -12,10 +13,12 @@ import {
 } from 'lucide-react'
 import { useLocation } from 'wouter'
 import { toast } from 'sonner'
+import { copyText } from '@/lib/clipboard'
 
 import { ApiError, api, isAbortError, isSessionGone, sendErrorMessage, sessionErrorMessage } from '@/api/client'
-import type { FileStat, Message, SessionKey } from '@/api/types'
+import type { FileStat, Message, SessionKey, TermCursor } from '@/api/types'
 import { ContextMeter } from '@/components/ContextMeter'
+import { ModelMenu } from '@/components/session/ModelMenu'
 import { DropOverlay } from '@/components/DropOverlay'
 import { EditableTitle } from '@/components/EditableTitle'
 import { HostBadge } from '@/components/HostBadge'
@@ -39,6 +42,7 @@ import { useFileDrop } from '@/hooks/useAttach'
 import { useBrief } from '@/hooks/useBrief'
 import { useFileStats } from '@/hooks/useFileLinks'
 import { useFleet } from '@/hooks/useFleet'
+import { usePreviews } from '@/hooks/usePreviews'
 import { useNow } from '@/hooks/useNow'
 import { useOutbox } from '@/hooks/useOutbox'
 import { usePersistentState } from '@/hooks/usePersistentState'
@@ -53,11 +57,13 @@ import { continueDraft } from '@/lib/brief'
 import { modelLabel, relTime, shortCwd } from '@/lib/format'
 import { harnessLabel } from '@/lib/harness'
 import { tailAnchor } from '@/lib/outbox'
-import { findSession, statusMeta } from '@/lib/sessions'
+import { stripAnsi } from '@/lib/ansi'
+import { findSession, promptSuggestion, screenTail, statusMeta, workingInfo, type WorkingInfo } from '@/lib/sessions'
 import { reviewHref } from '@/lib/review'
 import { stacksKnown } from '@/lib/stacks'
 import { isUndoBackspace, withHint } from '@/lib/shortcuts'
 import { STATUS_TEXT } from '@/lib/styles'
+import type { TermInput } from '@/lib/termKeys'
 import { cn } from '@/lib/utils'
 
 interface ChatState {
@@ -71,6 +77,7 @@ interface ChatState {
 }
 interface PeekState {
   text: string
+  cursor: TermCursor | null
   at: number
 }
 
@@ -136,7 +143,7 @@ export function SessionScreen({
   // View prefs (localStorage). Text size, terminal text and
   // progress notes are global (the Settings screen).
   const [mode, setMode] = usePersistentState<DetailMode>('fleet.detailMode', 'chat', parseMode)
-  const [termLines] = usePersistentState<number>('fleet.termLines', 200, parseSize(TERM_LINES))
+  const [termLines] = usePersistentState<number>('fleet.termLines', 2000, parseSize(TERM_LINES))
   const { termFont, hideNotes, sendDelay } = usePrefs()
 
   const [menuOpen, setMenuOpen] = useState(false)
@@ -217,10 +224,11 @@ export function SessionScreen({
   const pollPeek = useCallback(
     async (signal: AbortSignal) => {
       try {
-        const data = await api.peek(host, id, termLines, { signal })
+        const data = await api.peek(host, id, termLines, { signal }, true)
         const text = typeof data.text === 'string' ? data.text : ''
         const at = data.capturedAt || Date.now()
-        setPeek((prev) => (prev && prev.text === text ? { ...prev, at } : { text, at }))
+        const cursor = data.cursor ?? null
+        setPeek((prev) => (prev && prev.text === text && prev.cursor?.x === cursor?.x && prev.cursor?.below === cursor?.below && prev.cursor?.alternate === cursor?.alternate ? { ...prev, at } : { text, cursor, at }))
         setPeekBackend(String(data.backend || 'unknown'))
         setPeekErr(null)
         setGone(false)
@@ -234,7 +242,43 @@ export function SessionScreen({
     [host, id, termLines],
   )
 
-  const refreshChat = usePoller(pollChat, CHAT_POLL_MS, { enabled: mode === 'chat' })
+  // Read from the terminal while the chat view is open: Claude Code's pre-filled prompt when idle
+  // (accept with Tab), and what it is doing when busy (spinner, current step, to-dos).
+  const [suggestion, setSuggestion] = useState<string | null>(null)
+  const [working, setWorking] = useState<WorkingInfo | null>(null)
+  // The bottom of the terminal, shown in the chat when Claude waits on something only the terminal shows.
+  const [tail, setTail] = useState<string | null>(null)
+  const pollScreen = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        const data = await api.peek(host, id, SCREEN_LINES, { signal }, true)
+        const screen = typeof data.text === 'string' ? data.text : ''
+        const text = stripAnsi(screen)
+        setSuggestion(promptSuggestion(text))
+        setWorking(workingInfo(text))
+        setTail(screenTail(screen))
+      } catch (err) {
+        if (isAbortError(err)) throw err
+        setSuggestion(null)
+        setWorking(null)
+        setTail(null)
+      }
+    },
+    [host, id],
+  )
+  const chatIdle = mode === 'chat' && chat?.status === 'idle'
+  const chatBusy = mode === 'chat' && chat?.status === 'busy'
+  const chatWaiting = mode === 'chat' && chat?.status === 'waiting'
+  // The servers a session in a previews space started, offered as Preview links in the header.
+  const previews = usePreviews(host, id, session?.cwd)
+  const refreshScreen = usePoller(pollScreen, chatBusy || chatWaiting ? WORKING_POLL_MS : SUGGESTION_POLL_MS, { enabled: chatIdle || chatBusy || chatWaiting })
+
+  useEffect(() => {
+    if (chatWaiting) refreshScreen()
+  }, [chatWaiting, refreshScreen])
+
+  const refreshChat = usePoller(pollChat, chatBusy || chatWaiting ? WORKING_POLL_MS : CHAT_POLL_MS, { enabled: mode === 'chat' })
+
   const refreshPeek = usePoller(pollPeek, PEEK_POLL_MS, { enabled: mode === 'term' })
   const refreshActive = mode === 'chat' ? refreshChat : refreshPeek
 
@@ -343,8 +387,20 @@ export function SessionScreen({
   }, [chat, box])
   const hasPending = outbox.some((it) => it.state === 'pending')
 
+  // A bare /model opens Claude Code's picker, which this view can't show or drive: the header's model menu instead.
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const send = (text: string): boolean => {
     if (lockedReason || !text.trim()) return false
+    const cmd = text.trim()
+    if (cmd === '/model' && (session?.harness || 'claude') === 'claude') {
+      setModelMenuOpen(true)
+      return true
+    }
+    // /usage is Fleet's own Usage screen (the same numbers); it opens there in any session.
+    if (cmd === '/usage') {
+      navigate('/usage')
+      return true
+    }
     box.add(text, sendDelay, tailAnchor(chatRef.current?.messages))
     setJumpSignal((n) => n + 1)
     return true
@@ -378,14 +434,51 @@ export function SessionScreen({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [hasPending])
 
+  // Stop: Esc. A second Esc right after would open Claude Code's rewind, so Stop rests for a moment.
+  const [stopping, setStopping] = useState(false)
+  const stop = () => {
+    if (stopping) return
+    setStopping(true)
+    setTimeout(() => setStopping(false), STOP_REST_MS)
+    void sendKey('Escape')
+  }
+
   const sendKey = async (key: SessionKey) => {
     if (lockedReason) return
     try {
       await api.keys(host, id, key)
-      toast.success(`${key} sent`, { duration: 1200 })
+      toast.success(key === 'Escape' ? 'Stopped' : `${key} sent`, { duration: 1200 })
       afterSteer()
     } catch (err) {
       steerError(err)
+    }
+  }
+
+  // Keystrokes from the terminal view, sent one request at a time in order; letters typed while a
+  // request is out go together as one piece of text.
+  const termQueue = useRef<TermInput[]>([])
+  const termSending = useRef(false)
+  const typeInTerm = async (input: TermInput) => {
+    const q = termQueue.current
+    const last = q[q.length - 1]
+    if ('text' in input && last && 'text' in last) q[q.length - 1] = { text: last.text + input.text }
+    else q.push(input)
+    if (termSending.current) return
+    termSending.current = true
+    try {
+      for (let next = q.shift(); next; next = q.shift()) {
+        if ('key' in next) await api.keys(host, id, next.key)
+        else await api.type(host, id, next.text)
+      }
+      await new Promise((r) => setTimeout(r, KEY_ECHO_MS))
+      refreshPeek()
+      refreshScreen()
+      refreshChat()
+    } catch (err) {
+      q.length = 0
+      steerError(err)
+    } finally {
+      termSending.current = false
     }
   }
 
@@ -528,12 +621,17 @@ export function SessionScreen({
               <HostBadge host={host} className="h-4 px-1 text-[0.625rem]" />
               {session?.session_id ? <PrChip session={{ host, session_id: session.session_id }} className="h-4" /> : null}
               {session?.session_id ? <TaskChip session={{ host, session_id: session.session_id }} className="h-4" /> : null}
-              {session?.context?.model ? (
+              {(session?.harness || 'claude') === 'claude' ? (
+                <ModelMenu context={session?.context} open={modelMenuOpen} onOpenChange={setModelMenuOpen} onSend={send} disabled={!!lockedReason || gone} />
+              ) : session?.context?.model ? (
                 <span className="shrink-0 text-dim" title={session.context.model}>
                   {modelLabel(session.context.model)}
                 </span>
               ) : null}
               <ContextMeter context={session?.context} />
+              {(session?.harness || 'claude') === 'claude' && !lockedReason && !gone && !outbox.some((it) => it.state !== 'sent' && it.text.trim() === '/compact') ? (
+                <CompactHint inline context={session?.context} onCompact={() => send('/compact')} />
+              ) : null}
               {pane && session?.cwd ? (
                 <span className="min-w-0 shrink truncate font-mono text-[0.6875rem] text-dimmer" title={session.cwd}>
                   · {shortCwd(session.cwd, 60)}
@@ -544,24 +642,14 @@ export function SessionScreen({
               </span>
             </div>
           </div>
-          {/* Mobile switches view from the ⋯ menu; the header keeps its width for the title. */}
-          {pane ? (
-            <ToggleGroup
-              type="single"
-              value={mode}
-              onValueChange={(v) => v && setMode(v as DetailMode)}
-              spacing={0}
-              aria-label="View mode"
-              className="shrink-0 rounded-xl bg-muted p-0.5"
-            >
-              <ToggleGroupItem value="chat" aria-label="Chat view" title={pane ? withHint('Chat', 'mode') : undefined} className={modeItem}>
-                <MessageSquareTextIcon />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="term" aria-label="Terminal view" title={pane ? withHint('Terminal', 'mode') : undefined} className={modeItem}>
-                <SquareTerminalIcon />
-              </ToggleGroupItem>
-            </ToggleGroup>
-          ) : null}
+          {previews.map((p) => (
+            <Button key={p.port} asChild variant="ghost" size="sm" className="h-9 shrink-0 gap-1.5 rounded-xl px-2.5 text-muted-foreground">
+              <a href={p.url} target="_blank" rel="noopener noreferrer" title={`Open ${p.url} (${p.command})`}>
+                <GlobeIcon className="size-4" />
+                Preview{previews.length > 1 ? ` :${p.port}` : ''}
+              </a>
+            </Button>
+          ))}
           {session?.cwd && !embedded ? (
             <Button
               variant="ghost"
@@ -616,7 +704,7 @@ export function SessionScreen({
           <div
             className={cn(
               pane
-                ? 'mx-auto mt-2 flex max-w-4xl items-start gap-2 rounded-lg border px-3 py-2 text-xs'
+                ? 'mx-auto mt-2 flex max-w-3xl items-start gap-2 rounded-lg border px-3 py-2 text-xs'
                 : 'mx-auto mt-2 flex max-w-3xl items-start gap-2 rounded-lg border px-3 py-2 text-xs',
               hostDown ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border bg-card text-muted-foreground',
             )}
@@ -633,7 +721,7 @@ export function SessionScreen({
         </div>
       ) : null}
 
-      <main className="relative flex min-h-0 flex-1 flex-col">
+      <main className="relative flex min-h-0 flex-1 flex-col" onMouseUp={copySelection}>
         {mode === 'chat' ? (
           <ChatView
             messages={chat?.messages ?? null}
@@ -642,6 +730,9 @@ export function SessionScreen({
             hideNotes={hideNotes}
             status={status}
             waitingFor={session?.waiting_for}
+            working={chatBusy ? working : null}
+            screenTail={chatBusy || chatWaiting ? tail : null}
+            onTermInput={backend === 'tmux' && !lockedReason ? typeInTerm : undefined}
             canLoadOlder={!!chat?.truncated && chatLimit < CHAT_LIMITS[CHAT_LIMITS.length - 1]}
             loadingOlder={loadingOlder}
             onLoadOlder={loadOlder}
@@ -651,13 +742,19 @@ export function SessionScreen({
             outbox={outboxView('chat')}
             outboxKey={outbox.map((it) => `${it.id}:${it.state}`).join(',')}
             questionActions={questionActions}
+            bot={!!session?.origin?.job && !chat?.truncated}
           />
         ) : (
-          <TermView text={peek?.text ?? null} failed={!!peekErr} fontSize={termFont} jumpSignal={jumpSignal} fileLinks={fileLinks} />
+          <TermView
+            text={peek?.text ?? null}
+            failed={!!peekErr}
+            fontSize={termFont}
+            jumpSignal={jumpSignal}
+            fileLinks={fileLinks}
+            cursor={peek?.cursor}
+            onInput={lockedReason || backend !== 'tmux' ? undefined : typeInTerm}
+          />
         )}
-        {(session?.harness || 'claude') === 'claude' && !lockedReason && !gone && !outbox.some((it) => it.state !== 'sent' && it.text.trim() === '/compact') ? (
-          <CompactHint context={session?.context} onCompact={() => send('/compact')} />
-        ) : null}
         {pane && inspector && detailsOverlay ? (
           // A narrow pane: the details lie over the chat (header and composer stay usable).
           <aside
@@ -678,11 +775,33 @@ export function SessionScreen({
       </main>
 
       {mode === 'term' && outbox.some((it) => it.state !== 'sent') ? (
-        <div className={cn('shrink-0 px-safe', pane ? 'mx-auto w-full max-w-4xl px-4 pt-2' : 'mx-auto w-full max-w-3xl px-3 pt-2')}>
+        <div className={cn('shrink-0 px-safe', pane ? 'mx-auto w-full max-w-3xl px-6 pt-2' : 'mx-auto w-full max-w-3xl px-3 pt-2')}>
           {outboxView('strip')}
         </div>
       ) : null}
       <Composer
+        leading={
+          pane ? (
+            <ToggleGroup
+              type="single"
+              value={mode}
+              onValueChange={(v) => v && setMode(v as DetailMode)}
+              spacing={0}
+              aria-label="View mode"
+              className="mb-1 shrink-0 self-end rounded-xl bg-muted p-0.5"
+            >
+              <ToggleGroupItem value="chat" aria-label="Chat view" title={withHint('Chat', 'mode')} className={modeItem}>
+                <MessageSquareTextIcon />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="term" aria-label="Terminal view" title={withHint('Terminal: tools, diffs and progress as in the terminal', 'mode')} className={modeItem}>
+                <SquareTerminalIcon />
+              </ToggleGroupItem>
+            </ToggleGroup>
+          ) : null
+        }
+        suggestion={chatIdle ? suggestion : null}
+        working={status === 'busy' && !stopping}
+        onStop={stop}
         quickReplies={settings.quickReplies}
         lockedReason={lockedReason}
         onSend={send}
@@ -727,6 +846,24 @@ export function SessionScreen({
     </div>
   )
 }
+
+/** Copy on select: text selected in the chat or terminal goes to the clipboard when the mouse lets go. */
+function copySelection(e: React.MouseEvent) {
+  if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) return
+  const text = window.getSelection()?.toString() ?? ''
+  if (!text.trim()) return
+  void copyText(text).then((ok) => ok && toast.success('Copied to clipboard', { duration: 1200 }))
+}
+
+/** How long Stop rests after a press (Esc twice opens Claude Code's rewind). */
+const STOP_REST_MS = 3000
+
+/** How often, and how many terminal lines, to read the screen for the suggestion (idle) and the working line (busy). */
+const SUGGESTION_POLL_MS = 4000
+const SCREEN_LINES = 60
+const WORKING_POLL_MS = 1000
+/** Claude Code redraws the terminal a moment after a key; the screen is read again after this. */
+const KEY_ECHO_MS = 80
 
 const modeItem =
   'size-10 rounded-[10px] text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent [&_svg:not([class*=size-])]:size-[18px]'

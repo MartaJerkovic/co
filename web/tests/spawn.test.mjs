@@ -321,3 +321,17 @@ test('validateSpawnRequest takes an embed label; the spawner puts it on the pane
   assert.ok(calls.some((c) => c.join(' ') === 'tmux set-option -p -t emb: @fleet_embed fin'));
   assert.equal(res.embed, 'fin');
 });
+
+test('a typed title names the session: the agent gets it as is, tmux a slug of it', () => {
+  const check = validateSpawnRequest({ dir: '/w', title: '  Fix the login bug  ' });
+  assert.equal(check.ok, true);
+  assert.equal(check.title, 'Fix the login bug');
+  assert.equal(check.name, 'fix-the-login-bug');
+  assert.equal(check.nameGiven, true);
+  assert.equal(launchCommand({ harness: 'claude', name: check.name, title: check.title }), "claude -n 'Fix the login bug'");
+  assert.equal(validateSpawnRequest({ dir: '/w', title: 'two\nlines' }).ok, false);
+  // Only non-ASCII: the agent keeps the title, tmux falls back to a generated name.
+  const emoji = validateSpawnRequest({ dir: '/w', title: 'Šđž 🚀' });
+  assert.equal(emoji.title, 'Šđž 🚀');
+  assert.match(emoji.name, /^fw-\d{6}$/);
+});

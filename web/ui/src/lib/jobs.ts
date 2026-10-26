@@ -119,6 +119,12 @@ export function keepLabel(keep: number | null | undefined): string {
 }
 
 /** The job's first prompt, one line: the inline text or `file: <path>`. */
+/** A prompt file inside the notes: its path there (it opens in Fleet's notes, not the editor), else null. */
+export function promptNotePath(prompt: Job['prompt'], notesRoot: string | null | undefined): string | null {
+  const abs = prompt && 'file' in prompt ? prompt.abs : null
+  return notesRoot && abs?.startsWith(`${notesRoot}/`) ? abs.slice(notesRoot.length + 1) : null
+}
+
 export function promptLabel(prompt: Job['prompt']): string {
   if (!prompt) return ''
   if ('inline' in prompt) return prompt.inline.replace(/\s+/g, ' ').trim()

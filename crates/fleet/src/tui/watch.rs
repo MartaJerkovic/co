@@ -2087,10 +2087,10 @@ mod tests {
     }
 
     // `backend::send` types into a live Claude TUI. A session sitting on a
-    // permission prompt would read `/rename foo` as its answer; a busy one runs
-    // it mid-turn as a local command (core::title::Hold), so it gets the buffer.
+    // permission prompt would read `/rename foo` as its answer, and a busy one can
+    // open such a prompt under the keys (core::title::Hold): both are held.
     #[test]
-    fn a_waiting_session_is_held_a_busy_one_is_prompted() {
+    fn a_waiting_or_busy_session_is_held() {
         let rows = fixture();
         let s = rows.iter().find(|r| r.status == "waiting").unwrap();
         let mut renaming = None;
@@ -2100,8 +2100,9 @@ mod tests {
 
         let s = rows.iter().find(|r| r.status == "busy").unwrap();
         let mut renaming = None;
-        offer(&s.key(), "some-name", &rows, &mut renaming, false);
-        assert!(renaming.is_some(), "busy is renameable");
+        let ev = offer(&s.key(), "some-name", &rows, &mut renaming, false);
+        assert!(renaming.is_none(), "busy opened a buffer");
+        assert!(ev.msg.contains("busy"), "{}", ev.msg);
     }
 
     // The job outlives the row it was started on. It must be dropped, never

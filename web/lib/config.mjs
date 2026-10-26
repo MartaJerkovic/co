@@ -182,6 +182,72 @@ function isObject(v) {
 }
 
 /**
+ * `web.prPrompts` / `web.taskPrompts`: the starting-prompt buttons of the PR and task dialogs,
+ * replacing the built-in ones. Each is `{ label, text, columns?, start? }`: `columns` limits it
+ * to those PR / task columns (ids as in `fleet prs --json`), `start: true` spawns on click.
+ * null when unset (the UI keeps its defaults).
+ */
+function promptButtonsOf(value, key) {
+  if (value == null) return null;
+  if (!Array.isArray(value)) throw new Error(`config.web.${key} must be an array`);
+  return value.map((b) => {
+    if (!isObject(b) || typeof b.label !== 'string' || !b.label || typeof b.text !== 'string' || !b.text) {
+      throw new Error(`config.web.${key} entries must be { label, text, columns?, start? }`);
+    }
+    const columns = Array.isArray(b.columns) ? b.columns.filter((c) => typeof c === 'string' && c) : null;
+    return { label: b.label, text: b.text, columns: columns?.length ? columns : null, start: b.start === true };
+  });
+}
+
+/**
+ * `web.spaces`: places kept apart from the work sessions, each the Start directory with its `label`.
+ * `{ id, label, blurb?, action?, empty?, icon?, previews? }`; `previews: true` offers the servers its
+ * sessions start. [] when unset.
+ */
+function spacesOf(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new Error('config.web.spaces must be an array');
+  const text = (v, fallback) => (typeof v === 'string' && v.trim() ? v.trim() : fallback);
+  return value.map((s) => {
+    if (!isObject(s) || typeof s.id !== 'string' || !SPACE_ID_RE.test(s.id) || s.id === 'bots' || typeof s.label !== 'string' || !s.label.trim()) {
+      throw new Error('config.web.spaces entries must be { id (a-z, 0-9, -; not "bots"), label, blurb?, action?, empty?, icon?, previews? }');
+    }
+    return {
+      id: s.id,
+      label: s.label.trim(),
+      blurb: text(s.blurb, ''),
+      action: text(s.action, 'New session'),
+      empty: text(s.empty, 'Nothing here yet.'),
+      icon: text(s.icon, null),
+      previews: s.previews === true,
+    };
+  });
+}
+
+const SPACE_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** `web.park`: the notes files "Park a thought" appends to, per kind: `{ file, heading }`. */
+export const DEFAULT_PARK = { idea: { file: 'ideas.md', heading: '# Ideas' }, todo: { file: 'todos.md', heading: '# To-dos' } };
+
+function parkOf(value) {
+  if (value == null) return DEFAULT_PARK;
+  if (!isObject(value)) throw new Error('config.web.park must be an object');
+  const out = {};
+  for (const kind of ['idea', 'todo']) {
+    const t = value[kind];
+    if (t == null) {
+      out[kind] = DEFAULT_PARK[kind];
+      continue;
+    }
+    if (!isObject(t) || typeof t.file !== 'string' || !/^[^/][^\0]*\.md$/.test(t.file) || t.file.split('/').includes('..')) {
+      throw new Error(`config.web.park.${kind} must be { file (a .md path inside the notes), heading? }`);
+    }
+    out[kind] = { file: t.file, heading: typeof t.heading === 'string' && t.heading.trim() ? t.heading.trim() : DEFAULT_PARK[kind].heading };
+  }
+  return out;
+}
+
+/**
  * Map one `spawnDirs` entry to the `{ label, path }` this host offers (or null when the
  * entry has no path for this host). Accepts `{ label, paths: { host: dir } }` (canonical)
  * and `{ label, path }` (same dir on every host).
@@ -318,6 +384,11 @@ export function normalizeConfig(
         return { label: typeof r.label === 'string' && r.label ? r.label : r.text, text: r.text };
       });
   }
+
+  const prPrompts = promptButtonsOf(web.prPrompts, 'prPrompts');
+  const taskPrompts = promptButtonsOf(web.taskPrompts, 'taskPrompts');
+  const spaces = spacesOf(web.spaces);
+  const park = parkOf(web.park);
 
   // web.models: the New session model picker ({ id, label } or a bare id; id '' = no --model).
   let models = DEFAULT_MODELS;
@@ -491,6 +562,17 @@ export function normalizeConfig(
     return path.normalize(d);
   };
   if (wm.model != null && (typeof wm.model !== 'string' || !MODEL_ID_RE.test(wm.model))) throw new Error('config.web.memos.model must be a model id (letters, digits and ._[]-)');
+  // web.transcribe.local: voice input through whisper.cpp on this machine instead of OpenAI.
+  const wt = isObject(web.transcribe?.local) ? web.transcribe.local : null;
+  if (wt && (typeof wt.model !== 'string' || !wt.model.trim())) throw new Error('config.web.transcribe.local.model must be the path of a ggml whisper model');
+  const transcribeLocal = wt
+    ? {
+        model: path.normalize(expandHome(wt.model.trim(), home)),
+        language: typeof wt.language === 'string' && wt.language.trim() ? wt.language.trim() : 'auto',
+        whisper: typeof wt.whisper === 'string' && wt.whisper.trim() ? expandHome(wt.whisper.trim(), home) : 'whisper-cli',
+        ffmpeg: typeof wt.ffmpeg === 'string' && wt.ffmpeg.trim() ? expandHome(wt.ffmpeg.trim(), home) : 'ffmpeg',
+      }
+    : null;
   const memos = { dir: memoDir('dir', DEFAULT_MEMOS_DIR), audioDir: memoDir('audioDir', DEFAULT_MEMO_AUDIO_DIR), model: wm.model ?? 'haiku', vocabulary: (wm.vocabulary ?? []).map((v) => v.trim()).filter(Boolean) };
 
   // web.briefs: per-session briefs (lib/briefs.mjs) — the budget knobs for its model calls.
@@ -501,6 +583,10 @@ export function normalizeConfig(
   if (wb.model != null) {
     if (typeof wb.model !== 'string' || !MODEL_ID_RE.test(wb.model)) throw new Error('config.web.briefs.model must be a model id (letters, digits and ._[]-)');
     briefs.model = wb.model;
+  }
+  if (wb.language != null) {
+    if (typeof wb.language !== 'string' || !wb.language.trim()) throw new Error('config.web.briefs.language must be a non-empty string');
+    briefs.language = wb.language.trim();
   }
   for (const [key, min] of [['idleMs', 0], ['minIntervalMs', 0], ['maxDeltaChars', 500], ['maxCallsPerHour', 0], ['minNewTurns', 0], ['minNewChars', 0], ['maxBriefChars', 200]]) {
     if (wb[key] == null) continue;
@@ -587,6 +673,10 @@ export function normalizeConfig(
     spawnDirs,
     uiDir,
     quickReplies,
+    prPrompts,
+    taskPrompts,
+    spaces,
+    park,
     models,
     autoName,
     grouping,
@@ -595,6 +685,7 @@ export function normalizeConfig(
     files,
     notes,
     memos,
+    transcribeLocal,
     briefs,
     stacks,
     restore,

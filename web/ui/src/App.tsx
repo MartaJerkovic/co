@@ -2,6 +2,8 @@ import { Redirect, Route, Router, Switch } from 'wouter'
 import { useHashLocation } from 'wouter/use-hash-location'
 
 import { MemoRecorderHost } from '@/components/MemoRecorder'
+import { HoverTips } from '@/components/HoverTips'
+import { ParkDialog } from '@/components/ParkDialog'
 import { Scratchpad } from '@/components/Scratchpad'
 import { StackUi } from '@/components/stack/StackUi'
 import { Toaster } from '@/components/ui/sonner'
@@ -111,6 +113,8 @@ function FleetApp() {
               <StackUi />
               {/* ⌘⇧S / header buttons: the floating (desktop) or drawer (mobile) scratchpad. */}
               <Scratchpad />
+              <ParkDialog />
+              <HoverTips />
               {/* Voice memos: recover unsaved recordings, announce saved ones. */}
               <MemoRecorderHost />
             </Router>

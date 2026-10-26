@@ -24,6 +24,7 @@ import { shortCwd } from '@/lib/format'
 import { CHECKS_LABEL, checksTone, prRef, promptChips } from '@/lib/prs'
 import { sessionHref } from '@/lib/sessions'
 import { isMacPlatform, isSubmitChord } from '@/lib/shortcuts'
+import { useSettings } from '@/hooks/useSettings'
 
 /**
  * One PR's actions on `host`: start a session on it (checked out in a worktree first, the
@@ -47,6 +48,7 @@ export function PrDialog({
   const [, navigate] = useLocation()
   const { applyFleet } = useFleet()
   const [prompt, setPrompt] = useState('')
+  const settings = useSettings()
   const [busy, setBusy] = useState<null | 'spawn' | 'checkout'>(null)
   const [error, setError] = useState<string | null>(null)
   const tasks = usePrTasks(pr ?? { url: '' })
@@ -78,14 +80,14 @@ export function PrDialog({
     }
   }
 
-  const spawn = async () => {
+  const spawn = async (text: string = prompt) => {
     if (busy) return
     setBusy('spawn')
     setError(null)
     try {
       const res = await api.prSpawn(host, {
         pr: ref,
-        prompt: prompt.trim() || undefined,
+        prompt: text.trim() || undefined,
       })
       const name = res.spawn?.name || res.spawn?.tmuxSession || ref
       onClose()
@@ -198,11 +200,11 @@ export function PrDialog({
         <div className="space-y-2">
           <Label htmlFor="pr-prompt">{sessions.length ? 'Start another session' : 'Start a session on it'}</Label>
           <div className="flex flex-wrap gap-1.5">
-            {promptChips(pr).map((c) => (
+            {promptChips(pr, settings.prPrompts).map((c) => (
               <button
                 key={c.label}
                 type="button"
-                onClick={() => setPrompt(c.text)}
+                onClick={() => (c.start ? void spawn(c.text) : setPrompt(c.text))}
                 className="rounded-full border px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               >
                 {c.label}

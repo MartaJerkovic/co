@@ -514,6 +514,10 @@ pub fn tick(quiet: bool) -> Result<()> {
                     log(quiet, &format!("{}: skipped — {why}", j.name));
                     continue;
                 }
+                if !jobs::when_passes(j) {
+                    log(quiet, &format!("{}: nothing to do (when)", j.name));
+                    continue;
+                }
                 match start(j, "schedule", Some(slot)) {
                     Ok(r) => {
                         rows = None; // a new session exists now

@@ -121,7 +121,7 @@ export function OutboxBubbles({ items, desktop = false, onUndo, onRetry, onEdit,
           {strip ? null : (
             <div
               className={cn(
-                'w-full rounded-2xl rounded-br-md border px-3 py-2 whitespace-pre-wrap text-accent-foreground transition-opacity [overflow-wrap:anywhere]',
+                'w-fit max-w-[85%] rounded-2xl border px-3.5 py-2 whitespace-pre-wrap text-accent-foreground transition-opacity [overflow-wrap:anywhere]',
                 it.state === 'failed'
                   ? 'border-destructive/50 bg-accent/60'
                   : it.state === 'sent'

@@ -18,6 +18,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
 import type { GroupsState } from '@/hooks/useGroups'
 import { ALL_HOSTS, type SessionListState } from '@/hooks/useSessionList'
+import { APP_NAME } from '@/lib/app'
 import type { BoardColumn, ViewMode } from '@/lib/groups'
 import { allSessions, visibleStatusFilters, type StatusFilterId } from '@/lib/sessions'
 import { ariaShortcut, sessionKey, shortcutHint, withHint } from '@/lib/shortcuts'
@@ -104,7 +105,7 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
         data-tauri-drag-region="deep"
         className="titlebar-lead flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 pt-3 pb-2.5 [--titlebar-pad:1rem]"
       >
-        <h1 className="text-lg font-bold tracking-tight">Fleet</h1>
+        <h1 className="text-lg font-bold tracking-tight">{APP_NAME}</h1>
         {fleet ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums" aria-label="Status summary">
             {summary.waiting > 0 ? (
@@ -235,7 +236,7 @@ export function Board({ list, groups, columns, onMoveColumn, now, cursorKey, sel
             onMoveColumn={onMoveColumn}
           />
         )}
-        {fleet ? <DormantSection now={now} host={host} query={query} desktop className="max-h-full w-72 shrink-0 overflow-y-auto rounded-xl border border-dashed p-2" /> : null}
+        {fleet && status === 'all' ? <DormantSection now={now} host={host} query={query} desktop className="max-h-full w-72 shrink-0 overflow-y-auto rounded-xl border border-dashed p-2" /> : null}
         {fleet && columns.length && overlayInset ? <div aria-hidden className="shrink-0" style={{ width: overlayInset }} /> : null}
       </div>
     </div>

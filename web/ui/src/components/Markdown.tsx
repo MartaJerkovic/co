@@ -46,7 +46,7 @@ function Link({ href, children }: { href: string; children: ReactNode }) {
   )
 }
 
-const codeClass = 'rounded-[5px] bg-foreground/[0.07] px-1 py-px font-mono text-[0.86em] [overflow-wrap:anywhere]'
+const codeClass = 'rounded-[5px] border border-border bg-muted px-1 py-px font-mono text-[0.86em] text-[color-mix(in_oklab,var(--status-error)_65%,var(--foreground))] [overflow-wrap:anywhere]'
 const fileClass =
   'cursor-pointer underline decoration-primary/35 decoration-dotted underline-offset-[3px] hover:decoration-primary hover:decoration-solid focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring'
 
@@ -228,12 +228,12 @@ function BlockView({ b }: { b: Block }) {
     }
     case 'table':
       return (
-        <div className="no-scrollbar -mx-0.5 overflow-x-auto">
-          <table className="border-collapse text-[0.88em]">
+        <div className="no-scrollbar overflow-x-auto rounded-lg border border-border">
+          <table className="w-full border-collapse text-[0.9em]">
             <thead>
               <tr>
                 {b.head.map((c, i) => (
-                  <th key={i} className="border border-border bg-muted px-2 py-1 text-left font-semibold whitespace-nowrap">
+                  <th key={i} className="border-b border-border px-3 py-2 text-left align-top font-semibold">
                     <Inlines nodes={c} />
                   </th>
                 ))}
@@ -243,7 +243,7 @@ function BlockView({ b }: { b: Block }) {
               {b.rows.map((r, i) => (
                 <tr key={i}>
                   {r.map((c, j) => (
-                    <td key={j} className="border border-border px-2 py-1 whitespace-nowrap">
+                    <td key={j} className="border-t border-border/60 px-3 py-2 align-top">
                       <Inlines nodes={c} />
                     </td>
                   ))}
