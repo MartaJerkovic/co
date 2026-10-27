@@ -1617,12 +1617,13 @@ pub struct Restored {
     pub dry_run: bool,
 }
 
-/// Mark a resumed pane with the GitHub identity and the bot run its session had (the `fleet list`
-/// labels).
+/// Mark a resumed pane with the GitHub identity, the bot run and the space its session had (the
+/// `fleet list` labels).
 fn tag_resumed(ex: &mut Exec, pane: &str, c: &ClaudeSnap, warnings: &mut Vec<String>) {
     let tags = [
         (crate::core::gh_identity::PANE_OPTION, &c.gh_identity),
         (crate::core::jobs::PANE_OPTION, &c.job_run),
+        ("@fleet_space", &c.space),
     ];
     for (option, value) in tags {
         if let Some(v) = value {

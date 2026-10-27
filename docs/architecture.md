@@ -960,7 +960,8 @@ ClaudeSnap = { sessionId, name, cwd, title, flags: [argv…], since?, goneAt?, c
 - `closedAt` (closed entries) — when it ended (its `goneAt`). `tmuxSession` — the tmux session a
   Claude session ran in, kept when it left its pane (`/exit`, the shell stayed).
 - `job` — the bot whose run it was (its `origin.job`); `space` — the space it was started from
-  (its `@fleet_space`). Both also appear on the `sessions` of a dormant / closed view.
+  (its `@fleet_space`, which a resume sets back on the pane, so the session stays in that space).
+  Both also appear on the `sessions` of a dormant / closed view.
 - `jobRun` — that run as `<job>/<run>`: a resume sets it back on the pane (`@fleet_job_run`), so
   the resumed session rejoins its run.
 - `bootId` — `$FLEET_BOOT_ID` (tests), else Linux `/proc/sys/kernel/random/boot_id`, else macOS

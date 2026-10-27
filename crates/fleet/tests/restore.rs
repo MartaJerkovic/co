@@ -636,7 +636,7 @@ fn sessions_closed_within_a_boot_are_recently_closed_not_dormant() {
 }
 
 #[test]
-fn a_closed_bot_session_comes_back_in_its_run() {
+fn a_closed_bot_session_comes_back_in_its_run_and_space() {
     let Some(r) = Rig::new() else { return };
     let out = r.fleet(&[
         "tmux",
@@ -656,6 +656,14 @@ fn a_closed_bot_session_comes_back_in_its_run() {
         "@fleet_job_run",
         "nightly/20261027-0700",
     ]);
+    r.tmux(&[
+        "set-option",
+        "-p",
+        "-t",
+        &pane,
+        "@fleet_space",
+        "playground",
+    ]);
     start_fake(&r, &pane);
     r.wait_for("the fake to register", || r.registered().len() == 1);
     r.json(&["list", "--json"]);
@@ -668,4 +676,6 @@ fn a_closed_bot_session_comes_back_in_its_run() {
     let pane = first_pane(&r, "fleet-test-bot");
     let tag = r.tmux(&["show-options", "-p", "-v", "-t", &pane, "@fleet_job_run"]);
     assert_eq!(tag.trim(), "nightly/20261027-0700");
+    let space = r.tmux(&["show-options", "-p", "-v", "-t", &pane, "@fleet_space"]);
+    assert_eq!(space.trim(), "playground");
 }
