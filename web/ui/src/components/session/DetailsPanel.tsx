@@ -15,7 +15,6 @@ import { toast } from 'sonner'
 import { api, sessionErrorMessage } from '@/api/client'
 import type { Session } from '@/api/types'
 import { BriefSection, type BriefSectionProps } from '@/components/session/BriefSection'
-import { BackgroundSection } from '@/components/BackgroundWork'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { useSessionTitle } from '@/hooks/useTitles'
@@ -194,8 +193,6 @@ export function DetailsPanel(p: DetailsPanelProps & { variant: 'drawer' | 'panel
               <ArrowRightIcon />
             </Button>
           ) : null}
-          <BackgroundSection session={s} />
-
 
           <Section title="Session">
             {p.stack ? (

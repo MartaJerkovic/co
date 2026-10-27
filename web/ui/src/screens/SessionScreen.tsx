@@ -30,6 +30,7 @@ import { StackBar } from '@/components/stack/StackBar'
 import { ChatView } from '@/components/session/ChatView'
 import { CompactHint } from '@/components/session/CompactHint'
 import { Composer, type ComposerApi } from '@/components/session/Composer'
+import { BackgroundPanel } from '@/components/BackgroundWork'
 import { FilePreview } from '@/components/session/FilePreview'
 import { OutboxBubbles } from '@/components/session/OutboxBubbles'
 import type { QuestionActions } from '@/components/session/QuestionCard'
@@ -779,6 +780,7 @@ export function SessionScreen({
           {outboxView('strip')}
         </div>
       ) : null}
+      <BackgroundPanel session={session} desktop={pane} />
       <Composer
         leading={
           pane ? (
