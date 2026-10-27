@@ -101,6 +101,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
         // not a gone session (treating it as gone made the screen flicker between the two).
         if (err instanceof ApiError && err.status === 404 && /transcript not found/i.test(err.message)) {
           setChat({ key: sessionKey(session), list: [] })
+          setOpStatus(session.status ?? null)
         }
         // Gone (closed, host restarted): look for the operator again.
         else if (err instanceof ApiError && err.status === 404) setStatus(null)
