@@ -187,6 +187,10 @@ test('parseTranscript shows queued prompts: absorbed mid-turn in place, still wa
     q('enqueue', 'third'),
     q('dequeue'),
     user('second'),
+    q('enqueue', 'pulled back'),
+    q('enqueue', 'also pulled back'),
+    q('popAll', 'pulled back'),
+    q('popAll', 'also pulled back'),
     asst([{ type: 'text', text: 'Working.' }], { stop: 'tool_use' }),
   ].join('\n');
   const out = parseTranscript(jsonl);

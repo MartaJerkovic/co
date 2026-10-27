@@ -125,9 +125,10 @@ export function classifyUserText(raw) {
  * (`text`: a markdown fallback), plus `answers` or `declined: true` once it has a result.
  *
  * A prompt typed while Claude works is queued: `queue-operation` entries (enqueue / dequeue /
- * remove), then either a normal user entry (dequeued at the turn's end) or a `queued_command`
+ * remove / popAll), then either a normal user entry (dequeued at the turn's end) or a `queued_command`
  * attachment (absorbed mid-turn). The attachment is a user message; prompts still in the queue
- * come last, `queued: true`.
+ * come last, `queued: true`. Pulling queued prompts back into the input box writes one `popAll`
+ * per prompt, with that prompt as its content.
  */
 export function parseTranscript(text) {
   const out = [];
@@ -148,7 +149,7 @@ export function parseTranscript(text) {
     if (entry.type === 'queue-operation') {
       if (entry.operation === 'enqueue') queue.push({ content: entry.content, ts });
       else if (entry.operation === 'dequeue') queue.shift();
-      else if (entry.operation === 'remove') {
+      else if (entry.operation === 'remove' || entry.operation === 'popAll') {
         const i = queue.findIndex((q) => q.content === entry.content);
         if (i >= 0) queue.splice(i, 1);
       }
