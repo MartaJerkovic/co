@@ -468,9 +468,15 @@ pub fn name(target: Option<String>, o: NameOpts) -> Result<()> {
     // A still-unnamed session alone in a tmux session somebody named takes that
     // name as its title (no model call): the tmux name is derived from the title
     // now, so generating one would clobber the name the user picked.
+    // A session the rename would hold (waiting, busy) is skipped before its model
+    // call: the periodic pass would otherwise pay for a name every tick and drop it.
     let mut results = Vec::new();
     let mut rest = Vec::new();
     for s in targets {
+        if apply && let Some(h) = title::hold(&s) {
+            println!("{} {}", "⏸".yellow(), h.message(&s).dimmed());
+            continue;
+        }
         match title::adoptable_tmux_name(&s) {
             Some(n) => results.push((
                 s,

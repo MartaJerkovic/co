@@ -58,6 +58,7 @@ export const DEFAULT_INBOX = Object.freeze({
   briefMinutes: 45, // at least this long between two briefs (only when the items changed)
   language: 'English', // the brief's language
   comms: true, // false: no Slack + email scan (no model calls but the brief)
+  autoScan: true, // false: the Slack + email scan runs only from the Scan button
 });
 
 /** Where brief files live: $FLEET_BRIEFS_DIR, else ${XDG_STATE_HOME:-~/.local/state}/fleet/briefs. */
@@ -478,6 +479,8 @@ export function normalizeConfig(
   }
   if (ib.comms != null && typeof ib.comms !== 'boolean') throw new Error('config.inbox.comms must be true or false');
   if (ib.comms != null) inbox.comms = ib.comms;
+  if (ib.autoScan != null && typeof ib.autoScan !== 'boolean') throw new Error('config.inbox.autoScan must be true or false');
+  if (ib.autoScan != null) inbox.autoScan = ib.autoScan;
   inbox.enabled = inbox.host != null && inbox.host === self.trim();
   if (env.FLEET_WEB_INBOX != null && env.FLEET_WEB_INBOX !== '' && /^(0|false|off|no)$/i.test(env.FLEET_WEB_INBOX)) inbox.enabled = false;
 

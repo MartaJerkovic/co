@@ -500,13 +500,13 @@ export function createInbox({
   }
 
   function scanDue(t) {
-    if (!settings.comms || scanning) return false;
+    if (!settings.comms || settings.autoScan === false || scanning) return false;
     if (!inWorkHours(t, settings)) return false;
     return !state.comms.at || t - state.comms.at >= settings.scanMinutes * 60 * 1000;
   }
 
   function nextScanAt(t) {
-    if (!settings.comms) return null;
+    if (!settings.comms || settings.autoScan === false) return null;
     const step = 15 * 60 * 1000;
     let at = Math.max(t, (state.comms.at ?? 0) + settings.scanMinutes * 60 * 1000);
     for (let i = 0; i < 4 * 24 * 8 && !inWorkHours(at, settings); i++) at = Math.ceil((at + 1) / step) * step;

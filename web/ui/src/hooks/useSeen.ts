@@ -5,15 +5,18 @@ import { isJobSession } from '@/lib/sessions'
 import { sessionKey } from '@/lib/shortcuts'
 import { storage } from '@/lib/storage'
 
-const KEY = 'fleet.turn'
+const SEEN_KEY = 'fleet.seenTurns'
+const TURN_SINCE_KEY = 'fleet.turnSince'
 const OPENED_KEY = 'fleet.botsOpened'
 const SINCE_KEY = 'fleet.botsSince'
 /** Bot runs that finished this long before the first launch with this list count as read. */
 const BOTS_BACKLOG_MS = 2 * 60 * 60 * 1000
 /** Opened bot runs remembered (newest kept); runs are closed after a day, so this is plenty. */
 const OPENED_MAX = 500
+/** Sessions whose last seen turn is remembered (newest kept). */
+const SEEN_MAX = 500
 
-function load(key = KEY): Set<string> {
+function load(key: string): Set<string> {
   try {
     const raw = storage.get(key)
     const v = raw ? (JSON.parse(raw) as unknown) : null
@@ -23,54 +26,74 @@ function load(key = KEY): Set<string> {
   }
 }
 
-function botsSince(): number {
-  const stored = Number(storage.get(SINCE_KEY))
+function loadSeen(): Map<string, number> {
+  try {
+    const raw = storage.get(SEEN_KEY)
+    const v = raw ? (JSON.parse(raw) as unknown) : null
+    return new Map(v && typeof v === 'object' ? Object.entries(v).filter((e): e is [string, number] => typeof e[1] === 'number') : [])
+  } catch {
+    return new Map()
+  }
+}
+
+/** The first launch with this list: turns that finished before it count as seen. */
+function firstLaunch(key: string, backlogMs = 0): number {
+  const stored = Number(storage.get(key))
   if (stored > 0) return stored
-  const since = Date.now() - BOTS_BACKLOG_MS
-  storage.set(SINCE_KEY, String(since))
+  const since = Date.now() - backlogMs
+  storage.set(key, String(since))
   return since
 }
 
 /**
- * Sessions whose turn is yours: Claude is asking you something, or it finished working (busy → idle,
- * seen here) and you haven't opened it since. Watching the finish rather than a timestamp keeps a
- * session out when Claude Code only touches its file (an idle compaction, a status write).
+ * Sessions whose turn is yours: Claude is asking you something, or it finished a turn after the
+ * last one you saw. A finish is the session's `turn_ended_at` (from its transcript, so it survives
+ * a reload or a server restart); a session without one (another harness) counts a busy → idle
+ * seen here. The open session's turn is seen only while Fleet is in front.
  * A bot run is one result to read, so a finished run you haven't opened is yours even when it
  * finished while Fleet was closed.
  */
 export function useSeen(sessions: Session[], selectedKey: string | null) {
   // Derived while rendering (React's "adjust state when a prop changes"): no effect, no extra pass.
-  const [track, setTrack] = useState<{ sessions: Session[] | null; selected: string | null; status: Map<string, string>; pending: Set<string> }>(() => ({
+  const [track, setTrack] = useState<{ sessions: Session[] | null; selected: string | null; status: Map<string, string>; observed: Map<string, number>; seen: Map<string, number> }>(() => ({
     sessions: null,
     selected: null,
     status: new Map(),
-    pending: load(),
+    observed: new Map(),
+    seen: loadSeen(),
   }))
-  const [bots] = useState(() => ({ opened: load(OPENED_KEY), since: botsSince() }))
+  const [since] = useState(() => firstLaunch(TURN_SINCE_KEY))
+  const [bots] = useState(() => ({ opened: load(OPENED_KEY), since: firstLaunch(SINCE_KEY, BOTS_BACKLOG_MS) }))
   if (track.sessions !== sessions || track.selected !== selectedKey) {
-    const pending = new Set(track.pending)
     const status = new Map<string, string>()
+    const observed = new Map(track.observed)
+    let seen = track.seen
     for (const s of sessions) {
       const k = sessionKey(s)
       const now = String(s.status ?? '')
-      // The open session counts as seen only while Fleet is in front; one that finishes while you
-      // are in another app is still your turn.
-      const looking = k === selectedKey && typeof document !== 'undefined' && document.hasFocus()
-      if (looking) {
-        pending.delete(k)
-        if (isJobSession(s) && !bots.opened.has(k)) {
-          bots.opened.add(k)
-          storage.set(OPENED_KEY, JSON.stringify([...bots.opened].slice(-OPENED_MAX)))
-        }
-      } else if (track.status.get(k) === 'busy' && now === 'idle') pending.add(k)
+      if (track.status.get(k) === 'busy' && now === 'idle') observed.set(k, s.updated_at ?? 0)
       status.set(k, now)
+      const looking = k === selectedKey && typeof document !== 'undefined' && document.hasFocus()
+      if (!looking) continue
+      const ended = s.turn_ended_at ?? observed.get(k) ?? 0
+      if (ended > (seen.get(k) ?? 0)) {
+        seen = new Map(seen)
+        seen.delete(k)
+        seen.set(k, ended)
+        storage.set(SEEN_KEY, JSON.stringify(Object.fromEntries([...seen].slice(-SEEN_MAX))))
+      }
+      if (isJobSession(s) && !bots.opened.has(k)) {
+        bots.opened.add(k)
+        storage.set(OPENED_KEY, JSON.stringify([...bots.opened].slice(-OPENED_MAX)))
+      }
     }
-    const changed = pending.size !== track.pending.size || [...pending].some((k) => !track.pending.has(k))
-    if (changed) storage.set(KEY, JSON.stringify([...pending]))
-    setTrack({ sessions, selected: selectedKey, status, pending: changed ? pending : track.pending })
+    setTrack({ sessions, selected: selectedKey, status, observed, seen })
   }
-  const pending = track.pending
+  const finishedUnseen = (s: Session) => {
+    const k = sessionKey(s)
+    return (s.turn_ended_at ?? track.observed.get(k) ?? 0) > Math.max(since, track.seen.get(k) ?? 0)
+  }
   const unreadRun = (s: Session) => isJobSession(s) && (s.updated_at ?? 0) > bots.since && !bots.opened.has(sessionKey(s))
-  const yourTurn = (s: Session) => s.status === 'waiting' || (s.status === 'idle' && (pending.has(sessionKey(s)) || unreadRun(s)))
+  const yourTurn = (s: Session) => s.status === 'waiting' || (s.status === 'idle' && (finishedUnseen(s) || unreadRun(s)))
   return { yourTurn }
 }

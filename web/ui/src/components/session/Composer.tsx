@@ -480,14 +480,16 @@ export function Composer({
             ) : (
               <span>Transcribing…</span>
             )}
-            {recording ? (
-              <button type="button" className="ml-1 font-medium text-foreground underline-offset-2 hover:underline" onClick={voice.stop}>
-                Done
+            <span className="ml-auto flex shrink-0 items-center gap-3">
+              {recording ? (
+                <button type="button" className="font-medium text-foreground underline-offset-2 hover:underline" onClick={voice.stop}>
+                  Done
+                </button>
+              ) : null}
+              <button type="button" className="underline-offset-2 hover:text-foreground hover:underline" onClick={voice.cancel}>
+                Cancel
               </button>
-            ) : null}
-            <button type="button" className="ml-1 underline-offset-2 hover:text-foreground hover:underline" onClick={voice.cancel}>
-              Cancel
-            </button>
+            </span>
           </div>
         ) : progress ? (
           <div className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 text-xs text-muted-foreground" role="status">

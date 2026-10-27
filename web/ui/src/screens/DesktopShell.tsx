@@ -69,7 +69,7 @@ import { PALETTES } from '@/lib/palettes'
 import { stacksKnown } from '@/lib/stacks'
 import { storage } from '@/lib/storage'
 import { STATUS_FILTERS, allSessions, byLastActivity, findSession, isJobSession, listView, matchesSearch, sessionHref } from '@/lib/sessions'
-import { spaceDir, spaceOf } from '@/lib/spaces'
+import { sessionSpace, spaceDir } from '@/lib/spaces'
 import {
   clampFlyoutWidth,
   clampSidebarWidth,
@@ -178,14 +178,14 @@ export function DesktopShell() {
   const groups = useGroups(board)
   // The sidebar has no status filter (All / Your turn instead); the board keeps it.
   const listed = useMemo(() => (board ? list.view.sessions : listView(fleet, { query: list.query, host: list.host, status: 'all' }).sessions), [board, list.view.sessions, fleet, list.query, list.host])
-  const mainSessions = useMemo(() => listed.filter((s) => !isJobSession(s) && !spaceOf(spaces, fleet, s.host, s.cwd)), [listed, spaces, fleet])
+  const mainSessions = useMemo(() => listed.filter((s) => !isJobSession(s) && !sessionSpace(spaces, fleet, s)), [listed, spaces, fleet])
   const { columns, moveColumn } = useBoardColumns(board, mainSessions, groups.groups, fleet, list.host, list.query)
   // The cursor walks the sessions in on-screen order: the list, or the board column by column.
   // Bot runs never mix with the other sessions: the Bots screen (and a bot run opened from it) lists only them.
   const botSessions = useMemo(
     () =>
       allSessions(fleet)
-        .filter((s) => isJobSession(s) && !spaceOf(spaces, fleet, s.host, s.cwd) && (list.host == null || s.host === list.host) && matchesSearch(s, list.query))
+        .filter((s) => isJobSession(s) && !sessionSpace(spaces, fleet, s) && (list.host == null || s.host === list.host) && matchesSearch(s, list.query))
         .sort(byLastActivity),
     [spaces, fleet, list.host, list.query],
   )
@@ -193,14 +193,14 @@ export function DesktopShell() {
   const spaceSessions = useMemo(() => {
     const out: Record<string, Session[]> = Object.fromEntries(spaces.map((x) => [x.id, []]))
     for (const s of allSessions(fleet).sort(byLastActivity)) {
-      const space = spaceOf(spaces, fleet, s.host, s.cwd)
+      const space = sessionSpace(spaces, fleet, s)
       if (space && (list.host == null || s.host === list.host) && matchesSearch(s, list.query)) out[space.id].push(s)
     }
     return out
   }, [spaces, fleet, list.host, list.query])
   // The open session's own place (from the unfiltered fleet, so a search never moves it): its space,
   // else Bots for a bot run, else the work list.
-  const selectedSpace = selectedSession ? (spaceOf(spaces, fleet, selected?.host, selectedSession.cwd) ?? (isJobSession(selectedSession) ? 'bots' : null)) : null
+  const selectedSpace = selectedSession ? (sessionSpace(spaces, fleet, selectedSession) ?? (isJobSession(selectedSession) ? 'bots' : null)) : null
   const space = jobsOpen ? 'bots' : (spaceOpen ?? selectedSpace)
   const spaceModule: ModuleId | undefined = space === 'bots' ? 'jobs' : space ? `space:${space.id}` : undefined
   // The session you had open last (not a bot run or a space's session): the Sessions icon goes straight back to it.
@@ -208,8 +208,8 @@ export function DesktopShell() {
   useEffect(() => {
     if (selectedKey && workSessionOpen) storage.set(LAST_SESSION_KEY, selectedKey)
   }, [selectedKey, workSessionOpen])
-  const allListed = useMemo(() => [...mainSessions, ...botSessions, ...Object.values(spaceSessions).flat()], [mainSessions, botSessions, spaceSessions])
-  const sidebarView = useSidebarView(space === 'bots' ? botSessions : space ? spaceSessions[space.id] : mainSessions, selectedKey, now, list.query, allListed)
+  const everySession = useMemo(() => allSessions(fleet), [fleet])
+  const sidebarView = useSidebarView(space === 'bots' ? botSessions : space ? spaceSessions[space.id] : mainSessions, selectedKey, now, list.query, everySession)
   // "Your turn" per list: Sessions, Bots and each space's icon carry their own, the Dock icon all.
   const turnIn = (xs: Session[]) => xs.filter((x) => sidebarView.isTurn(x) && sessionKey(x) !== selectedKey).length
   const mainTurn = turnIn(mainSessions)
@@ -222,9 +222,11 @@ export function DesktopShell() {
   const [newOpen, setNewOpen] = useState(false)
   const [newPrefill, setNewPrefill] = useState<SpawnPrefill | null>(null)
   const openSpaceDir = spaceOpen ? spaceDir(fleet, fleet?.self, spaceOpen) : null
-  const newInSpace = () => {
-    if (!openSpaceDir || !fleet?.self) return
-    setNewPrefill({ host: fleet.self, dir: openSpaceDir })
+  // In a space, a new session is started from it: it stays there whatever directory is picked.
+  const newSession = () => {
+    const inSpace = space && space !== 'bots' ? space : null
+    const dir = inSpace ? spaceDir(fleet, fleet?.self, inSpace) : null
+    if (inSpace && dir && fleet?.self) setNewPrefill({ host: fleet.self, dir, space: inSpace.id })
     setNewOpen(true)
   }
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -362,7 +364,7 @@ export function DesktopShell() {
         focusSearch()
         return true
       case 'new':
-        setNewOpen(true)
+        newSession()
         return true
       case 'back':
         // Esc in the diff reviewer: back to its session.
@@ -561,7 +563,7 @@ export function DesktopShell() {
     {
       heading: 'Actions',
       items: [
-        { id: 'new', label: 'New session…', icon: <PlusIcon />, shortcut: shortcutHint('new'), keywords: ['spawn', 'start'], run: () => setNewOpen(true) },
+        { id: 'new', label: 'New session…', icon: <PlusIcon />, shortcut: shortcutHint('new'), keywords: ['spawn', 'start'], run: newSession },
         ...(selectedKey
           ? [
               { id: 'chat', label: 'Chat view', icon: <MessageSquareTextIcon />, shortcut: shortcutHint('mode'), run: () => paneRef.current?.setMode('chat') },
@@ -749,7 +751,7 @@ export function DesktopShell() {
   ) : jobsOpen ? (
     <JobsScreen layout="pane" />
   ) : spaceOpen ? (
-    <SpaceScreen space={spaceOpen} dir={openSpaceDir} onNew={newInSpace} />
+    <SpaceScreen space={spaceOpen} dir={openSpaceDir} onNew={newSession} />
   ) : inboxOpen ? (
     <InboxScreen layout="pane" />
   ) : operatorOpen ? (
@@ -767,15 +769,14 @@ export function DesktopShell() {
         spaceActive={jobsOpen || spaceOpen ? undefined : spaceModule}
         sessionsActive={sessionsScreen && !space}
         onSessions={() => {
-          if (sessionsScreen && !space && selectedKey) toggleSidebar()
-          else {
-            if (!sidebarOpen) toggleSidebar()
+          if (!sidebarOpen) toggleSidebar()
+          if (!(sessionsScreen && !space && selectedKey)) {
             const last = storage.get(LAST_SESSION_KEY)
             const open = mainSessions.find((s) => sessionKey(s) === last) ?? mainSessions[0]
             navigate(open ? sessionHref(open) : '/')
           }
         }}
-        onNew={() => setNewOpen(true)}
+        onNew={newSession}
         onPalette={() => setPaletteOpen(true)}
       />
       {notesOpen || prsOpen || tasksOpen || reviewOpen ? (
@@ -807,7 +808,7 @@ export function DesktopShell() {
               searchRef={searchRef}
               onSearchNav={onSearchNav}
               onOpen={(s) => openSession(s, false)}
-              onNew={() => setNewOpen(true)}
+              onNew={newSession}
               view={mode}
               onView={setMode}
             />

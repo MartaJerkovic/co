@@ -259,7 +259,7 @@ server.listen(config.port, config.bind, () => {
   if (inbox) {
     inbox.start();
     const ib = config.inbox;
-    log(`[fleet-web] inbox on (${ib.comms ? `Slack + mail every ${ib.scanMinutes}m in work hours, ${ib.model}` : 'no Slack + mail'}; brief ${ib.briefModel}, ≥ ${ib.briefMinutes}m apart)`);
+    log(`[fleet-web] inbox on (${ib.comms ? `Slack + mail ${ib.autoScan ? `every ${ib.scanMinutes}m in work hours` : 'from the Scan button'}, ${ib.model}` : 'no Slack + mail'}; brief ${ib.briefModel}, ≥ ${ib.briefMinutes}m apart)`);
   } else if (config.inbox.host) {
     log(`[fleet-web] inbox: served by ${config.inbox.host}`);
   }

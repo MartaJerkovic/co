@@ -16,6 +16,8 @@ export interface Session {
   status?: SessionStatus | string | null
   /** Last activity, epoch ms. */
   updated_at?: number | null
+  /** When its last turn finished (busy → idle), seen by the host's web server; null before the first one. */
+  turn_ended_at?: number | null
   tty?: string | null
   backend?: Backend | string | null
   /** iTerm session id or tmux pane id (`%87`). */
@@ -60,6 +62,8 @@ export interface Session {
   gh_identity?: string | null
   /** The app whose embedded Fleet panel started it (`fleet list --json` → `embed`, the pane's `@fleet_embed`); null / absent = none. */
   embed?: string | null
+  /** The web UI space it was started from (`fleet list --json` → `space`, the pane's `@fleet_space`); null / absent = its directory decides. */
+  space?: string | null
   /** The host's voice operator (web/lib/operator.mjs): kept out of session lists. Older servers omit it. */
   operator?: boolean
 }
@@ -492,6 +496,8 @@ export interface SpawnRequest {
   ghIdentity?: string
   /** Started from this app's embedded panel (the embed view's `app`): a label on the session. */
   embed?: string
+  /** Started from this web UI space (`web.spaces` id): it stays in that space whatever its dir. */
+  space?: string
 }
 
 export interface SpawnResponse {
@@ -908,6 +914,10 @@ export interface DormantSession {
   name: string | null
   title: string | null
   cwd: string | null
+  /** The bot whose run it was. */
+  job?: string
+  /** The space it was started from. */
+  space?: string
 }
 
 /** One dormant tmux session (`kind: tmux`) or lone Claude session (`kind: claude`) a reboot left. */

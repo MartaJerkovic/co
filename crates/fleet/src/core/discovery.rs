@@ -92,6 +92,14 @@ pub struct Session {
     /// The app whose embedded Fleet panel started it (the web embed view's `app`, the pane's
     /// `@fleet_embed` option); `null` when none.
     pub embed: Option<String>,
+    /// The web UI space it was started from (the pane's `@fleet_space` option); `null` when
+    /// none, and then its directory decides.
+    #[serde(default)]
+    pub space: Option<String>,
+    /// Ms since epoch of its last finished turn ([`crate::core::turn`], Claude only);
+    /// `null` before its first.
+    #[serde(default)]
+    pub turn_ended_at: Option<i64>,
 }
 
 impl Default for Session {
@@ -122,6 +130,8 @@ impl Default for Session {
             origin: None,
             gh_identity: None,
             embed: None,
+            space: None,
+            turn_ended_at: None,
         }
     }
 }
@@ -239,6 +249,8 @@ pub struct Pane {
     pub gh_identity: String,
     /// The pane's `@fleet_embed` option: the app whose embedded panel started it (empty when none).
     pub embed: String,
+    /// The pane's `@fleet_space` option: the web UI space it was started from (empty when none).
+    pub space: String,
 }
 
 /// A canned fleet from `FLEET_FIXTURE=<path/to/sessions.json>`. Bypasses the
@@ -320,6 +332,10 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
         let context = reg.session_id.as_deref().and_then(|sid| {
             crate::core::context::for_session(&claude_home(), reg.cwd.as_deref(), sid)
         });
+        let turn_ended_at = reg
+            .session_id
+            .as_deref()
+            .and_then(|sid| crate::core::turn::ended_at(&claude_home(), reg.cwd.as_deref(), sid));
         out.push(Session {
             pid,
             status: reg.status.unwrap_or_else(|| "unknown".into()),
@@ -348,6 +364,8 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
                 .map(|p| p.gh_identity.clone())
                 .filter(|g| !g.is_empty()),
             embed: pane.map(|p| p.embed.clone()).filter(|e| !e.is_empty()),
+            space: pane.map(|p| p.space.clone()).filter(|s| !s.is_empty()),
+            turn_ended_at,
         });
     }
     drop_suspended_twins(&mut out, is_stopped);
@@ -436,6 +454,7 @@ fn harness_session(
             .map(|p| p.gh_identity.clone())
             .filter(|g| !g.is_empty()),
         embed: pane.map(|p| p.embed.clone()).filter(|e| !e.is_empty()),
+        space: pane.map(|p| p.space.clone()).filter(|s| !s.is_empty()),
         title: t.and_then(|t| harness::first_prompt(p.harness, &t.path)),
         model: state.model.or_else(|| p.model_arg()),
         context: state.context,
@@ -715,7 +734,7 @@ fn tmux_panes() -> HashMap<String, Pane> {
             "list-panes",
             "-a",
             "-F",
-            "#{pane_tty}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_id}\t#{window_name}\t#{session_name}\t#{@fleet_job_run}\t#{@fleet_gh_identity}\t#{@fleet_embed}",
+            "#{pane_tty}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_id}\t#{window_name}\t#{session_name}\t#{@fleet_job_run}\t#{@fleet_gh_identity}\t#{@fleet_embed}\t#{@fleet_space}",
         ])
         .output()
     else {
@@ -727,7 +746,7 @@ fn tmux_panes() -> HashMap<String, Pane> {
     map
 }
 
-/// `pane_tty \t target \t pane_id \t window_name \t session_name \t job_run \t gh_identity \t embed` -> (tty, pane).
+/// `pane_tty \t target \t pane_id \t window_name \t session_name \t job_run \t gh_identity \t embed \t space` -> (tty, pane).
 fn parse_pane(line: &str) -> Option<(String, Pane)> {
     let mut parts = line.split('\t');
     let ptty = parts.next()?;
@@ -740,6 +759,7 @@ fn parse_pane(line: &str) -> Option<(String, Pane)> {
     let job_run = parts.next().unwrap_or("").to_string();
     let gh_identity = parts.next().unwrap_or("").to_string();
     let embed = parts.next().unwrap_or("").to_string();
+    let space = parts.next().unwrap_or("").to_string();
     Some((
         ptty.to_string(),
         Pane {
@@ -750,6 +770,7 @@ fn parse_pane(line: &str) -> Option<(String, Pane)> {
             job_run,
             gh_identity,
             embed,
+            space,
         },
     ))
 }
@@ -1071,6 +1092,14 @@ mod tests {
         let (_, p) = parse_pane("/dev/ttys005\ta:b:1.0\t%1\tvim\ta:b").unwrap();
         assert_eq!(p.session_name, "a:b");
         assert!(parse_pane("garbage").is_none());
+    }
+
+    #[test]
+    fn panes_carry_the_space_they_were_started_from() {
+        let (_, p) = parse_pane("/dev/ttys006\texp:1.0\t%3\tzsh\texp\t\t\t\tplayground").unwrap();
+        assert_eq!(p.space, "playground");
+        let (_, p) = parse_pane("/dev/ttys007\twork:1.0\t%4\tzsh\twork").unwrap();
+        assert_eq!(p.space, "");
     }
 
     #[test]

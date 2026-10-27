@@ -167,7 +167,7 @@ server. Path: `$FLEET_CONFIG`, else `${XDG_CONFIG_HOME:-~/.config}/fleet/config.
 | `tasks` | [`fleet tasks`](cli.md#productive-tasks), per machine: `organization` (an id; may be left out when the token belongs to one organization), `projects` (ids: only tasks in these), `refresh` (default `"5m"`, at least `1m`), `token` (the Productive API token; `$FLEET_PRODUCTIVE_TOKEN` wins over it), `keychain` (else: the service name of a macOS keychain item holding it, read with `security find-generic-password -s <service> -w` — keeps the token out of the file; `$PRODUCTIVE_API_TOKEN` is the last fallback). Read leniently |
 | `gh` | `gh` binary for `fleet prs`; `null` → `PATH`, then `/opt/homebrew/bin`, `/usr/local/bin` |
 | `grouping` | smart grouping: `enabled` (default `true` — `false` = repository fallback only), `model` (default `haiku`), `host` (the one host whose web server runs it; peers proxy `/api/groups` there), `consolidateMinutes` (default 60) |
-| `inbox` | the [inbox](#inbox): `host` (the one host whose web server runs it; peers proxy `/api/inbox` there — unset = no inbox), `scanMinutes` (60), `workHours` (`[8, 18]`), `workDays` (`[0,1,2,3,4,5,6]`, 0 = Sunday; the three are also set from Settings → Inbox), `model` (`haiku`, the Slack + mail scan), `briefModel` (`haiku`), `briefMinutes` (45), `language` (`"English"`, the brief's), `comms` (`true`; `false` = no Slack + mail scan). `FLEET_WEB_INBOX=0` turns it off on a server |
+| `inbox` | the [inbox](#inbox): `host` (the one host whose web server runs it; peers proxy `/api/inbox` there — unset = no inbox), `scanMinutes` (60), `workHours` (`[8, 18]`), `workDays` (`[0,1,2,3,4,5,6]`, 0 = Sunday; the three are also set from Settings → Inbox), `model` (`haiku`, the Slack + mail scan), `briefModel` (`haiku`), `briefMinutes` (45), `language` (`"English"`, the brief's), `comms` (`true`; `false` = no Slack + mail scan), `autoScan` (`true`; `false` = the Slack + mail scan runs only from the Scan button). `FLEET_WEB_INBOX=0` turns it off on a server |
 
 Rules: `~` is expanded at use time; unknown keys are preserved when the CLI rewrites the file
 (writes go through the raw JSON, never the typed view); a missing file is fine — this machine is
@@ -290,7 +290,9 @@ by — with no config, `local`):
 | `model` | string \| null | the model it runs, when known (Claude: the context entry's) |
 | `transcript` | string \| null | absolute transcript path (Codex / pi only) |
 | `origin` | object \| null | `{ job, run }` of the [job](cli.md#bots) run that started the session (its tmux pane option `@fleet_job_run`); `null` when none |
+| `turn_ended_at` | number \| null | when its last turn finished, ms since epoch: the last `system` / `turn_duration` entry of the transcript (Claude only; slash commands write none); `null` before the first |
 | `embed` | string \| null | the app whose [embedded panel](#embed-view) started the session (its tmux pane option `@fleet_embed`); `null` when none |
+| `space` | string \| null | the web UI space (`web.spaces` id) the session was started from (its tmux pane option `@fleet_space`); `null` when none, and then its `cwd` decides the space |
 | `host` | string | which machine the row came from |
 
 `list --all-hosts --json` is the same array across every configured host.
@@ -406,7 +408,7 @@ JSON over HTTP, errors as `{ "error": "..." }`. At a high level:
 | POST | `/api/hosts/:host/sessions/:id/answer` | `{ toolUseId, answers: [{ options: [index…], text? }] }` (one per question) → types the arrows/Enter/text a human would into the pending AskUserQuestion prompt. 400 bad answer (single-select: one option or text; multi-select: at least one), 404 unknown question, **409** (nothing typed) when it is already answered, the session isn't waiting, or the terminal isn't showing that prompt untouched (first question, cursor on option 1) |
 | POST | `/api/hosts/:host/sessions/:id/rename` | `{ title }` (1–64 chars, one line) → `fleet rename <session_id> <title> --json`; 200 with the report, **409** when held (waiting on a prompt, or busy; nothing typed), 400 bad title, 502 CLI failure |
 | POST | `/api/hosts/:host/sessions/:id/autoname` | regenerate one session's name → `fleet name <session_id> --apply --refresh`; 200 `{ ok, host, id, name }` (`name` null: unchanged), **409** when held (waiting on a prompt; nothing typed), 502 CLI failure |
-| POST | `/api/hosts/:host/spawn` | `{ name?, dir?, prompt?, model?, harness?, ghIdentity?, embed? }` → new tmux session running that [harness](#other-harnesses) (`claude` default, `codex`, `pi`; its launcher is config `claude` / `harnesses.<id>.command`; `-n <name>` for Claude and pi only); `dir` must resolve inside one of the host's `spawnDirs` (else 400); a prompt too long to type (the launch line over ~900 bytes) is written to `~/.claude/fleet-prompts/` and passed as `"$(cat <file>)"`; a first-run trust prompt is accepted (Claude: Down + Enter; Codex: Enter on "Trust and continue"); when the agent never starts (the pane is still just a shell after ~10s) the tmux session is killed and the answer is 502 with the pane's last lines. `ghIdentity` (Claude only; one of the host's `ghIdentities`, else 400): the session acts on GitHub as that [GitHub identity](cli.md#github-identities) — its launcher comes from `fleet --local gh-identity launcher`, and the pane gets `@fleet_gh_identity`. `prs/spawn`, `tasks/spawn` and the stack spawns take it too. `embed` (`[A-Za-z0-9_-]{1,40}`): the app whose [embedded panel](#embed-view) starts it — the pane gets `@fleet_embed`, `list` reports it as `embed` |
+| POST | `/api/hosts/:host/spawn` | `{ name?, dir?, prompt?, model?, harness?, ghIdentity?, embed?, space? }` → new tmux session running that [harness](#other-harnesses) (`claude` default, `codex`, `pi`; its launcher is config `claude` / `harnesses.<id>.command`; `-n <name>` for Claude and pi only); `dir` must resolve inside one of the host's `spawnDirs` (else 400); a prompt too long to type (the launch line over ~900 bytes) is written to `~/.claude/fleet-prompts/` and passed as `"$(cat <file>)"`; a first-run trust prompt is accepted (Claude: Down + Enter; Codex: Enter on "Trust and continue"); when the agent never starts (the pane is still just a shell after ~10s) the tmux session is killed and the answer is 502 with the pane's last lines. `ghIdentity` (Claude only; one of the host's `ghIdentities`, else 400): the session acts on GitHub as that [GitHub identity](cli.md#github-identities) — its launcher comes from `fleet --local gh-identity launcher`, and the pane gets `@fleet_gh_identity`. `prs/spawn`, `tasks/spawn` and the stack spawns take it too. `embed` (`[A-Za-z0-9_-]{1,40}`): the app whose [embedded panel](#embed-view) starts it — the pane gets `@fleet_embed`, `list` reports it as `embed`. `space` (a `web.spaces` id): the space it is started from — the pane gets `@fleet_space`, `list` reports it as `space`, and the session stays in that space whatever its `dir` |
 | GET | `/api/hosts/:host/harnesses[?refresh=1]` | `{ host, harnesses: [{ id, label, command, installed, models }], ghIdentities: [{ name, login }] }` — `fleet --local harness list --json`, cached 10 min; Claude's `models` are `web.models`. An older CLI answers Claude alone |
 | GET | `/api/hosts/:host/usage[?refresh=1]` | that host's Claude subscription limits: `fleet usage --json` + `host` (see [Subscription usage](#subscription-usage)); 502 with the CLI's reason (no login, endpoint down with nothing cached) |
 | POST | `/api/hosts/:host/prs/checkout` | `{ pr: "owner/repo#123" }` → `{ host, worktree }`: `fleet pr checkout --json` on that host |
@@ -621,7 +623,7 @@ always-on one); the others proxy `/api/inbox` there.
 | `github` | `fleet --local prs --json` every 2 min: review requests, unseen @mentions, your PRs approved / with changes requested / with failing CI | none |
 | `productive` | `fleet --local tasks --json`: overdue and due-soon tasks, tasks in progress touched in the last 3 days | none |
 | `sessions` | the merged fleet: sessions on any host with status `waiting` (link `#/s/<host>/<id>`) | none |
-| `comms` | Slack + Gmail through the claude.ai connectors: one `claude -p --output-format json` with only read-only connector tools allowed (writes and built-ins denied), every `scanMinutes` within work hours. It looks back to the previous scan minus 2 h (3 days the first time) and is handed the items it returned last time, so their ids stay and answered threads drop off | `model` |
+| `comms` | Slack + Gmail through the claude.ai connectors: one `claude -p --output-format json` with only read-only connector tools allowed (writes and built-ins denied), every `scanMinutes` within work hours (with `autoScan`; otherwise only from the Scan button). It looks back to the previous scan minus 2 h (3 days the first time) and is handed the items it returned last time, so their ids stay and answered threads drop off | `model` |
 
 Sections: `quick` (quick wins — a review of ≤ 150 changed lines in ≤ 6 files, an approved PR to
 merge, a waiting session, a message the scan rated `quick`), `waiting` (on you: other reviews,
@@ -937,7 +939,7 @@ are preserved at every level on rewrite — it is a contract like `groups.json`.
 TmuxSnap   = { name, windows: [ { index, name, layout, active, autoName,
                                   panes: [ { index, cwd, active, claude: ClaudeSnap|null } ] } ],
                since?, goneAt?, closedAt? }
-ClaudeSnap = { sessionId, name, cwd, title, flags: [argv…], since?, goneAt?, closedAt?, tmuxSession? }
+ClaudeSnap = { sessionId, name, cwd, title, flags: [argv…], since?, goneAt?, closedAt?, tmuxSession?, job?, jobRun?, space? }
 ```
 
 - `tmux` — the live tmux sessions of the current boot; `iterm` — live Claude sessions that are
@@ -957,6 +959,10 @@ ClaudeSnap = { sessionId, name, cwd, title, flags: [argv…], since?, goneAt?, c
   lingers in that pane, one whose pane is gone lingers in `iterm` (with `tmuxSession`).
 - `closedAt` (closed entries) — when it ended (its `goneAt`). `tmuxSession` — the tmux session a
   Claude session ran in, kept when it left its pane (`/exit`, the shell stayed).
+- `job` — the bot whose run it was (its `origin.job`); `space` — the space it was started from
+  (its `@fleet_space`). Both also appear on the `sessions` of a dormant / closed view.
+- `jobRun` — that run as `<job>/<run>`: a resume sets it back on the pane (`@fleet_job_run`), so
+  the resumed session rejoins its run.
 - `bootId` — `$FLEET_BOOT_ID` (tests), else Linux `/proc/sys/kernel/random/boot_id`, else macOS
   `kern.boottime` seconds. Unknown → nothing is ever marked dormant.
 
@@ -983,7 +989,10 @@ A session that ends *within* a boot — Close in the app, `fleet kill`, `/exit`,
 session — is **closed**, deliberately separate from dormant: it is never part of `restore --all`,
 `restore.onBoot`, `fleet enter`'s auto-restore, `dormant_session_ids()` or the groups'/stacks'
 dormant sets, so a closed session's group and stack membership lapses as before. It can still be
-brought back by hand for `restore.keepClosedDays` (default 7; `0` = off), the newest 50 at most.
+brought back by hand for `restore.keepClosedDays` (default 7; `0` = off), the newest 50 at most
+per list: bot runs, each space (`space`), and the work sessions, so one never pushes another out.
+The desktop sidebar shows each list's closed entries under its own place: Sessions, Bots or the
+space, decided like a live session (its space first, then Bots for a bot run).
 
 - It shows as closed at once: `core::snapshot::closed_entries` is the stored `closed` lists plus
   whatever still lingers with `goneAt`. When the grace period ends it moves into `closed`

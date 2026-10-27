@@ -18,7 +18,7 @@
 //! the Claude sessions in them) before it kills the daemons, and a `fleet list` polled in
 //! between must not erase them. So a vanished entry lingers with `goneAt` for the grace
 //! period, and only then moves into the **closed** list (`closed`, kept for
-//! `restore.keepClosedDays`, newest [`MAX_CLOSED`]). Closed entries — lingering ones
+//! `restore.keepClosedDays`, newest [`MAX_CLOSED`] per list). Closed entries — lingering ones
 //! included, see [`closed_entries`] — can be brought back with [`restore_closed`], but never
 //! count as dormant: no "restore all", no restore on boot, no group/stack membership.
 //!
@@ -96,6 +96,15 @@ pub struct ClaudeSnap {
     /// The GitHub identity it acted as ([`crate::core::gh_identity`]); a resume keeps it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gh_identity: Option<String>,
+    /// The bot (job) whose run it was, so a closed run stays with the bots.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+    /// Its run as `<job>/<run>`, so a resume rejoins that run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_run: Option<String>,
+    /// The space it was started from (`@fleet_space`), so a closed one stays in that space.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub space: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -279,7 +288,8 @@ impl Closed {
     }
 
     /// Drop what is older than `keep` seconds (or has no readable `closedAt`), then keep the
-    /// newest [`MAX_CLOSED`].
+    /// newest [`MAX_CLOSED`] of each list (bot runs, each space, the rest), so a busy one never
+    /// pushes another's out.
     fn expire(&mut self, keep: i64, now: DateTime<Utc>) {
         let fresh = |at: &Option<String>| {
             at.as_deref()
@@ -288,37 +298,62 @@ impl Closed {
         };
         self.tmux.retain(|t| fresh(&t.closed_at));
         self.claude.retain(|c| fresh(&c.closed_at));
-        if self.len() <= MAX_CLOSED {
-            return;
-        }
-        let mut stamps: Vec<String> = self
+        let mut lists: HashMap<String, Vec<String>> = HashMap::new();
+        for (list, at) in self
             .tmux
             .iter()
-            .map(|t| t.closed_at.clone().unwrap_or_default())
-            .chain(
-                self.claude
-                    .iter()
-                    .map(|c| c.closed_at.clone().unwrap_or_default()),
-            )
-            .collect();
-        stamps.sort_unstable_by(|a, b| b.cmp(a));
-        let cut = stamps[MAX_CLOSED - 1].clone();
-        // Ties at the cut: the earliest-listed survive, up to the cap.
-        let mut room = MAX_CLOSED - stamps.iter().filter(|s| **s > cut).count();
-        let mut keep_one = |at: &Option<String>| {
+            .map(|t| (closed_list(t.claudes()), &t.closed_at))
+            .chain(self.claude.iter().map(|c| (closed_list([c]), &c.closed_at)))
+        {
+            lists
+                .entry(list)
+                .or_default()
+                .push(at.clone().unwrap_or_default());
+        }
+        // Per list: the cut stamp and how many entries at the cut still fit (the earliest-listed).
+        let mut cuts: HashMap<String, (String, usize)> = HashMap::new();
+        for (list, mut stamps) in lists {
+            if stamps.len() <= MAX_CLOSED {
+                continue;
+            }
+            stamps.sort_unstable_by(|a, b| b.cmp(a));
+            let cut = stamps[MAX_CLOSED - 1].clone();
+            let room = MAX_CLOSED - stamps.iter().filter(|s| **s > cut).count();
+            cuts.insert(list, (cut, room));
+        }
+        let mut keep_one = |list: String, at: &Option<String>| {
+            let Some((cut, room)) = cuts.get_mut(&list) else {
+                return true;
+            };
             let at = at.clone().unwrap_or_default();
-            if at > cut {
+            if at > *cut {
                 return true;
             }
-            if at == cut && room > 0 {
-                room -= 1;
+            if at == *cut && *room > 0 {
+                *room -= 1;
                 return true;
             }
             false
         };
-        self.tmux.retain(|t| keep_one(&t.closed_at));
-        self.claude.retain(|c| keep_one(&c.closed_at));
+        self.tmux
+            .retain(|t| keep_one(closed_list(t.claudes()), &t.closed_at));
+        self.claude
+            .retain(|c| keep_one(closed_list([c]), &c.closed_at));
     }
+}
+
+/// Which list a closed entry counts against for [`MAX_CLOSED`]: its bot, else its space, else
+/// the work sessions (`""`).
+fn closed_list<'a>(claudes: impl IntoIterator<Item = &'a ClaudeSnap>) -> String {
+    let claudes: Vec<&ClaudeSnap> = claudes.into_iter().collect();
+    if claudes.iter().any(|c| c.job.is_some()) {
+        return "bots".into();
+    }
+    claudes
+        .iter()
+        .find_map(|c| c.space.as_ref())
+        .map(|s| format!("space:{s}"))
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -776,6 +811,9 @@ fn claude_of(s: &Session) -> Option<ClaudeSnap> {
         title: Some(s.display_title.clone().unwrap_or_else(|| s.headline())),
         harness: s.harness,
         gh_identity: s.gh_identity.clone(),
+        job: s.origin.as_ref().map(|o| o.job.clone()),
+        job_run: s.origin.as_ref().map(|o| format!("{}/{}", o.job, o.run)),
+        space: s.space.clone(),
         ..Default::default()
     })
 }
@@ -1201,6 +1239,10 @@ pub struct DormantSession {
     pub name: Option<String>,
     pub title: Option<String>,
     pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub space: Option<String>,
 }
 
 /// One dormant entry as the CLI and the web API show it (`fleet restore --json`).
@@ -1225,6 +1267,8 @@ fn session_view(c: &ClaudeSnap) -> DormantSession {
         name: c.name.clone(),
         title: c.title.clone(),
         cwd: c.cwd.clone(),
+        job: c.job.clone(),
+        space: c.space.clone(),
     }
 }
 
@@ -1573,20 +1617,27 @@ pub struct Restored {
     pub dry_run: bool,
 }
 
-/// Mark a resumed pane with the GitHub identity its session had (the `fleet list` label).
-fn tag_identity(ex: &mut Exec, pane: &str, c: &ClaudeSnap, warnings: &mut Vec<String>) {
-    if let Some(g) = &c.gh_identity {
-        ex.soft(
-            vec![
-                "set-option".into(),
-                "-p".into(),
-                "-t".into(),
-                pane.into(),
-                crate::core::gh_identity::PANE_OPTION.into(),
-                g.clone(),
-            ],
-            warnings,
-        );
+/// Mark a resumed pane with the GitHub identity and the bot run its session had (the `fleet list`
+/// labels).
+fn tag_resumed(ex: &mut Exec, pane: &str, c: &ClaudeSnap, warnings: &mut Vec<String>) {
+    let tags = [
+        (crate::core::gh_identity::PANE_OPTION, &c.gh_identity),
+        (crate::core::jobs::PANE_OPTION, &c.job_run),
+    ];
+    for (option, value) in tags {
+        if let Some(v) = value {
+            ex.soft(
+                vec![
+                    "set-option".into(),
+                    "-p".into(),
+                    "-t".into(),
+                    pane.into(),
+                    option.into(),
+                    v.clone(),
+                ],
+                warnings,
+            );
+        }
     }
 }
 
@@ -1806,7 +1857,7 @@ fn rebuild(
     for (pane, dir, c) in pending {
         let line = resume_line(launcher, &dir, c)?;
         ex.type_line(&pane, &line)?;
-        tag_identity(ex, &pane, c, warnings);
+        tag_resumed(ex, &pane, c, warnings);
         launched.push(Launched {
             session_id: c.session_id.clone(),
             title: c.title.clone(),
@@ -2135,7 +2186,7 @@ fn reopen_in(
     )?;
     let line = resume_line(launcher, &dir, c)?;
     ex.type_line(&pane, &line)?;
-    tag_identity(ex, &pane, c, warnings);
+    tag_resumed(ex, &pane, c, warnings);
     Ok(vec![Launched {
         session_id: c.session_id.clone(),
         title: c.title.clone(),
@@ -2864,6 +2915,36 @@ garbage";
             dormant_ids(&s),
             HashSet::from(["a1".to_string(), "i1".into()])
         );
+    }
+
+    #[test]
+    fn work_sessions_never_push_bot_runs_out_of_the_closed_list() {
+        let mut s = Snapshot {
+            boot_id: Some("b".into()),
+            ..Default::default()
+        };
+        s.closed.claude.push(ClaudeSnap {
+            closed_at: Some(iso(at(0))),
+            job: Some("support".into()),
+            ..claude("bot")
+        });
+        s.closed.claude.push(ClaudeSnap {
+            closed_at: Some(iso(at(1))),
+            space: Some("playground".into()),
+            ..claude("play")
+        });
+        for i in 0..60 {
+            s.closed.claude.push(ClaudeSnap {
+                closed_at: Some(iso(at(10 + i))),
+                ..claude(&format!("w{i:02}"))
+            });
+        }
+        let t = step(s, Live::default(), Some("b"), "h", at(100), WEEK);
+        assert_eq!(t.closed.len(), MAX_CLOSED + 2);
+        for id in ["bot", "play", "w10"] {
+            assert!(t.closed.claude.iter().any(|c| c.session_id == id), "{id}");
+        }
+        assert!(!t.closed.claude.iter().any(|c| c.session_id == "w09"));
     }
 
     #[test]

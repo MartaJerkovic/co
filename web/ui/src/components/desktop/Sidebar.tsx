@@ -6,7 +6,7 @@ import { DormantSection } from '@/components/DormantSection'
 import { FocusToggle } from '@/components/FocusToggle'
 import { HostDot } from '@/components/HostBadge'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
-import type { Session, Space } from '@/api/types'
+import type { ClosedView, Session, Space } from '@/api/types'
 import { SessionRow } from '@/components/SessionRow'
 import { StackGroup } from '@/components/stack/StackGroup'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -17,6 +17,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ViewToggle } from '@/components/ViewToggle'
 import { useNotesHosts } from '@/hooks/useNotes'
+import { useSettings } from '@/hooks/useSettings'
 import type { SidebarView } from '@/hooks/useSidebarView'
 import { ALL_HOSTS, type SessionListState } from '@/hooks/useSessionList'
 import { APP_NAME } from '@/lib/app'
@@ -24,6 +25,7 @@ import type { ViewMode } from '@/lib/groups'
 import { allSessions, stackRuns } from '@/lib/sessions'
 import { ariaShortcut, sessionKey, shortcutHint, withHint } from '@/lib/shortcuts'
 import { openPark } from '@/lib/park'
+import { closedPlace } from '@/lib/spaces'
 import { cn } from '@/lib/utils'
 
 const chip = cn(
@@ -35,7 +37,7 @@ export interface SidebarProps {
   list: SessionListState
   /** What the list shows (All / Your turn, the long-idle fold); shared with the shell's j/k. */
   sidebarView: SidebarView
-  /** A list kept apart from the work sessions (Bots, a space): only its own sessions, no closed ones. */
+  /** A list kept apart from the work sessions (Bots, a space): only its own live and closed sessions, no dormant ones. */
   space?: 'bots' | Space | null
   now: number
   cursorKey: string | null
@@ -54,6 +56,9 @@ export function Sidebar({ list, sidebarView, space = null, now, cursorKey, selec
   const { fleet, error, query, setQuery, setHostFilter, hosts, hostNames, host, hostCounts, unreachable, note } = list
   const { turnOnly, turnCount, isTurn, setTurnOnly, toggleIdle, shown, fresh, stale, staleOpen } = sidebarView
   const listRef = useRef<HTMLDivElement>(null)
+  const { spaces } = useSettings()
+  const placeId = (p: 'bots' | Space | null) => (p === 'bots' ? p : (p?.id ?? null))
+  const closedHere = (h: string, v: ClosedView) => placeId(closedPlace(spaces, fleet, h, v)) === placeId(space)
 
   // Keep the cursor row visible (j/k past the edge).
   useEffect(() => {
@@ -214,7 +219,7 @@ export function Sidebar({ list, sidebarView, space = null, now, cursorKey, selec
           </div>
         ) : null}
         {fleet && !space ? <DormantSection now={now} host={host} query={query} desktop className="mt-4" /> : null}
-        {fleet && !space ? <ClosedSection now={now} host={host} query={query} desktop className="mt-3" /> : null}
+        {fleet ? <ClosedSection now={now} host={host} query={query} belongs={closedHere} desktop className="mt-3" /> : null}
       </div>
 
     </div>

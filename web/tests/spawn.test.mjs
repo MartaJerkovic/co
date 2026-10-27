@@ -322,6 +322,23 @@ test('validateSpawnRequest takes an embed label; the spawner puts it on the pane
   assert.equal(res.embed, 'fin');
 });
 
+test('validateSpawnRequest takes a space id; the spawner puts it on the pane', async () => {
+  const opts = { spawnDirs: ['/tmp'] };
+  assert.equal(validateSpawnRequest({}, opts).space, null);
+  assert.equal(validateSpawnRequest({ space: 'playground' }, opts).space, 'playground');
+  assert.equal(validateSpawnRequest({ space: 'Play ground' }, opts).ok, false);
+  const calls = [];
+  const run = async (bin, args) => {
+    calls.push([bin, ...args]);
+    if (args[0] === 'has-session') throw new Error('no such session');
+    return { stdout: '', stderr: '' };
+  };
+  const sp = createSpawner({ run, tmux: 'tmux', launcher: 'claude', sleep: async () => {} });
+  const res = await sp.spawn({ name: 'exp', dir: '/tmp', prompt: '', space: 'playground' });
+  assert.ok(calls.some((c) => c.join(' ') === 'tmux set-option -p -t exp: @fleet_space playground'));
+  assert.equal(res.space, 'playground');
+});
+
 test('a typed title names the session: the agent gets it as is, tmux a slug of it', () => {
   const check = validateSpawnRequest({ dir: '/w', title: '  Fix the login bug  ' });
   assert.equal(check.ok, true);

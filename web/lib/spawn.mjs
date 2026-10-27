@@ -68,6 +68,7 @@ export function launchCommand({ launcher = 'claude', harness = 'claude', name, t
 }
 
 const EMBED_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const SPACE_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
   const errors = [];
@@ -121,8 +122,14 @@ export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
     if (typeof body.embed !== 'string' || !EMBED_RE.test(body.embed)) errors.push('embed must be 1-40 chars of letters, digits, - or _');
     else embed = body.embed;
   }
+  // The web UI space it is started from: a label on the pane that keeps it in that space, whatever its dir.
+  let space = null;
+  if (body?.space != null && body.space !== '') {
+    if (typeof body.space !== 'string' || !SPACE_RE.test(body.space)) errors.push('space must be 1-40 chars of a-z, 0-9 or -, starting with a letter or digit');
+    else space = body.space;
+  }
   if (errors.length) return { ok: false, error: errors.join('; ') };
-  return { ok: true, name, title, dir, prompt, nameGiven, model, harness, ghIdentity, embed };
+  return { ok: true, name, title, dir, prompt, nameGiven, model, harness, ghIdentity, embed, space };
 }
 
 /** True when `child` is `root` or lies beneath it (both already resolved). */
@@ -225,8 +232,8 @@ export function createSpawner({
     await wait(enterDelayMs);
   }
 
-  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness, ghIdentity, embed }} */
-  async function spawn({ name, title = '', dir, prompt, nameGiven = true, model = '', harness = 'claude', ghIdentity = null, embed = null }) {
+  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness, ghIdentity, embed, space }} */
+  async function spawn({ name, title = '', dir, prompt, nameGiven = true, model = '', harness = 'claude', ghIdentity = null, embed = null, space = null }) {
     if (ghIdentity && !ghIdentities.some((i) => i.name === ghIdentity)) {
       throw Object.assign(new Error(`no GitHub identity "${ghIdentity}" in this host's fleet config`), { status: 400 });
     }
@@ -265,9 +272,10 @@ export function createSpawner({
     // The `fleet list` label; the shell already carries the identity.
     if (ghIdentity) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_gh_identity', ghIdentity], { timeout: 5000 }).catch(() => {});
     if (embed) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_embed', embed], { timeout: 5000 }).catch(() => {});
+    if (space) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_space', space], { timeout: 5000 }).catch(() => {});
     const trusted = await acceptTrustPrompt(name, { harness });
     if (!trusted) await ensureStarted(name, { harness });
-    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness, ghIdentity, embed };
+    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness, ghIdentity, embed, space };
   }
 
   /**

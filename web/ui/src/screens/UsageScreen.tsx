@@ -75,7 +75,7 @@ export function UsageScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
         </ul>
       ) : null}
       {!loading && !accounts.length && !errors.length ? <p className="py-8 text-center text-sm text-muted-foreground">No hosts to read usage from.</p> : null}
-      <p className="text-xs text-dimmer">The same numbers as Claude Code’s /usage, read from each host’s Claude login. Refreshed every minute.</p>
+      <p className="text-xs text-dimmer">The same numbers as Claude Code’s /usage, read from each host’s Claude login when you open this page.</p>
     </div>
   )
 

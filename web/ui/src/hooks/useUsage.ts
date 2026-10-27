@@ -1,17 +1,13 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { ApiError, api, isAbortError } from '@/api/client'
 import { useFleet } from '@/hooks/useFleet'
-import { usePoller } from '@/hooks/usePoller'
 import { groupByAccount, type HostUsage } from '@/lib/usage'
-
-// The CLI caches for 60s (the endpoint rate-limits), so polling faster buys nothing.
-const POLL_MS = 60_000
 
 // Last answers, kept across remounts so reopening the page paints at once.
 let last: HostUsage[] = []
 
-/** Every reachable host's subscription usage, polled while shown, grouped by account. */
+/** Every reachable host's subscription usage, read when the screen opens and on refresh, grouped by account. */
 export function useUsage() {
   const { fleet } = useFleet()
   const hosts = useMemo(() => (fleet?.hosts ?? []).filter((h) => h.ok).map((h) => h.name), [fleet])
@@ -43,19 +39,17 @@ export function useUsage() {
     [hostsKey],
   )
 
-  const refreshPoll = usePoller((signal) => load(signal).catch(() => {}), POLL_MS, { enabled: hosts.length > 0 })
+  useEffect(() => {
+    const c = new AbortController()
+    load(c.signal).catch(() => {})
+    return () => c.abort()
+  }, [load])
   const [refreshing, setRefreshing] = useState(false)
   const refresh = useCallback(async () => {
     setRefreshing(true)
-    const c = new AbortController()
-    try {
-      await load(c.signal, true)
-    } catch {
-      refreshPoll()
-    } finally {
-      setRefreshing(false)
-    }
-  }, [load, refreshPoll])
+    await load(new AbortController().signal, true).catch(() => {})
+    setRefreshing(false)
+  }, [load])
 
   const accounts = useMemo(() => groupByAccount(results), [results])
   const errors = useMemo(() => results.filter((r) => r.error), [results])

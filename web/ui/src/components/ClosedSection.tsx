@@ -14,12 +14,29 @@ import { cn } from '@/lib/utils'
  * Resume (one at a time: a whole tmux session with its layout, or a Claude session in a new
  * window of its tmux session when that lives on) and Forget. Unlike Dormant: no Resume all, and
  * never on the Board. Nothing when no host has any. `host`: only that host. `query`: the session
- * search — only matching entries, expanded.
+ * search — only matching entries, expanded. `belongs`: only the entries of this list (Sessions, Bots, a space).
  */
-export function ClosedSection({ now, host = null, query = '', desktop = false, className }: { now: number; host?: string | null; query?: string; desktop?: boolean; className?: string }) {
+export function ClosedSection({
+  now,
+  host = null,
+  query = '',
+  belongs,
+  desktop = false,
+  className,
+}: {
+  now: number
+  host?: string | null
+  query?: string
+  belongs?: (host: string, v: ClosedView) => boolean
+  desktop?: boolean
+  className?: string
+}) {
   const { hosts, busy, resumeClosed, forgetClosed } = useDormant()
   const [open, setOpen] = useState(false)
-  const shown = (host ? hosts.filter((h) => h.host === host) : hosts).map((h) => searchDormant(h, query)).filter((h) => h.closed.length > 0)
+  const shown = (host ? hosts.filter((h) => h.host === host) : hosts)
+    .map((h) => searchDormant(h, query))
+    .map((h) => (belongs ? { ...h, closed: h.closed.filter((v) => belongs(h.host, v)) } : h))
+    .filter((h) => h.closed.length > 0)
   if (!shown.length) return null
   const total = shown.reduce((n, h) => n + h.closed.length, 0)
   const size = desktop ? 'sm' : 'lg'

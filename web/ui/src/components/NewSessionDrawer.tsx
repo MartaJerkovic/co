@@ -91,6 +91,8 @@ export interface SpawnPrefill {
   fixed?: boolean
   /** The embed view's app: the new session is labelled with it (`embed`, set aside in the Apps filter). */
   embed?: string
+  /** The space it is started from: it stays in that space whatever directory is picked. */
+  space?: string
   /** Offer Sibling beside Hand off: the same prompt, spawned into this session's stack instead. */
   sibling?: SiblingTarget | null
 }
@@ -339,6 +341,7 @@ function NewSessionForm({
         harness: harness === 'claude' ? undefined : harness,
         ghIdentity: ghIdentity || undefined,
         embed: prefill?.embed || undefined,
+        space: prefill?.space || undefined,
       })
       // The draft stays until the session registers: a spawn that never shows up must not lose the prompt.
       onDone()

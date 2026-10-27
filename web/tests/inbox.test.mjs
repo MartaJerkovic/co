@@ -121,16 +121,19 @@ test('config: inbox runs only on inbox.host, with its knobs checked', () => {
   assert.equal(normalizeConfig(base, { env: {}, home: HOME }).inbox.enabled, false);
   assert.equal(normalizeConfig({ ...base, inbox: { host: 'workstation' } }, { env: { FLEET_WEB_INBOX: '0' }, home: HOME }).inbox.enabled, false);
   assert.throws(() => normalizeConfig({ ...base, inbox: { workHours: [19, 8] } }, { env: {}, home: HOME }), /workHours/);
+  assert.equal(on.inbox.autoScan, true);
+  assert.equal(normalizeConfig({ ...base, inbox: { host: 'workstation', autoScan: false } }, { env: {}, home: HOME }).inbox.autoScan, false);
+  assert.throws(() => normalizeConfig({ ...base, inbox: { autoScan: 'no' } }, { env: {}, home: HOME }), /autoScan/);
 });
 
 const flush = () => new Promise((r) => setImmediate(r));
 
-function setup({ now, agentText = '[]' } = {}) {
+function setup({ now, agentText = '[]', settings = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-inbox-'));
   const calls = { agent: 0, ask: 0, prompts: [] };
   const clock = { t: now };
   const inbox = createInbox({
-    settings: { host: 'workstation', scanMinutes: 30, workHours: [8, 19], workDays: [1, 2, 3, 4, 5], model: 'haiku', briefModel: 'haiku', briefMinutes: 45, language: 'English', comms: true },
+    settings: { host: 'workstation', scanMinutes: 30, workHours: [8, 19], workDays: [1, 2, 3, 4, 5], model: 'haiku', briefModel: 'haiku', briefMinutes: 45, language: 'English', comms: true, ...settings },
     cli: { prs: async () => ({ prs: [pr({})] }), tasks: async () => { throw new Error('no token'); } },
     getFleet: async () => ({ hosts: [] }),
     ask: async ({ prompt }) => { calls.ask++; calls.prompts.push(prompt); return '- do the PR'; },
@@ -141,6 +144,17 @@ function setup({ now, agentText = '[]' } = {}) {
   });
   return { inbox, calls, clock, dir };
 }
+
+test('autoScan off: no scheduled scan, the Scan button still runs one', async () => {
+  const { inbox, calls } = setup({ now: new Date(2026, 9, 20, 9).getTime(), settings: { autoScan: false } });
+  await inbox.pass();
+  await flush();
+  assert.equal(calls.agent, 0);
+  assert.equal(inbox.response().sources.comms.nextAt, null);
+  await inbox.refresh();
+  await flush();
+  assert.equal(calls.agent, 1);
+});
 
 test('a pass: sources merged, a failing source reported, scan + brief within budget, state kept', async () => {
   const t0 = new Date(2026, 9, 20, 9).getTime();

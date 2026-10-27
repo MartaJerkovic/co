@@ -634,3 +634,38 @@ fn sessions_closed_within_a_boot_are_recently_closed_not_dormant() {
     // The file keeps its closed list alongside (additive).
     assert!(r.snapshot()["closed"].is_object());
 }
+
+#[test]
+fn a_closed_bot_session_comes_back_in_its_run() {
+    let Some(r) = Rig::new() else { return };
+    let out = r.fleet(&[
+        "tmux",
+        "new",
+        "-d",
+        "fleet-test-bot",
+        "-C",
+        &r.s("work/one"),
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let pane = first_pane(&r, "fleet-test-bot");
+    r.tmux(&[
+        "set-option",
+        "-p",
+        "-t",
+        &pane,
+        "@fleet_job_run",
+        "nightly/20261027-0700",
+    ]);
+    start_fake(&r, &pane);
+    r.wait_for("the fake to register", || r.registered().len() == 1);
+    r.json(&["list", "--json"]);
+    r.tmux(&["kill-session", "-t", "=fleet-test-bot"]);
+    r.wait_for("the closed fake to exit", || r.registered().is_empty());
+    r.json(&["list", "--json"]);
+
+    let v = r.json(&["restore", "--closed", "fleet-test-bot", "--json"]);
+    assert_eq!(v["restored"][0]["session"], "fleet-test-bot", "{v}");
+    let pane = first_pane(&r, "fleet-test-bot");
+    let tag = r.tmux(&["show-options", "-p", "-v", "-t", &pane, "@fleet_job_run"]);
+    assert_eq!(tag.trim(), "nightly/20261027-0700");
+}
