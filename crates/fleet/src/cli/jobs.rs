@@ -468,7 +468,7 @@ pub fn tick(quiet: bool) -> Result<()> {
     let mut failed = 0;
     for j in &s.jobs {
         let mut st = jobs::load_state(&j.name);
-        let (d, last) = jobs::due(&j.cron, j.enabled, st.last_slot, now);
+        let (d, last) = jobs::due(&j.cron, j.enabled, st.last_slot, now, jobs::online);
         let changed = st.last_slot != Some(last);
         st.last_slot = Some(last);
         match d {
@@ -476,6 +476,16 @@ pub fn tick(quiet: bool) -> Result<()> {
                 if changed {
                     jobs::save_state(&j.name, &st)?;
                 }
+            }
+            Due::Offline(slot) => {
+                log(
+                    quiet,
+                    &format!(
+                        "{}: waiting for network ({} run)",
+                        j.name,
+                        when(local(slot))
+                    ),
+                );
             }
             Due::Missed(slot) => {
                 st.runs.push(Run {

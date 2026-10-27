@@ -569,6 +569,9 @@ section is still read (a name in both: the `bots` one wins), and the names below
 A bot never fires on the tick that first sees it (a bot added at 08:00 with a 07:00 schedule first
 runs tomorrow). A slot more than 6 hours old when a tick sees it (the machine was off) is recorded
 as `missed`; a slot that comes while a session of the bot is still working is `skipped`.
+A due slot waits while the machine is offline (a session started without a network fails its
+first API call and stops): each tick retries, and the bot starts on the first one that reaches
+the network, or the slot is `missed` once it is 6 hours old.
 
 | command | does |
 | --- | --- |

@@ -33,7 +33,9 @@
 //! The launchd agent runs `fleet jobs tick` every minute. A tick fires a job when its latest
 //! scheduled slot is newer than the last slot it saw; a slot more than [`CATCH_UP_SECS`] old
 //! (the machine was off) is recorded as missed instead. A job never fires on the tick that
-//! first sees it, and a run is skipped while any session of the job is still working.
+//! first sees it, and a run is skipped while any session of the job is still working. A due
+//! slot waits while [`online`] fails — a session started offline fails its first API call and
+//! stops — and fires on the first tick with a network, or becomes missed after [`CATCH_UP_SECS`].
 //!
 //! Tagging: a job session runs with `FLEET_JOB_RUN=<job>/<run>` in its environment and the
 //! tmux pane option `@fleet_job_run` set to the same; `fleet list` reports it as `origin`.
@@ -63,6 +65,9 @@ pub const CATCH_UP_SECS: i64 = 6 * 3600;
 /// Runs kept per job in its state file.
 pub const KEEP_RUNS: usize = 50;
 pub const DEFAULT_KEEP: &str = "24h";
+/// The host a tick reaches before it starts a run.
+const NETWORK_PROBE: (&str, u16) = ("api.anthropic.com", 443);
+const NETWORK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// How far back [`Cron::prev`] looks for a slot.
 const LOOKBACK_MINUTES: i64 = 8 * 24 * 60;
 /// How far ahead [`Cron::next`] looks.
@@ -733,12 +738,21 @@ pub enum Due {
     Arm,
     /// Run for this slot.
     Fire(i64),
+    /// The slot is due but there is no network: keep it, try again next tick.
+    Offline(i64),
     /// The slot is too old (the machine was off): record it, run nothing.
     Missed(i64),
 }
 
-/// Pure: decide for one job at `now`, and the `last_slot` to store afterwards.
-pub fn due(cron: &Cron, enabled: bool, last_slot: Option<i64>, now: DateTime<Local>) -> (Due, i64) {
+/// Decide for one job at `now`, and the `last_slot` to store afterwards. `online` is asked only
+/// when a slot would fire.
+pub fn due(
+    cron: &Cron,
+    enabled: bool,
+    last_slot: Option<i64>,
+    now: DateTime<Local>,
+    online: impl FnOnce() -> bool,
+) -> (Due, i64) {
     let now_ms = now.timestamp_millis();
     let slot = cron.prev(now).map(|t| t.timestamp_millis());
     let Some(last) = last_slot.filter(|_| enabled) else {
@@ -749,12 +763,30 @@ pub fn due(cron: &Cron, enabled: bool, last_slot: Option<i64>, now: DateTime<Loc
         Some(s) if s > last => {
             if now_ms - s > CATCH_UP_SECS * 1000 {
                 (Due::Missed(s), s)
-            } else {
+            } else if online() {
                 (Due::Fire(s), s)
+            } else {
+                (Due::Offline(s), last)
             }
         }
         _ => (Due::Nothing, last),
     }
+}
+
+/// Whether this machine can reach the network: [`NETWORK_PROBE`] resolves and accepts a TCP
+/// connection within [`NETWORK_TIMEOUT`].
+pub fn online() -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        use std::net::ToSocketAddrs;
+        let ok = NETWORK_PROBE
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut a| a.next())
+            .is_some_and(|a| std::net::TcpStream::connect_timeout(&a, NETWORK_TIMEOUT).is_ok());
+        let _ = tx.send(ok);
+    });
+    rx.recv_timeout(NETWORK_TIMEOUT * 2).unwrap_or(false)
 }
 
 /// A run id for a start at `t`: `YYYYMMDD-HHMM` for a slot, plus seconds for a manual run.
@@ -776,6 +808,10 @@ pub fn session_name(job: &str, run: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn on() -> bool {
+        true
+    }
 
     fn at(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Local> {
         Local.with_ymd_and_hms(y, mo, d, h, mi, 0).single().unwrap()
@@ -876,25 +912,25 @@ mod tests {
     fn due_arms_then_fires_once_per_slot() {
         let c = Cron::parse("0 7 * * *").unwrap();
         let t0 = at(2026, 10, 13, 6, 50);
-        let (d, last) = due(&c, true, None, t0);
+        let (d, last) = due(&c, true, None, t0, on);
         assert_eq!(d, Due::Arm);
         assert_eq!(last, t0.timestamp_millis());
         // Same day, before the slot: nothing.
         assert_eq!(
-            due(&c, true, Some(last), at(2026, 10, 13, 6, 59)).0,
+            due(&c, true, Some(last), at(2026, 10, 13, 6, 59), on).0,
             Due::Nothing
         );
         let slot = at(2026, 10, 13, 7, 0).timestamp_millis();
-        let (d, last) = due(&c, true, Some(last), at(2026, 10, 13, 7, 0));
+        let (d, last) = due(&c, true, Some(last), at(2026, 10, 13, 7, 0), on);
         assert_eq!(d, Due::Fire(slot));
         assert_eq!(
-            due(&c, true, Some(last), at(2026, 10, 13, 7, 1)).0,
+            due(&c, true, Some(last), at(2026, 10, 13, 7, 1), on).0,
             Due::Nothing
         );
         // A job added after today's slot waits for tomorrow's.
-        let (_, armed) = due(&c, true, None, at(2026, 10, 13, 8, 0));
+        let (_, armed) = due(&c, true, None, at(2026, 10, 13, 8, 0), on);
         assert_eq!(
-            due(&c, true, Some(armed), at(2026, 10, 13, 8, 1)).0,
+            due(&c, true, Some(armed), at(2026, 10, 13, 8, 1), on).0,
             Due::Nothing
         );
     }
@@ -905,12 +941,37 @@ mod tests {
         let yesterday = at(2026, 10, 12, 7, 0).timestamp_millis();
         let slot = at(2026, 10, 13, 7, 0).timestamp_millis();
         assert_eq!(
-            due(&c, true, Some(yesterday), at(2026, 10, 13, 9, 0)).0,
+            due(&c, true, Some(yesterday), at(2026, 10, 13, 9, 0), on).0,
             Due::Fire(slot)
         );
         assert_eq!(
-            due(&c, true, Some(yesterday), at(2026, 10, 13, 14, 0)).0,
+            due(&c, true, Some(yesterday), at(2026, 10, 13, 14, 0), on).0,
             Due::Missed(slot)
+        );
+    }
+
+    #[test]
+    fn due_waits_offline_then_fires_or_misses() {
+        let c = Cron::parse("0 7 * * *").unwrap();
+        let yesterday = at(2026, 10, 12, 7, 0).timestamp_millis();
+        let slot = at(2026, 10, 13, 7, 0).timestamp_millis();
+        let (d, last) = due(&c, true, Some(yesterday), at(2026, 10, 13, 7, 0), || false);
+        assert_eq!(d, Due::Offline(slot));
+        assert_eq!(last, yesterday, "the slot stays due");
+        assert_eq!(
+            due(&c, true, Some(last), at(2026, 10, 13, 7, 1), on).0,
+            Due::Fire(slot)
+        );
+        assert_eq!(
+            due(&c, true, Some(last), at(2026, 10, 13, 13, 1), || false).0,
+            Due::Missed(slot)
+        );
+        due(
+            &c,
+            true,
+            Some(slot),
+            at(2026, 10, 13, 7, 1),
+            || unreachable!(),
         );
     }
 
@@ -919,11 +980,11 @@ mod tests {
         let c = Cron::parse("0 7 * * *").unwrap();
         let yesterday = at(2026, 10, 12, 7, 0).timestamp_millis();
         let now = at(2026, 10, 13, 7, 30);
-        let (d, last) = due(&c, false, Some(yesterday), now);
+        let (d, last) = due(&c, false, Some(yesterday), now, on);
         assert_eq!(d, Due::Arm);
         // Re-enabled right after: today's slot is behind it, so it does not fire.
         assert_eq!(
-            due(&c, true, Some(last), at(2026, 10, 13, 7, 31)).0,
+            due(&c, true, Some(last), at(2026, 10, 13, 7, 31), on).0,
             Due::Nothing
         );
     }
