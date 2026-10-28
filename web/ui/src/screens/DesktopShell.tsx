@@ -725,7 +725,8 @@ export function DesktopShell() {
   ]
 
   // Anything but `/`, `/settings`, `/usage`, `/bots`, `/inbox`, `/prs`, `/tasks`, notes and `/s/:host/:id` → the list (same as mobile).
-  if (!match && !settingsOpen && !usageOpen && !jobsOpen && !spaceOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
+  const spacePending = !settings.loaded && location.startsWith('/space/')
+  if (!spacePending && !match && !settingsOpen && !usageOpen && !jobsOpen && !spaceOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen && location !== '/') return <Redirect to="/" replace />
 
   const sessionsScreen = !settingsOpen && !usageOpen && !jobsOpen && !spaceOpen && !inboxOpen && !operatorOpen && !memosOpen && !notesOpen && !prsOpen && !tasksOpen && !reviewOpen
 
