@@ -201,7 +201,12 @@ export function DesktopShell() {
   // The open session's own place (from the unfiltered fleet, so a search never moves it): its space,
   // else Bots for a bot run, else the work list.
   const selectedSpace = selectedSession ? (sessionSpace(spaces, fleet, selectedSession) ?? (isJobSession(selectedSession) ? 'bots' : null)) : null
-  const space = jobsOpen ? 'bots' : (spaceOpen ?? selectedSpace)
+  const routedSpace = jobsOpen ? 'bots' : (spaceOpen ?? selectedSpace)
+  const routedPlace = routedSpace === 'bots' ? 'bots' : routedSpace ? `space:${routedSpace.id}` : null
+  const noListScreen = settingsOpen || usageOpen || inboxOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen || reviewOpen
+  const [keptPlace, setKeptPlace] = useState(routedPlace)
+  if (!noListScreen && keptPlace !== routedPlace) setKeptPlace(routedPlace)
+  const space = noListScreen ? (keptPlace === 'bots' ? 'bots' : (spaces.find((x) => `space:${x.id}` === keptPlace) ?? null)) : routedSpace
   const spaceModule: ModuleId | undefined = space === 'bots' ? 'jobs' : space ? `space:${space.id}` : undefined
   // The session you had open last (not a bot run or a space's session): the Sessions icon goes straight back to it.
   const workSessionOpen = !!selectedSession && !space
@@ -766,7 +771,7 @@ export function DesktopShell() {
       <SidebarRail
         waiting={mainTurn}
         spaceTurn={spaceTurn}
-        spaceActive={jobsOpen || spaceOpen ? undefined : spaceModule}
+        spaceActive={jobsOpen || spaceOpen || noListScreen ? undefined : spaceModule}
         sessionsActive={sessionsScreen && !space}
         onSessions={() => {
           if (!sidebarOpen) toggleSidebar()
