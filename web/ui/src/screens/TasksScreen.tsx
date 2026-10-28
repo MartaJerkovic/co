@@ -18,6 +18,7 @@ import { relTime } from '@/lib/format'
 import { prHref } from '@/lib/prs'
 import { DUE_TONE, dueInfo, groupTasks, IDLE_DAYS, idleDays, isIdle, parseTaskLocation, statusTone, taskHref, taskProjects, type TaskGroup } from '@/lib/tasks'
 import { cn } from '@/lib/utils'
+import { placeBefore } from '@/lib/place'
 
 /**
  * `#/tasks`: your open Productive tasks (`fleet tasks` on one host), by column — due soon or
@@ -43,7 +44,7 @@ export function TasksScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
-    else navigate('/', { replace: !pane })
+    else navigate(placeBefore(pane), { replace: !pane })
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)

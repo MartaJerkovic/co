@@ -24,6 +24,7 @@ import { PALETTES, parsePalette } from '@/lib/palettes'
 import { TERM_FONT_SIZES, TEXT_SIZES, TEXT_SIZE_LABELS } from '@/lib/prefs'
 import { shortcutHint, showShortcuts } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
+import { placeBefore } from '@/lib/place'
 
 const segItem =
   'h-9 flex-1 gap-1.5 rounded-md px-3 text-[0.8125rem] text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent'
@@ -43,7 +44,7 @@ export function SettingsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
-    else navigate('/', { replace: !pane })
+    else navigate(placeBefore(pane), { replace: !pane })
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)

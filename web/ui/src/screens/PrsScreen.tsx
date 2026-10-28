@@ -28,6 +28,7 @@ import { relTime } from '@/lib/format'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { groupPrs, isOthersDraft, parsePrLocation, prHref, prRef, reviewLabel, ROT_TONE, waitingSince, type PrGroup } from '@/lib/prs'
 import { cn } from '@/lib/utils'
+import { placeBefore } from '@/lib/place'
 
 /**
  * `#/prs`: the GitHub pull requests that need you (`fleet prs` on one host), by column —
@@ -51,7 +52,7 @@ export function PrsScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' })
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
-    else navigate('/', { replace: !pane })
+    else navigate(placeBefore(pane), { replace: !pane })
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)

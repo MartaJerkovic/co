@@ -22,6 +22,7 @@ import { discardPending, drain, inputLevel, startRecording, stopRecording } from
 import type { PendingRecording } from '@/lib/memoStore'
 import { formatDuration, memoHref, memoSessionPrompt, memoWhen, parseMemosLocation } from '@/lib/memos'
 import { cn } from '@/lib/utils'
+import { placeBefore } from '@/lib/place'
 
 /**
  * `#/memos`: record a conversation (one big button), see it saved as a titled transcript, and the
@@ -35,7 +36,7 @@ export function MemosScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
   const back = () => {
     if (id) return navigate('/memos', { replace: !pane })
     if (!pane && window.history.length > 1) window.history.back()
-    else navigate('/', { replace: !pane })
+    else navigate(placeBefore(pane), { replace: !pane })
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)
@@ -55,7 +56,7 @@ export function MemosScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
           <h1 className="flex min-w-0 flex-1 items-center gap-1.5 text-[0.9375rem] leading-tight font-bold">
             {id ? null : <MicIcon className="size-4 text-muted-foreground" />} {title}
           </h1>
-          <Button variant="ghost" size="icon" aria-label="Close memos" title="Close (Esc)" onClick={() => navigate('/')} className="size-11 shrink-0 rounded-xl">
+          <Button variant="ghost" size="icon" aria-label="Close memos" title="Close (Esc)" onClick={() => navigate(placeBefore(pane))} className="size-11 shrink-0 rounded-xl">
             <XIcon className="size-5" />
           </Button>
         </header>

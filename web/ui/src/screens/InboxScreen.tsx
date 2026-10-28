@@ -27,6 +27,7 @@ import { relTime } from '@/lib/format'
 import { briefMarkdown, dueChip, inboxSections, isNewItem, itemTarget, sourceLines } from '@/lib/inbox'
 import { storage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
+import { placeBefore } from '@/lib/place'
 
 const LAST_VISIT_KEY = 'fleet.inboxLastVisit'
 
@@ -58,7 +59,7 @@ export function InboxScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
-    else navigate('/', { replace: !pane })
+    else navigate(placeBefore(pane), { replace: !pane })
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)

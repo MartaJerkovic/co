@@ -14,6 +14,7 @@ import { relTime } from '@/lib/format'
 import { CTX_FILL } from '@/lib/styles'
 import { money, resetsLabel, usageLevel, type AccountUsage } from '@/lib/usage'
 import { cn } from '@/lib/utils'
+import { placeBefore } from '@/lib/place'
 
 const LEVEL_TEXT = { low: 'text-foreground', warn: 'text-status-waiting', hot: 'text-status-error' } as const
 
@@ -30,7 +31,7 @@ export function UsageScreen({ layout = 'screen' }: { layout?: 'screen' | 'pane' 
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
-    else navigate('/', { replace: !pane })
+    else navigate(placeBefore(pane), { replace: !pane })
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)

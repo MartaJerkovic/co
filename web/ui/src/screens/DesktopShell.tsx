@@ -104,6 +104,7 @@ import { ReviewScreen } from '@/screens/ReviewScreen'
 import { isPrsLocation } from '@/lib/prs'
 import { isTasksLocation } from '@/lib/tasks'
 import { parseReviewLocation, reviewHref } from '@/lib/review'
+import { placeBefore, rememberPlace } from '@/lib/place'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { UsageScreen } from '@/screens/UsageScreen'
@@ -204,6 +205,9 @@ export function DesktopShell() {
   const routedSpace = jobsOpen ? 'bots' : (spaceOpen ?? selectedSpace)
   const routedPlace = routedSpace === 'bots' ? 'bots' : routedSpace ? `space:${routedSpace.id}` : null
   const noListScreen = settingsOpen || usageOpen || inboxOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen || reviewOpen
+  useEffect(() => {
+    if (!noListScreen) rememberPlace(location)
+  }, [noListScreen, location])
   const [keptPlace, setKeptPlace] = useState(routedPlace)
   if (!noListScreen && keptPlace !== routedPlace) setKeptPlace(routedPlace)
   const space = noListScreen ? (keptPlace === 'bots' ? 'bots' : (spaces.find((x) => `space:${x.id}` === keptPlace) ?? null)) : routedSpace
@@ -378,7 +382,7 @@ export function DesktopShell() {
           return true
         }
         if (selectedKey || settingsOpen || usageOpen || jobsOpen || spaceOpen || inboxOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen) {
-          navigate('/')
+          navigate(noListScreen ? placeBefore(true) : '/')
           return true
         }
         return false

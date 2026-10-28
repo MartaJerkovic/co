@@ -33,6 +33,7 @@ import { allSessions } from '@/lib/sessions'
 import { sessionTitle } from '@/lib/title'
 import { formatElapsed } from '@/lib/voice'
 import { cn } from '@/lib/utils'
+import { placeBefore } from '@/lib/place'
 
 const parseBool = (r: string) => (r === 'true' ? true : r === 'false' ? false : undefined)
 
@@ -67,7 +68,7 @@ export function OperatorScreen({ layout = 'screen' }: { layout?: 'screen' | 'pan
 
   const back = () => {
     if (!pane && window.history.length > 1) window.history.back()
-    else navigate('/', { replace: !pane })
+    else navigate(placeBefore(pane), { replace: !pane })
   }
   const screenRef = useRef<HTMLDivElement>(null)
   useSwipeBack(screenRef, back, !pane)
