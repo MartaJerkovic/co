@@ -20,7 +20,8 @@ import { checkInboxSettings } from './inbox.mjs';
 import { DEFAULT_MODELS, DEFAULT_PARK } from './config.mjs';
 import { parseNameOutput } from './autoname.mjs';
 import { SESSION_ID_RE } from './briefs.mjs';
-import { validThreadId } from './reviews.mjs';
+import { displayPath, validThreadId } from './reviews.mjs';
+import { askPrompt, validAskId } from './asks.mjs';
 import { editorUrl, editorViewer, withBriefEditor, withSessionEditors } from './editor.mjs';
 import {
   STACK_BODY_LIMIT,
@@ -81,6 +82,9 @@ const COMPLETE_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/complete$/;
 const COMPLETE_KINDS = new Set(['skills', 'files', 'brain']);
 const DIFF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/(diffs?)$/;
 const REVIEW_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/review(?:\/(submit)|\/(threads)(?:\/([^/]+)(?:\/(reply))?)?)?$/;
+/** Side questions: POST …/sessions/:id/ask starts one in a fork of the session; GET / DELETE /asks/:ask polls / cancels it. */
+const ASK_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/ask$/;
+const ASK_ID_ROUTE = /^\/api\/hosts\/([^/]+)\/asks\/([^/]+)$/;
 /** A review comment quotes the selected code: room for a big selection. */
 const REVIEW_BODY_LIMIT = 1024 * 1024;
 const BRIEF_ROUTE = /^\/api\/hosts\/([^/]+)\/sessions\/([^/]+)\/brief(\/regenerate)?$/;
@@ -161,6 +165,7 @@ export const DEFAULT_QUICK_REPLIES = [
  *   previews    lib/previews.mjs instance (…/previews: servers the session started; absent → 501)
  *   touched     lib/touched.mjs index — the files a session worked on (…/diffs finds their checkouts)
  *   reviews     lib/reviews.mjs#createReviews (…/review: comment threads sent to the session; absent → 501)
+ *   asks        lib/asks.mjs#createAsks (…/ask, /asks/:id: side questions in a fork of the session; absent → 501)
  *   briefs      lib/briefs.mjs instance (brief, brief/regenerate; absent → 501)
  *   notes       lib/notes.mjs instance (notes/tree|search|file|raw; absent → 501: web.notes.root unset)
  *   spawnDirs   lib/spawn-dirs.mjs#createSpawnDirsEditor (GET/PUT spawn-dirs; absent → 501)
@@ -202,6 +207,7 @@ export function createApi({
   touched = null,
   previews = null,
   reviews = null,
+  asks = null,
   notes = null,
   spawnDirs = null,
   repos = null,
@@ -1079,6 +1085,60 @@ export function createApi({
                         ? await reviews.remove(session, tid)
                         : await reviews.update(session, tid, body);
             return { status: 200, body: { host: config.self, id: session.session_id, ...r } };
+          } catch (err) {
+            if (err?.status) throw new HttpError(err.message, err.status);
+            throw err;
+          }
+        },
+      });
+    }
+
+    const am = ASK_ROUTE.exec(url.pathname);
+    if (am) {
+      if (req.method !== 'POST') throw new HttpError('method not allowed', 405);
+      const id = decodeURIComponent(am[2]);
+      return forHost({
+        req,
+        url,
+        host: decodeURIComponent(am[1]),
+        bodyLimit: REVIEW_BODY_LIMIT,
+        local: async () => {
+          if (!asks) throw new HttpError('side questions are not available on this server', 501);
+          const body = await readJsonBody(req, REVIEW_BODY_LIMIT);
+          const session = await resolveLocalSession(id);
+          if (session.harness && session.harness !== 'claude') throw new HttpError('side questions need a Claude session', 409);
+          if (!session.session_id || !SESSION_ID_RE.test(session.session_id)) throw new HttpError('this session has no session id yet', 409);
+          const cwd = typeof session.cwd === 'string' && session.cwd ? session.cwd : null;
+          if (!cwd) throw new HttpError('this session has no working directory', 409);
+          try {
+            const root = typeof body?.root === 'string' && path.isAbsolute(body.root) ? body.root : null;
+            const file = typeof body?.path === 'string' ? body.path : null;
+            const prompt = askPrompt({ ...body, path: file, display: file ? displayPath(root, file, cwd) : null });
+            const label = file && Number.isInteger(body.start) ? `${file}:${body.start}${body.end !== body.start ? `–${body.end}` : ''}` : null;
+            const ask = asks.start({ cwd, resume: session.session_id, prompt, question: String(body.question).trim(), label });
+            return { status: 200, body: { host: config.self, id: session.session_id, ask } };
+          } catch (err) {
+            if (err?.status) throw new HttpError(err.message, err.status);
+            throw err;
+          }
+        },
+      });
+    }
+
+    const aim = ASK_ID_ROUTE.exec(url.pathname);
+    if (aim) {
+      if (req.method !== 'GET' && req.method !== 'DELETE') throw new HttpError('method not allowed', 405);
+      const askId = decodeURIComponent(aim[2]);
+      if (!validAskId(askId)) throw new HttpError('invalid side question id', 400);
+      return forHost({
+        req,
+        url,
+        host: decodeURIComponent(aim[1]),
+        local: async () => {
+          if (!asks) throw new HttpError('side questions are not available on this server', 501);
+          try {
+            if (req.method === 'DELETE') return { status: 200, body: { host: config.self, ...asks.cancel(askId) } };
+            return { status: 200, body: { host: config.self, ask: asks.get(askId) } };
           } catch (err) {
             if (err?.status) throw new HttpError(err.message, err.status);
             throw err;

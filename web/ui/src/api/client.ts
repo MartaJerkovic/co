@@ -45,6 +45,7 @@ import type {
   ReposSettings,
   RepoSyncResult,
   RestoreResponse,
+  SideAsk,
   SessionKey,
   Settings,
   SpawnDirEntry,
@@ -171,6 +172,11 @@ export const api = {
   /** Every draft in one prompt, with an optional overall note. */
   submitReview: (host: string, id: string, body: string, o: Opts = {}) =>
     request<ReviewState>(sessionPath(host, id, 'review/submit'), { ...o, method: 'POST', body: { body } }),
+  /** A side question about lines of the diff, answered by a read-only fork of the session (nothing reaches its thread). */
+  ask: (host: string, id: string, body: Partial<ReviewAnchor> & { question: string }, o: Opts = {}) =>
+    request<{ host: string; ask: SideAsk }>(sessionPath(host, id, 'ask'), { ...o, method: 'POST', body }),
+  askGet: (host: string, askId: string, o: Opts = {}) => request<{ host: string; ask: SideAsk }>(`${hostPath(host)}/asks/${enc(askId)}`, o),
+  askCancel: (host: string, askId: string, o: Opts = {}) => request<{ cancelled: boolean }>(`${hostPath(host)}/asks/${enc(askId)}`, { ...o, method: 'DELETE' }),
 
   send: (host: string, id: string, text: string, o: Opts & { keepalive?: boolean } = {}) =>
     request<OkResponse>(sessionPath(host, id, 'send'), { ...o, method: 'POST', body: { text } }),
