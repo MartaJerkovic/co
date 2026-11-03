@@ -101,9 +101,9 @@ import { NotesScreen } from '@/screens/NotesScreen'
 import { PrsScreen } from '@/screens/PrsScreen'
 import { TasksScreen } from '@/screens/TasksScreen'
 import { ReviewScreen } from '@/screens/ReviewScreen'
-import { isPrsLocation } from '@/lib/prs'
+import { isPrsLocation, prHref } from '@/lib/prs'
 import { isTasksLocation } from '@/lib/tasks'
-import { parseReviewLocation, reviewHref } from '@/lib/review'
+import { parsePrReviewLocation, parseReviewLocation, reviewHref } from '@/lib/review'
 import { placeBefore, rememberPlace } from '@/lib/place'
 import { SessionScreen, type PaneApi } from '@/screens/SessionScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
@@ -151,7 +151,9 @@ export function DesktopShell() {
   const notesOpen = notesLoc !== null
   // `#/review/:host/:id`: the diff reviewer (with the session beside it) takes the whole window.
   const reviewLoc = parseReviewLocation(location)
-  const reviewOpen = reviewLoc !== null
+  // `#/review/pr/:host/:owner/:repo/:n`: the same over a PR, with no session.
+  const prReviewLoc = parsePrReviewLocation(location)
+  const reviewOpen = reviewLoc !== null || prReviewLoc !== null
   const notesHosts = useNotesHosts()
   const selected = match ? { host: params.host, id: params.id } : null
   const selectedKey = selected ? `${selected.host}/${selected.id}` : null
@@ -379,6 +381,10 @@ export function DesktopShell() {
         // Esc in the diff reviewer: back to its session.
         if (reviewLoc) {
           navigate(sessionHref({ host: reviewLoc.host, session_id: reviewLoc.id }))
+          return true
+        }
+        if (prReviewLoc) {
+          navigate(prHref(prReviewLoc))
           return true
         }
         if (selectedKey || settingsOpen || usageOpen || jobsOpen || spaceOpen || inboxOpen || operatorOpen || memosOpen || notesOpen || prsOpen || tasksOpen) {

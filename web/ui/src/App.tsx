@@ -98,6 +98,9 @@ function FleetApp() {
                   <Route path={/^\/notes(?:\/.*)?$/}>
                     <NotesScreen />
                   </Route>
+                  <Route path="/review/pr/:host/:owner/:repo/:n">
+                    <ReviewScreen />
+                  </Route>
                   <Route path="/review/:host/:id">
                     <ReviewScreen />
                   </Route>
