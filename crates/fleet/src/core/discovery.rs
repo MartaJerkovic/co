@@ -212,7 +212,7 @@ fn is_headless(entrypoint: &str) -> bool {
     HEADLESS_ENTRYPOINTS.contains(&entrypoint) || entrypoint.starts_with("sdk-")
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 struct Reg {
     pid: Option<i64>,
     #[serde(rename = "sessionId")]
@@ -232,6 +232,42 @@ struct Reg {
     /// How this session was started — `"cli"` for a terminal, `"sdk-cli"` for a
     /// `claude -p` child. See [`is_headless`].
     entrypoint: Option<String>,
+    /// A background job's id (`kind: "bg"` entries).
+    #[serde(rename = "jobId")]
+    job_id: Option<String>,
+    /// Set on a terminal session whose conversation moved into a background job:
+    /// that job's `jobId`. The terminal keeps showing it, under the job's session id.
+    #[serde(rename = "parkedJobId")]
+    parked_job_id: Option<String>,
+}
+
+/// A terminal session that parked its conversation in a live background job takes
+/// the job's session id and status: the job writes the transcript from then on, and
+/// the terminal's own entry keeps the stale id it had when it parked.
+fn follow_parked_jobs(regs: &mut [Reg], alive: impl Fn(i64) -> bool) {
+    let jobs: HashMap<String, Reg> = regs
+        .iter()
+        .filter(|r| r.kind.as_deref() == Some("bg") && r.session_id.is_some())
+        .filter(|r| r.pid.is_some_and(&alive))
+        .filter_map(|r| Some((r.job_id.clone()?, r.clone())))
+        .collect();
+    for r in regs.iter_mut() {
+        let Some(job) = r.parked_job_id.as_ref().and_then(|j| jobs.get(j)) else {
+            continue;
+        };
+        r.session_id = job.session_id.clone();
+        r.status = job.status.clone().or(r.status.take());
+        r.updated_at = job.updated_at.or(r.updated_at);
+        r.status_updated_at = job.status_updated_at.or(r.status_updated_at);
+        r.waiting_for = job.waiting_for.clone();
+    }
+}
+
+fn pid_alive(pid: i64) -> bool {
+    Command::new("ps")
+        .args(["-o", "pid=", "-p", &pid.to_string()])
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 /// One tmux pane, as reported by `list-panes -a`.
@@ -287,17 +323,15 @@ pub fn discover_checked() -> Result<Vec<Session>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
         Err(e) => return Err(format!("cannot read {}: {e}", dir.display())),
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("json") {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(reg) = serde_json::from_str::<Reg>(&text) else {
-            continue;
-        };
+    let mut regs: Vec<Reg> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .filter_map(|text| serde_json::from_str::<Reg>(&text).ok())
+        .collect();
+    follow_parked_jobs(&mut regs, pid_alive);
+    for reg in regs {
         let Some(pid) = reg.pid else { continue };
         // Interactive sessions only (skip print/headless runs). `kind` alone does
         // not say it: a `claude -p` child registers as `interactive` too, and its
@@ -906,6 +940,37 @@ fn claude_prompts(cwd: &str, session_id: &str, n: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+
+    fn reg(json: &str) -> Reg {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_terminal_that_parked_its_conversation_shows_the_live_job_session() {
+        let mut regs = vec![
+            reg(
+                r#"{"pid":1,"sessionId":"old","kind":"interactive","status":"idle","parkedJobId":"j1"}"#,
+            ),
+            reg(
+                r#"{"pid":2,"sessionId":"new","kind":"bg","jobId":"j1","status":"busy","updatedAt":9}"#,
+            ),
+        ];
+        follow_parked_jobs(&mut regs, |_| true);
+        assert_eq!(regs[0].session_id.as_deref(), Some("new"));
+        assert_eq!(regs[0].status.as_deref(), Some("busy"));
+        assert_eq!(regs[0].updated_at, Some(9));
+    }
+
+    #[test]
+    fn a_parked_job_that_has_exited_leaves_the_terminal_session_as_it_is() {
+        let mut regs = vec![
+            reg(r#"{"pid":1,"sessionId":"old","kind":"interactive","parkedJobId":"j1"}"#),
+            reg(r#"{"pid":2,"sessionId":"new","kind":"bg","jobId":"j1"}"#),
+        ];
+        follow_parked_jobs(&mut regs, |pid| pid != 2);
+        assert_eq!(regs[0].session_id.as_deref(), Some("old"));
+    }
+
     use super::*;
 
     // `ask_claude` shells out to `claude -p`, and that child registers itself as a

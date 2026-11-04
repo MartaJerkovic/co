@@ -55,6 +55,9 @@ export function normalizeText(text: string): string {
 const withoutAttachments = (text: string) =>
   normalizeText(String(text ?? '').replace(/\[Image #\d+\]/g, ' ').replace(/(^|\s)\/\S+/g, ' '))
 
+/** Attached image paths, or the `[Image #N]` tokens Claude Code shows for them. */
+const attachmentCount = (text: string) => (String(text ?? '').match(/\[Image #\d+\]|(?:^|\s)\/\S+/g) ?? []).length
+
 /** Same message? Normalized equality, the same without attachments, or the same first 32 chars. */
 export function sameText(a: string, b: string): boolean {
   const x = normalizeText(a)
@@ -62,7 +65,7 @@ export function sameText(a: string, b: string): boolean {
   if (x === y) return true
   const bareX = withoutAttachments(a)
   const bareY = withoutAttachments(b)
-  if (bareX && bareX === bareY) return true
+  if (bareX === bareY && (bareX || attachmentCount(a) === attachmentCount(b))) return true
   // Text left in the agent's prompt box gets glued in front of what was sent ("12" + message).
   const [short, long] = bareX.length <= bareY.length ? [bareX, bareY] : [bareY, bareX]
   if (short.length >= 8 && long.endsWith(short)) return true

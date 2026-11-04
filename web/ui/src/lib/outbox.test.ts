@@ -85,7 +85,10 @@ describe('pure transitions', () => {
     const long = 'please look at the attached screenshot and fix the layout'
     expect(sameText(`${long} /tmp/a.png`, `${long} [Image #1]`)).toBe(true)
     expect(sameText('/tmp/uploads/shot.png\n\nvidi scroll', '[Image #1]vidi scroll')).toBe(true)
-    expect(sameText('/tmp/a.png', '[Image #1]')).toBe(false)
+    expect(sameText('/tmp/a.png', '[Image #1]')).toBe(true)
+    expect(sameText('/tmp/a.png /tmp/b.png', '[Image #1][Image #2]')).toBe(true)
+    expect(sameText('/tmp/a.png /tmp/b.png', '[Image #1]')).toBe(false)
+    expect(sameText('/tmp/a.png', 'yes')).toBe(false)
     expect(sameText('/u/shot.png\n\nsta je ovo za boga', '12[Image #14]\n\nsta je ovo za boga')).toBe(true)
   })
 
