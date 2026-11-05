@@ -69,6 +69,7 @@ export function launchCommand({ launcher = 'claude', harness = 'claude', name, t
 
 const EMBED_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const SPACE_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const JOB_RUN_RE = /^[A-Za-z0-9_-]{1,40}\/[A-Za-z0-9_.-]{1,64}$/;
 
 export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
   const errors = [];
@@ -128,8 +129,14 @@ export function validateSpawnRequest(body, { spawnDirs = [] } = {}) {
     if (typeof body.space !== 'string' || !SPACE_RE.test(body.space)) errors.push('space must be 1-40 chars of a-z, 0-9 or -, starting with a letter or digit');
     else space = body.space;
   }
+  // The bot run it is started from (`<job>/<run>`): a label on the pane that lists it with that run.
+  let jobRun = null;
+  if (body?.jobRun != null && body.jobRun !== '') {
+    if (typeof body.jobRun !== 'string' || !JOB_RUN_RE.test(body.jobRun)) errors.push('jobRun must be <job>/<run>');
+    else jobRun = body.jobRun;
+  }
   if (errors.length) return { ok: false, error: errors.join('; ') };
-  return { ok: true, name, title, dir, prompt, nameGiven, model, harness, ghIdentity, embed, space };
+  return { ok: true, name, title, dir, prompt, nameGiven, model, harness, ghIdentity, embed, space, jobRun };
 }
 
 /** True when `child` is `root` or lies beneath it (both already resolved). */
@@ -232,8 +239,8 @@ export function createSpawner({
     await wait(enterDelayMs);
   }
 
-  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness, ghIdentity, embed, space }} */
-  async function spawn({ name, title = '', dir, prompt, nameGiven = true, model = '', harness = 'claude', ghIdentity = null, embed = null, space = null }) {
+  /** @returns {{ name, dir, tmuxSession, command, trusted, model, harness, ghIdentity, embed, space, jobRun }} */
+  async function spawn({ name, title = '', dir, prompt, nameGiven = true, model = '', harness = 'claude', ghIdentity = null, embed = null, space = null, jobRun = null }) {
     if (ghIdentity && !ghIdentities.some((i) => i.name === ghIdentity)) {
       throw Object.assign(new Error(`no GitHub identity "${ghIdentity}" in this host's fleet config`), { status: 400 });
     }
@@ -273,9 +280,10 @@ export function createSpawner({
     if (ghIdentity) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_gh_identity', ghIdentity], { timeout: 5000 }).catch(() => {});
     if (embed) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_embed', embed], { timeout: 5000 }).catch(() => {});
     if (space) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_space', space], { timeout: 5000 }).catch(() => {});
+    if (jobRun) await run(tmux, ['set-option', '-p', '-t', `${name}:`, '@fleet_job_run', jobRun], { timeout: 5000 }).catch(() => {});
     const trusted = await acceptTrustPrompt(name, { harness });
     if (!trusted) await ensureStarted(name, { harness });
-    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness, ghIdentity, embed, space };
+    return { name, dir, tmuxSession: name, command, trusted, model: model || null, harness, ghIdentity, embed, space, jobRun };
   }
 
   /**

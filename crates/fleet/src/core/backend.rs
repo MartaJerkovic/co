@@ -652,7 +652,8 @@ fn write_prompt_file(text: &str) -> Result<String> {
 }
 
 /// Spawn a fresh session and return a human description of where it landed. Spawned from
-/// inside a job run (`FLEET_JOB_RUN` set), the new session joins that run.
+/// inside a job run (`FLEET_JOB_RUN` set), the new session joins that run; otherwise it keeps
+/// the space and bot run its tmux pane is listed with.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
     backend: Backend,
@@ -742,6 +743,9 @@ pub fn spawn_tagged(
             if let Some(id) = crate::core::gh_identity::in_launcher(launcher) {
                 crate::core::gh_identity::tag_pane(&win, id);
             }
+            if tag.is_none() {
+                inherit_place(&win);
+            }
             if let Some(t) = tag {
                 tag_pane(&win, t, &session, exists, name);
             }
@@ -761,6 +765,22 @@ pub fn spawn_tagged(
             Ok((desc, Some(session)))
         }
         Backend::Unknown => Err(Error::Other("unknown backend".into())),
+    }
+}
+
+/// Give the new pane the place of the tmux pane this runs in: its web UI space (`@fleet_space`)
+/// and the bot run it is listed with (`@fleet_job_run`, on a pane without the run's
+/// environment), so a session spawned from it is listed beside it whatever its directory.
+fn inherit_place(win: &str) {
+    let Ok(pane) = std::env::var("TMUX_PANE") else {
+        return;
+    };
+    for option in ["@fleet_space", crate::core::jobs::PANE_OPTION] {
+        if let Ok(value) = tmux_query(&pane, &format!("#{{{option}}}")) {
+            let _ = crate::core::tools::tmux_cmd()
+                .args(["set-option", "-p", "-t", win, option, &value])
+                .status();
+        }
     }
 }
 

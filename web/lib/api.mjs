@@ -1785,6 +1785,8 @@ export function createApi({
           ...(check.model ? { model: check.model } : {}),
           harness: check.harness,
           ...(check.ghIdentity ? { ghIdentity: check.ghIdentity } : {}),
+          ...(check.space ? { space: check.space } : {}),
+          ...(check.jobRun ? { jobRun: check.jobRun } : {}),
         }),
         timeoutMs: peerProxyTimeoutMs,
       });
@@ -1802,7 +1804,7 @@ export function createApi({
     const nameGiven = check.nameGiven !== false || !config.autoName?.enabled;
     let result;
     try {
-      result = await spawner.spawn({ name: check.name, title: check.title, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity });
+      result = await spawner.spawn({ name: check.name, title: check.title, dir, prompt, nameGiven, model: check.model, harness: check.harness, ghIdentity: check.ghIdentity, space: check.space, jobRun: check.jobRun });
     } catch (err) {
       if (err?.status) throw new HttpError(err.message, err.status);
       throw err;

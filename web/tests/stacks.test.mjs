@@ -496,6 +496,14 @@ test('sibling spawn from a session: ensure, spawn in its cwd with the context li
   assert.deepEqual(host.stackCalls().at(-1), ['add', STACK_ID, 'cccccccc-0000-0000-0000-000000000001']);
 });
 
+test('sibling spawn keeps the space and bot run it is started from', async (t) => {
+  const { call, host } = solo(t);
+  assert.equal((await call('POST', '/api/hosts/laptop/sessions/aaaaaaaa/stack/spawn', { prompt: 'go', space: 'playground', jobRun: 'support/r1' })).status, 200);
+  assert.equal(host.calls.find((c) => c.spawn).spawn.space, 'playground');
+  assert.equal(host.calls.find((c) => c.spawn).spawn.jobRun, 'support/r1');
+  assert.equal((await call('POST', '/api/hosts/laptop/sessions/aaaaaaaa/stack/spawn', { space: 'Bad space' })).status, 400);
+});
+
 test('sibling spawn: empty prompt = just the context line; dir inside the cwd or a spawn dir; label passed to ensure', async (t) => {
   const { call, host, cwd, base } = solo(t);
   const a = await call('POST', `/api/hosts/laptop/sessions/${SRC_ID}/stack/spawn`, { dir: path.join(cwd, 'sub'), label: 'Login work' });
@@ -688,7 +696,7 @@ test('a sibling on another host: the peer spawns it with the remote context line
   assert.match(noDir.body.error, /dir is required/);
   assert.equal(hosts.laptop.stackCalls().filter((c) => c[0] === 'ensure').length, 0);
 
-  const res = await json('POST', `${home}/sessions/${SRC_ID}/stack/spawn`, { host: 'workstation', dir: cwd, prompt: 'Run the e2e suite', name: 'login-e2e' });
+  const res = await json('POST', `${home}/sessions/${SRC_ID}/stack/spawn`, { host: 'workstation', dir: cwd, prompt: 'Run the e2e suite', name: 'login-e2e', space: 'playground', jobRun: 'support/r1' });
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(res.body.host, 'laptop');
   assert.equal(res.body.created, true);
@@ -698,6 +706,8 @@ test('a sibling on another host: the peer spawns it with the remote context line
   assert.equal(hosts.laptop.calls.some((c) => c.spawn), false, 'not spawned here');
   const spawned = hosts.workstation.calls.find((c) => c.spawn).spawn;
   assert.equal(spawned.dir, cwd);
+  assert.equal(spawned.space, 'playground', 'the peer starts it in the same space');
+  assert.equal(spawned.jobRun, 'support/r1');
   assert.equal(spawned.prompt, `${hosts.laptop.view.remoteContextLine} Run the e2e suite`);
   // The join: the laptop found the session in the workstation's list and added it there.
   assert.equal(hosts.laptop.joins.length, 1);

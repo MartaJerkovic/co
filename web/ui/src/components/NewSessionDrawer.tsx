@@ -93,6 +93,8 @@ export interface SpawnPrefill {
   embed?: string
   /** The space it is started from: it stays in that space whatever directory is picked. */
   space?: string
+  /** The bot run it is started from (`<job>/<run>`): it is listed with that run. */
+  jobRun?: string
   /** Offer Sibling beside Hand off: the same prompt, spawned into this session's stack instead. */
   sibling?: SiblingTarget | null
 }
@@ -294,6 +296,8 @@ function NewSessionForm({
         model: model || undefined,
         harness: harness === 'claude' ? undefined : harness,
         ghIdentity: ghIdentity || undefined,
+        space: prefill?.space || undefined,
+        jobRun: prefill?.jobRun || undefined,
         // Another host than the source's: say where, and in which of its directories.
         ...(siblingSameHost ? {} : { host, dir: dir?.path }),
       }
@@ -342,6 +346,7 @@ function NewSessionForm({
         ghIdentity: ghIdentity || undefined,
         embed: prefill?.embed || undefined,
         space: prefill?.space || undefined,
+        jobRun: prefill?.jobRun || undefined,
       })
       // The draft stays until the session registers: a spawn that never shows up must not lose the prompt.
       onDone()

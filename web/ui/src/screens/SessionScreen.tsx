@@ -29,6 +29,7 @@ import { StatusDot } from '@/components/StatusDot'
 import { StackBar } from '@/components/stack/StackBar'
 import { ChatView } from '@/components/session/ChatView'
 import { CompactHint } from '@/components/session/CompactHint'
+import { CopyIdChip } from '@/components/session/CopyIdChip'
 import { Composer, type ComposerApi } from '@/components/session/Composer'
 import { BackgroundPanel } from '@/components/BackgroundWork'
 import { FilePreview } from '@/components/session/FilePreview'
@@ -61,6 +62,7 @@ import { tailAnchor } from '@/lib/outbox'
 import { stripAnsi } from '@/lib/ansi'
 import { findSession, promptSuggestion, screenTail, statusMeta, workingInfo, type WorkingInfo } from '@/lib/sessions'
 import { reviewHref } from '@/lib/review'
+import { sessionSpace } from '@/lib/spaces'
 import { stacksKnown } from '@/lib/stacks'
 import { isUndoBackspace, withHint } from '@/lib/shortcuts'
 import { STATUS_TEXT } from '@/lib/styles'
@@ -553,7 +555,14 @@ export function SessionScreen({
       }
   const newFromHere = () => {
     const prompt = brief.brief?.continuePrompt
-    const prefill: SpawnPrefill = { host, dir: session?.cwd ?? null, prompt: prompt ? continueDraft(prompt) : '', sibling: siblingTarget }
+    const prefill: SpawnPrefill = {
+      host,
+      dir: session?.cwd ?? null,
+      prompt: prompt ? continueDraft(prompt) : '',
+      space: session ? sessionSpace(settings.spaces, fleet, session)?.id : undefined,
+      jobRun: session?.origin ? `${session.origin.job}/${session.origin.run}` : undefined,
+      sibling: siblingTarget,
+    }
     fromMenu(() => setContinueWith(prefill))
   }
   const stackMenu: DetailsPanelProps['stack'] =
@@ -622,6 +631,7 @@ export function SessionScreen({
               <HostBadge host={host} className="h-4 px-1 text-[0.625rem]" />
               {session?.session_id ? <PrChip session={{ host, session_id: session.session_id }} className="h-4" /> : null}
               {session?.session_id ? <TaskChip session={{ host, session_id: session.session_id }} className="h-4" /> : null}
+              {session?.session_id ? <CopyIdChip sessionId={session.session_id} /> : null}
               {(session?.harness || 'claude') === 'claude' ? (
                 <ModelMenu context={session?.context} open={modelMenuOpen} onOpenChange={setModelMenuOpen} onSend={send} disabled={!!lockedReason || gone} />
               ) : session?.context?.model ? (

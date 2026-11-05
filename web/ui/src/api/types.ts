@@ -533,6 +533,8 @@ export interface SpawnRequest {
   embed?: string
   /** Started from this web UI space (`web.spaces` id): it stays in that space whatever its dir. */
   space?: string
+  /** Started from a session of this bot run (`<job>/<run>`): it is listed with that run. */
+  jobRun?: string
 }
 
 export interface SpawnResponse {
@@ -712,6 +714,9 @@ export interface StackSpawnRequest {
   ghIdentity?: string
   /** Label for a stack this spawn creates (the model's otherwise). */
   label?: string
+  /** As in SpawnRequest: the space and the bot run it is started from. */
+  space?: string
+  jobRun?: string
   /** Start the sibling on this host (a peer of the stack's home; default: the home itself). */
   host?: string
   /** Where it starts: required with `host`, a path on that host. */
