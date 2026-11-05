@@ -28,3 +28,5 @@ import './focus.test.mjs';
 import './inbox.test.mjs';
 import './previews.test.mjs';
 import './clicks.test.mjs';
+import './asks.test.mjs';
+import './pr-notes.test.mjs';
