@@ -14,7 +14,8 @@ export interface DormantState {
   busy: ReadonlySet<string>
   /** Bring one back (`target`: the tmux name or a session id). Starts agents. Toasts the result. */
   resume: (host: string, target: string) => Promise<void>
-  resumeAll: (host: string) => Promise<void>
+  /** Every dormant session on `host`, or only `targets` (a list that shows some of them). */
+  resumeAll: (host: string, targets?: string[]) => Promise<void>
   forget: (host: string, target: string) => Promise<void>
   /** A recently closed session: resume (starts agents) / forget. No "all" for these. */
   resumeClosed: (host: string, target: string) => Promise<void>

@@ -3,10 +3,11 @@ import { ChevronRightIcon, LightbulbIcon, MessagesSquareIcon, NotebookTextIcon, 
 
 import { ClosedSection } from '@/components/ClosedSection'
 import { DormantSection } from '@/components/DormantSection'
+import { useDormant } from '@/hooks/useDormant'
 import { FocusToggle } from '@/components/FocusToggle'
 import { HostDot } from '@/components/HostBadge'
 import { SessionListSkeleton } from '@/components/SessionListSkeleton'
-import type { ClosedView, Session, Space } from '@/api/types'
+import type { DormantView, Session, Space } from '@/api/types'
 import { SessionRow } from '@/components/SessionRow'
 import { StackGroup } from '@/components/stack/StackGroup'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -37,7 +38,7 @@ export interface SidebarProps {
   list: SessionListState
   /** What the list shows (All / Your turn, the long-idle fold); shared with the shell's j/k. */
   sidebarView: SidebarView
-  /** A list kept apart from the work sessions (Bots, a space): only its own live and closed sessions, no dormant ones. */
+  /** A list kept apart from the work sessions (Bots, a space): only its own live, dormant and closed sessions. */
   space?: 'bots' | Space | null
   now: number
   cursorKey: string | null
@@ -58,7 +59,9 @@ export function Sidebar({ list, sidebarView, space = null, now, cursorKey, selec
   const listRef = useRef<HTMLDivElement>(null)
   const { spaces } = useSettings()
   const placeId = (p: 'bots' | Space | null) => (p === 'bots' ? p : (p?.id ?? null))
-  const closedHere = (h: string, v: ClosedView) => placeId(closedPlace(spaces, fleet, h, v)) === placeId(space)
+  const belongsHere = (h: string, v: DormantView) => placeId(closedPlace(spaces, fleet, h, v)) === placeId(space)
+  const dormant = useDormant()
+  const dormantHere = dormant.hosts.some((h) => (host == null || h.host === host) && h.views.some((v) => belongsHere(h.host, v)))
 
   // Keep the cursor row visible (j/k past the edge).
   useEffect(() => {
@@ -213,13 +216,13 @@ export function Sidebar({ list, sidebarView, space = null, now, cursorKey, selec
               renderRow={(x) => <SessionRow key={sessionKey(x)} session={x} now={now} selected={sessionKey(x) === selectedKey} cursor={sessionKey(x) === cursorKey && sessionKey(x) !== selectedKey} turn={isTurn(x)} />}
             />
           </nav>
-        ) : unreachable.length === 0 ? (
+        ) : unreachable.length === 0 && !dormantHere ? (
           <div className="px-4 py-10 text-center text-sm text-dimmer">
             {space === 'bots' ? 'No bot is running right now.' : space ? space.empty : allSessions(fleet).length > 0 ? 'Nothing matches.' : 'No Claude sessions running.'}
           </div>
         ) : null}
-        {fleet && !space ? <DormantSection now={now} host={host} query={query} desktop className="mt-4" /> : null}
-        {fleet ? <ClosedSection now={now} host={host} query={query} belongs={closedHere} desktop className="mt-3" /> : null}
+        {fleet ? <DormantSection now={now} host={host} query={query} belongs={belongsHere} desktop className="mt-4" /> : null}
+        {fleet ? <ClosedSection now={now} host={host} query={query} belongs={belongsHere} desktop className="mt-3" /> : null}
       </div>
 
     </div>

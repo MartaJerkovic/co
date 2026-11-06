@@ -65,11 +65,30 @@ export function ArmButton({
  * Sessions a reboot left dormant, per host: what they were (tmux name, Claude titles, panes, how
  * long ago) with Resume (brings the tmux session back and resumes its Claude sessions), Forget
  * (two clicks) and Resume all (two clicks). Nothing when no host has dormant sessions.
- * `host`: only that host (the list's host filter). `query`: the session search — only matching entries. `desktop`: the denser sidebar / board sizes.
+ * `host`: only that host (the list's host filter). `query`: the session search — only matching entries.
+ * `belongs`: only the entries of this list (Sessions, Bots, a space); Resume all then brings back just those. `desktop`: the denser sidebar / board sizes.
  */
-export function DormantSection({ now, host = null, query = '', desktop = false, className }: { now: number; host?: string | null; query?: string; desktop?: boolean; className?: string }) {
+export function DormantSection({
+  now,
+  host = null,
+  query = '',
+  belongs,
+  desktop = false,
+  className,
+}: {
+  now: number
+  host?: string | null
+  query?: string
+  belongs?: (host: string, v: DormantView) => boolean
+  desktop?: boolean
+  className?: string
+}) {
   const { hosts, busy, resume, resumeAll, forget } = useDormant()
-  const shown = (host ? hosts.filter((h) => h.host === host) : hosts).map((h) => searchDormant(h, query)).filter((h) => h.views.length > 0)
+  const shown = (host ? hosts.filter((h) => h.host === host) : hosts)
+    .map((h) => searchDormant(h, query))
+    .map((h) => (belongs ? { ...h, views: h.views.filter((v) => belongs(h.host, v)) } : h))
+    .filter((h) => h.views.length > 0)
+  const everyOn = (h: string) => hosts.find((x) => x.host === h)?.views.length ?? 0
   if (!shown.length) return null
   const size = desktop ? 'sm' : 'lg'
   return (
@@ -87,7 +106,7 @@ export function DormantSection({ now, host = null, query = '', desktop = false, 
             {h.views.length > 1 ? (
               <ArmButton
                 confirm="Resume all?"
-                onConfirm={() => void resumeAll(h.host)}
+                onConfirm={() => void resumeAll(h.host, h.views.length === everyOn(h.host) ? undefined : h.views.map((v) => v.target))}
                 busy={busy.has(`${h.host}/*`)}
                 size={size}
                 className="ml-auto text-muted-foreground"

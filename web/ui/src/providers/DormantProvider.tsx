@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import { api, isAbortError } from '@/api/client'
+import type { RestoreResponse } from '@/api/types'
 import { DormantContext, type DormantState } from '@/hooks/useDormant'
 import { useFleet } from '@/hooks/useFleet'
 import { usePoller } from '@/hooks/usePoller'
@@ -74,6 +75,26 @@ export function DormantProvider({ children }: { children: ReactNode }) {
     [track],
   )
 
+  const restoreEach = useCallback(
+    (host: string, targets: string[]) =>
+      track(`${host}/*`, async () => {
+        const report: RestoreResponse = { host, restored: [], failed: [] }
+        for (const target of targets) {
+          try {
+            const r = await api.restoreDormant(host, { target })
+            report.restored.push(...(r.restored ?? []))
+            report.failed.push(...(r.failed ?? []))
+          } catch (err) {
+            report.failed.push({ target, error: dormantErrorMessage(err) })
+          }
+        }
+        const s = restoreSummary(report)
+        if (s.ok) toast.success(s.title, { description: s.description || undefined })
+        else toast.error(s.title, { description: s.description || undefined })
+      }),
+    [track],
+  )
+
   const forget = useCallback(
     (host: string, target: string, closed = false) =>
       track(`${host}/${closed ? 'closed/' : ''}${target}`, async () => {
@@ -95,13 +116,13 @@ export function DormantProvider({ children }: { children: ReactNode }) {
       closedCount: closedCount(hosts),
       busy,
       resume: (host, target) => restore(host, { target }),
-      resumeAll: (host) => restore(host, { all: true }),
+      resumeAll: (host, targets) => (targets ? restoreEach(host, targets) : restore(host, { all: true })),
       forget: (host, target) => forget(host, target),
       resumeClosed: (host, target) => restore(host, { target, closed: true }),
       forgetClosed: (host, target) => forget(host, target, true),
       refresh,
     }),
-    [hosts, busy, restore, forget, refresh],
+    [hosts, busy, restore, restoreEach, forget, refresh],
   )
   return <DormantContext.Provider value={value}>{children}</DormantContext.Provider>
 }
