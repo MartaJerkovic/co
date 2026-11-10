@@ -135,6 +135,7 @@ export function parseTranscript(text) {
   let lastAssistantId = null;
   const asked = new Map(); // tool_use id -> its question message, until answered
   const queue = []; // { content, ts }, oldest first — task notifications too, for the FIFO dequeue
+  let dequeued = null; // what the last dequeue took, to check against the prompt that follows it
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let entry;
@@ -148,7 +149,7 @@ export function parseTranscript(text) {
 
     if (entry.type === 'queue-operation') {
       if (entry.operation === 'enqueue') queue.push({ content: entry.content, ts });
-      else if (entry.operation === 'dequeue') queue.shift();
+      else if (entry.operation === 'dequeue') dequeued = queue.shift() ?? null;
       else if (entry.operation === 'remove' || entry.operation === 'popAll') {
         const i = queue.findIndex((q) => q.content === entry.content);
         if (i >= 0) queue.splice(i, 1);
@@ -188,6 +189,13 @@ export function parseTranscript(text) {
       const { kind, ...rest } = classified;
       out.push({ role: kind === 'user' ? 'user' : 'system', kind, ...rest, ts });
       lastAssistantId = null;
+      // The queue lives in the Claude Code process, so a restart drops entries the transcript still
+      // holds and the FIFO dequeue then takes a stale one: the prompt Claude took names itself.
+      if (kind === 'user' && dequeued && textOfContent(dequeued.content) !== raw) {
+        const i = queue.findIndex((q) => textOfContent(q.content) === raw);
+        if (i >= 0) queue.splice(i, 1);
+      }
+      dequeued = null;
       continue;
     }
 

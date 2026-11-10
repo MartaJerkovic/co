@@ -207,6 +207,28 @@ test('parseTranscript shows queued prompts: absorbed mid-turn in place, still wa
   assert.equal(typeof out.at(-1).ts, 'number');
 });
 
+test('parseTranscript: a prompt Claude took leaves the queue when a stale entry from before a restart heads it', () => {
+  const q = (operation, content) => line({ type: 'queue-operation', operation, timestamp: '2026-01-01T00:00:00Z', ...(content == null ? {} : { content }) });
+  const jsonl = [
+    user('Start'),
+    q('enqueue', '<task-notification><summary>lost in a restart</summary></task-notification>'),
+    q('enqueue', 'look again'),
+    q('enqueue', 'look again'),
+    q('enqueue', 'and then this'),
+    q('dequeue'),
+    user('look again'),
+  ].join('\n');
+  assert.deepEqual(
+    parseTranscript(jsonl).map((m) => [m.text, m.queued ?? false]),
+    [
+      ['Start', false],
+      ['look again', false],
+      ['look again', true],
+      ['and then this', true],
+    ],
+  );
+});
+
 test('the reader grows the tail when huge tool results leave too few messages for the limit', async () => {
   const home = mkdtempSync(path.join(os.tmpdir(), 'fleet-tr-'));
   const file = transcriptPath('/w', 'g1', home);
