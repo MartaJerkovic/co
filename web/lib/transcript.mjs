@@ -134,7 +134,7 @@ export function parseTranscript(text) {
   const out = [];
   let lastAssistantId = null;
   const asked = new Map(); // tool_use id -> its question message, until answered
-  const queue = []; // { content, ts }, oldest first — task notifications too, for the FIFO dequeue
+  const queue = []; // { content, ts }, oldest first — task notifications too, for the dequeue
   let dequeued = null; // what the last dequeue took, to check against the prompt that follows it
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -171,6 +171,15 @@ export function parseTranscript(text) {
     if (!msg || typeof msg !== 'object') continue;
 
     if (entry.type === 'user') {
+      const raw = textOfContent(msg.content);
+      // Claude Code's queue is not FIFO (prompts go before task notifications) and lives in its
+      // process, so a restart drops entries the transcript still holds: the prompt Claude took
+      // names itself, also when it is a hidden one such as the auto-continue after a usage limit.
+      if (dequeued && raw.trim() && textOfContent(dequeued.content) !== raw) {
+        const i = queue.findIndex((q) => textOfContent(q.content) === raw);
+        if (i >= 0) queue.splice(i, 1);
+      }
+      if (raw.trim()) dequeued = null;
       // A compaction writes its summary as a user entry, and a manual `/compact` also as plain text
       // just before it; the `<command-name>` entry after the summary is the one shown.
       if (entry.isMeta || entry.isCompactSummary || msg.content === '/compact') continue;
@@ -182,20 +191,12 @@ export function parseTranscript(text) {
           asked.delete(b.tool_use_id);
         }
       }
-      const raw = textOfContent(msg.content);
       if (!raw.trim()) continue; // pure tool_result
       const classified = classifyUserText(raw);
       if (!classified) continue;
       const { kind, ...rest } = classified;
       out.push({ role: kind === 'user' ? 'user' : 'system', kind, ...rest, ts });
       lastAssistantId = null;
-      // The queue lives in the Claude Code process, so a restart drops entries the transcript still
-      // holds and the FIFO dequeue then takes a stale one: the prompt Claude took names itself.
-      if (kind === 'user' && dequeued && textOfContent(dequeued.content) !== raw) {
-        const i = queue.findIndex((q) => textOfContent(q.content) === raw);
-        if (i >= 0) queue.splice(i, 1);
-      }
-      dequeued = null;
       continue;
     }
 

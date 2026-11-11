@@ -229,6 +229,27 @@ test('parseTranscript: a prompt Claude took leaves the queue when a stale entry 
   );
 });
 
+test('parseTranscript: a hidden prompt Claude took ahead of earlier task notifications leaves the queue', () => {
+  const q = (operation, content) => line({ type: 'queue-operation', operation, timestamp: '2026-01-01T00:00:00Z', ...(content == null ? {} : { content }) });
+  const first = '<task-notification><summary>first</summary></task-notification>';
+  const second = '<task-notification><summary>second</summary></task-notification>';
+  const resume = 'Your usage limit has reset. Continue the task.';
+  const jsonl = [
+    user('Start'),
+    q('enqueue', first),
+    q('enqueue', second),
+    q('enqueue', resume),
+    q('dequeue'),
+    q('remove', first),
+    q('remove', second),
+    user(resume, { isMeta: true }),
+  ].join('\n');
+  assert.deepEqual(
+    parseTranscript(jsonl).map((m) => [m.text, m.queued ?? false]),
+    [['Start', false]],
+  );
+});
+
 test('the reader grows the tail when huge tool results leave too few messages for the limit', async () => {
   const home = mkdtempSync(path.join(os.tmpdir(), 'fleet-tr-'));
   const file = transcriptPath('/w', 'g1', home);
