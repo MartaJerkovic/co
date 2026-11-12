@@ -126,6 +126,21 @@ test('spawner launches codex with its configured command and accepts its trust p
   assert.deepEqual(calls.at(-1), ['tmux', 'send-keys', '-t', 'job:', 'Enter']);
 });
 
+test('spawner reads its launchers at each spawn', async () => {
+  const typed = [];
+  const run = async (bin, args) => {
+    if (args[0] === 'has-session') throw new Error('no such session');
+    if (args[0] === 'send-keys' && args[3] === '-l') typed.push(args.at(-1));
+    return { stdout: '', stderr: '' };
+  };
+  let launchers = { codex: 'codex' };
+  const sp = createSpawner({ run, launchers: () => launchers, sleep: async () => {} });
+  await sp.spawn({ name: 'a', dir: '/tmp', prompt: 'go', harness: 'codex' });
+  launchers = { codex: '/opt/codex/bin/codex' };
+  await sp.spawn({ name: 'b', dir: '/tmp', prompt: 'go', harness: 'codex' });
+  assert.deepEqual(typed, ["codex 'go'", "/opt/codex/bin/codex 'go'"]);
+});
+
 test('spawner passes a prompt too long to type via a file', async (t) => {
   const promptDir = mkdtempSync(path.join(os.tmpdir(), 'fleet-prompts-'));
   t.after(() => rmSync(promptDir, { recursive: true, force: true }));

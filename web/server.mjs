@@ -163,7 +163,15 @@ const spawner = createSpawner({
   run,
   tmux: config.tmux,
   launcher: config.claude,
-  launchers: config.launchers,
+  // Read at each spawn: the CLI writes `claude` / `harnesses.<id>.command` while this server runs,
+  // and the New session form's harness list (`fleet harness list`) already shows the new command.
+  launchers: () => {
+    try {
+      return loadConfig({ env: process.env, webRoot: ROOT, log: {} }).launchers;
+    } catch {
+      return config.launchers;
+    }
+  },
   ghIdentities: config.ghIdentities,
   ghIdentityLauncher: (name, launcher) => cli.ghIdentityLauncher(name, launcher),
 });

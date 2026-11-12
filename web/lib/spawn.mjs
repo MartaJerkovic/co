@@ -259,7 +259,8 @@ export function createSpawner({
     }
     // oh-my-zsh's "Would you like to update? [Y/n]" reads one key: the first typed character.
     await run(tmux, ['new-session', '-d', '-s', name, '-c', dir, '-e', 'DISABLE_AUTO_UPDATE=true'], { timeout: 8000 });
-    let base = launchers[harness] || (harness === 'claude' ? launcher : harness);
+    const current = (typeof launchers === 'function' ? launchers() : launchers) ?? {};
+    let base = current[harness] || (harness === 'claude' ? launcher : harness);
     if (ghIdentity) base = await ghIdentityLauncher(ghIdentity, base);
     const launch = { launcher: base, harness, name: nameGiven ? name : null, title: title || null, prompt, model };
     let command = launchCommand(launch);
