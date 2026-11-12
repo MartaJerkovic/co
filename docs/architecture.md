@@ -222,7 +222,9 @@ not exist is skipped. Each process is matched to a transcript:
 
 Matching: an id on the command line (`codex resume <id>`, `pi --session <id>`) wins; otherwise,
 later-started processes first, the newest transcript in the process's cwd created after it
-started (3 s slack), then the newest written to since it started. A Codex session before its first
+started (3 s slack), then the newest written to since it started. A thread a Codex session starts
+itself (a subagent, its approval reviewer — `parent_thread_id` or `source.subagent` in its
+`session_meta`) is written by the parent's process and is never matched. A Codex session before its first
 prompt has no transcript yet: `session_id` is `null` and its title `<cwd>-codex`.
 
 Status from the transcript tail (512 KiB): Codex is `busy` from `task_started` until

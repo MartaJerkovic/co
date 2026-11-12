@@ -14,8 +14,11 @@
 //!
 //! A process is matched to a transcript by an id on its command line (`codex resume <id>`,
 //! `pi --session <id>`), else by cwd and start time: the newest transcript in its cwd that
-//! was created after it started, then the newest one written to since. A fresh Codex
-//! session has no transcript until its first prompt — it is listed without a session id.
+//! was created after it started, then the newest one written to since. A thread a Codex
+//! session starts itself (a subagent, its approval reviewer: `parent_thread_id` or
+//! `source.subagent` in `session_meta`) lives in the same cwd and is never matched. A
+//! fresh Codex session has no transcript until its first prompt — it is listed without a
+//! session id.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, Read, Seek, SeekFrom};
@@ -564,6 +567,9 @@ pub struct TranscriptRef {
     pub cwd: String,
     pub created_ms: i64,
     pub mtime_ms: i64,
+    /// A thread the session's agent started itself (a Codex subagent or its approval
+    /// reviewer): written by the parent's process, never a process's own thread.
+    pub subagent: bool,
 }
 
 fn mtime_ms(p: &Path) -> Option<i64> {
@@ -607,12 +613,15 @@ fn transcript_ref(h: Harness, path: &Path) -> Option<TranscriptRef> {
     let created = iso_ms(meta.get("timestamp"))
         .or_else(|| iso_ms(head.get("timestamp")))
         .unwrap_or(mtime);
+    let subagent = meta.get("parent_thread_id").is_some_and(|v| !v.is_null())
+        || meta.get("source").and_then(|s| s.get("subagent")).is_some();
     Some(TranscriptRef {
         path: path.to_path_buf(),
         session_id,
         cwd,
         created_ms: created,
         mtime_ms: mtime,
+        subagent,
     })
 }
 
@@ -721,7 +730,7 @@ pub fn assign(procs: &[&Proc], ts: &[TranscriptRef]) -> HashMap<i64, TranscriptR
             };
             let pick = ts
                 .iter()
-                .filter(|t| t.cwd == cwd && !taken.contains(t.path.as_path()))
+                .filter(|t| t.cwd == cwd && !t.subagent && !taken.contains(t.path.as_path()))
                 .filter(|t| {
                     if pass == 0 {
                         t.created_ms >= p.start_ms - 3000
@@ -1096,7 +1105,27 @@ mod tests {
             cwd: cwd.into(),
             created_ms: created,
             mtime_ms: mtime,
+            subagent: false,
         }
+    }
+
+    #[test]
+    fn a_subagent_thread_is_never_a_process_s_own() {
+        let a = proc_(1, "/w/app", 1_000);
+        let b = proc_(2, "/w/app", 5_000);
+        let mut guardian = tref("guardian", "/w/app", 7_000, 9_500);
+        guardian.subagent = true;
+        let mut spawned = tref("spawned", "/w/app", 8_000, 9_900);
+        spawned.subagent = true;
+        let ts = [
+            tref("a", "/w/app", 1_100, 9_000),
+            tref("b", "/w/app", 5_100, 9_200),
+            guardian,
+            spawned,
+        ];
+        let got = assign(&[&a, &b], &ts);
+        assert_eq!(got[&1].session_id, "a");
+        assert_eq!(got[&2].session_id, "b");
     }
 
     #[test]
